@@ -1,23 +1,19 @@
 export function buildMongoConnectionString(configuration) {
-  const { MONGODB_URI, MONGODB_USERNAME, MONGODB_PASSWORD } = configuration
-  const values = [MONGODB_URI, MONGODB_USERNAME, MONGODB_PASSWORD]
-  if (values.every((value) => !value)) return null
-  if (values.some((value) => !value)) {
-    throw new Error('MONGODB_URI, MONGODB_USERNAME, and MONGODB_PASSWORD must all be configured.')
-  }
+  const { MONGODB_URI } = configuration
+  if (!MONGODB_URI) return null
 
   let uri
   try {
     uri = new URL(MONGODB_URI)
   } catch {
-    throw new Error('MONGODB_URI must be a valid MongoDB URI without credentials.')
+    throw new Error('MONGODB_URI must be a valid MongoDB connection string.')
   }
 
   if (!['mongodb:', 'mongodb+srv:'].includes(uri.protocol)) {
     throw new Error('MONGODB_URI must use mongodb:// or mongodb+srv://.')
   }
-  if (uri.username || uri.password) {
-    throw new Error('Keep credentials out of MONGODB_URI; use MONGODB_USERNAME and MONGODB_PASSWORD.')
+  if (!uri.username || !uri.password) {
+    throw new Error('MONGODB_URI must include the MongoDB username and password.')
   }
 
   let databaseName
@@ -33,7 +29,5 @@ export function buildMongoConnectionString(configuration) {
     throw new Error('MONGODB_URI has an extra question mark before a query option.')
   }
 
-  uri.username = MONGODB_USERNAME
-  uri.password = MONGODB_PASSWORD
   return uri.toString()
 }

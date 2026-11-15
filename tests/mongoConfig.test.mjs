@@ -3,18 +3,16 @@ import test from 'node:test'
 import { buildMongoConnectionString } from '../server/mongoConfig.js'
 
 const validConfiguration = {
-  MONGODB_URI: 'mongodb+srv://cluster.example.com/deutsch?retryWrites=true&w=majority',
-  MONGODB_USERNAME: 'learner@example.com',
-  MONGODB_PASSWORD: 'pass:word@123',
+  MONGODB_URI: 'mongodb+srv://learner%40example.com:pass%3Aword%40123@cluster.example.com/deutsch?retryWrites=true&w=majority',
 }
 
-test('builds a MongoDB URI and safely encodes separate credentials', () => {
+test('accepts a full URI with encoded credentials and the deutsch database', () => {
   const result = new URL(buildMongoConnectionString(validConfiguration))
 
   assert.equal(result.protocol, 'mongodb+srv:')
   assert.equal(result.pathname, '/deutsch')
-  assert.equal(decodeURIComponent(result.username), validConfiguration.MONGODB_USERNAME)
-  assert.equal(decodeURIComponent(result.password), validConfiguration.MONGODB_PASSWORD)
+  assert.equal(decodeURIComponent(result.username), 'learner@example.com')
+  assert.equal(decodeURIComponent(result.password), 'pass:word@123')
   assert.equal(result.searchParams.get('retryWrites'), 'true')
 })
 
@@ -22,27 +20,22 @@ test('returns null when no MongoDB settings are configured', () => {
   assert.equal(buildMongoConnectionString({}), null)
 })
 
-test('rejects incomplete MongoDB settings', () => {
+test('rejects a URI without credentials', () => {
   assert.throws(
-    () => buildMongoConnectionString({ MONGODB_URI: validConfiguration.MONGODB_URI }),
-    /must all be configured/,
+    () => buildMongoConnectionString({
+      MONGODB_URI: 'mongodb+srv://cluster.example.com/deutsch',
+    }),
+    /must include the MongoDB username and password/,
   )
 })
 
-test('requires a credential-free URI targeting the deutsch database', () => {
+test('requires a URI targeting the deutsch database', () => {
   assert.throws(
     () => buildMongoConnectionString({
       ...validConfiguration,
-      MONGODB_URI: 'mongodb+srv://cluster.example.com/other',
+      MONGODB_URI: 'mongodb+srv://user:password@cluster.example.com/other',
     }),
     /target the deutsch database/,
-  )
-  assert.throws(
-    () => buildMongoConnectionString({
-      ...validConfiguration,
-      MONGODB_URI: 'mongodb+srv://user:password@cluster.example.com/deutsch',
-    }),
-    /Keep credentials out of MONGODB_URI/,
   )
 })
 
@@ -50,7 +43,7 @@ test('rejects an extra question mark before query options', () => {
   assert.throws(
     () => buildMongoConnectionString({
       ...validConfiguration,
-      MONGODB_URI: 'mongodb+srv://cluster.example.com/deutsch??retryWrites=true',
+      MONGODB_URI: 'mongodb+srv://user:password@cluster.example.com/deutsch??retryWrites=true',
     }),
     /extra question mark/,
   )

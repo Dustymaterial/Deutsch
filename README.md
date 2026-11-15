@@ -10,7 +10,7 @@ Fresh installs include **2,593 German vocabulary cards**, organized into frequen
 
 Requirements: Node.js 22.12 or newer.
 
-Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_USERNAME` and `MONGODB_PASSWORD` to your MongoDB Atlas database credentials. Set `MONGODB_URI` to a credential-free MongoDB URI with the database path `/deutsch` (for example, a URI starting with `mongodb+srv://` and ending its path with `/deutsch`). Add query options after a single `?`. The server inserts and URL-encodes the credentials, and explicitly uses only the `deutsch` database, where it creates `users`, `progress`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB settings are only read by the server, not sent to the browser.
+Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_URI` to your full MongoDB Atlas connection string, including username and password, with the database path `/deutsch`. URL-encode special characters in the credentials and put query options after a single `?`. The server explicitly uses only the `deutsch` database, where it creates `users`, `progress`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB URI is only read by the server, not sent to the browser.
 
 The development command starts both the Vite app and account API:
 
@@ -32,7 +32,7 @@ The production service worker needs a secure context: HTTPS when hosted, or loca
 
 ## Deploy on Render
 
-The repository includes a Render Blueprint in `render.yaml`. Create a Render Blueprint instance from this repository and provide `MONGODB_USERNAME`, `MONGODB_PASSWORD`, and a credential-free `MONGODB_URI` whose path names `/deutsch`. Use a rotated MongoDB user restricted to the `deutsch` database. Render generates `SESSION_SECRET` automatically. The service also sets `NODE_ENV=production` and trusts Render's HTTPS proxy for secure session cookies.
+The repository includes a Render Blueprint in `render.yaml`. Create a Render Blueprint instance from this repository and provide a full `MONGODB_URI` whose path names `/deutsch`. Use a rotated MongoDB user restricted to the `deutsch` database. Render generates `SESSION_SECRET` automatically. The service also sets `NODE_ENV=production` and trusts Render's HTTPS proxy for secure session cookies.
 
 The Blueprint builds with `npm ci --include=dev && npm run build`, starts with `npm start`, and checks `/api/health`. Keep database credentials and secrets in Render's environment settings, never in the repository. Account creation and cloud sync require valid MongoDB settings; local study still works without them.
 
