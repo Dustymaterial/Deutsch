@@ -1,0 +1,26 @@
+{
+  "format": "deutsch-vocabulary",
+  "version": 1,
+  "cards": [
+    {
+      "word": "Wohnung",
+      "category": "noun",
+      "article": "die",
+      "meaning": "apartment",
+      "plural": "die Wohnungen",
+      "example": "Die Wohnung ist sehr schön.",
+      "translation": "The apartment is very beautiful.",
+      "level": "A1",
+      "tags": ["sample-course", "unit-1", "housing"]
+    },
+    {
+      "word": "verstehen",
+      "category": "verb",
+      "meaning": "to understand",
+      "example": "Ich verstehe das Problem nicht.",
+      "translation": "I do not understand the problem.",
+      "level": "A2",
+      "tags": ["sample-course", "unit-2", "communication"]
+    }
+  ]
+}

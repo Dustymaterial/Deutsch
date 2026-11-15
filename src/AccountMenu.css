@@ -1,0 +1,235 @@
+.account-menu {
+  position: relative;
+}
+
+.account-menu-trigger {
+  min-width: 34px;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  color: #39343e;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.account-menu.has-avatar > .account-menu-trigger img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.account-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.account-menu.has-avatar > .account-menu-trigger:hover,
+.account-menu.has-avatar[open] > .account-menu-trigger {
+  background: transparent;
+}
+
+.account-popover {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(78vh, 640px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid rgba(68, 55, 62, 0.12);
+  border-radius: 16px;
+  background: #fcf8f4;
+  box-shadow: 0 16px 40px rgba(67, 50, 62, 0.18);
+  color: #292a2d;
+}
+
+.account-popover .account-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 12px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #504a53;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.account-popover .account-back:hover {
+  background: #f1eae5;
+}
+
+.account-popover-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.account-popover-heading > img {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: #f7e7bd;
+}
+
+.account-popover-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.account-popover-heading strong {
+  font-size: 0.9rem;
+}
+
+.account-popover-heading span {
+  overflow-wrap: anywhere;
+  color: #625b65;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.account-popover form {
+  display: grid;
+  gap: 12px;
+}
+
+.account-field {
+  display: grid;
+  gap: 6px;
+  color: #292a2d;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.account-field input {
+  width: 100%;
+  min-height: 39px;
+  padding: 9px 11px;
+  border: 1px solid rgba(47, 51, 46, 0.19);
+  border-radius: 9px;
+  background: #fffefa;
+  color: #292a2d;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.account-field input:focus-visible {
+  outline: 2px solid #171717;
+  outline-offset: 1px;
+}
+
+.account-field small {
+  color: #625b65;
+  font-size: 0.68rem;
+  font-weight: 450;
+}
+
+.avatar-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.avatar-picker legend {
+  margin-bottom: 7px;
+  color: #292a2d;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.avatar-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.account-popover .avatar-option {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.account-popover .avatar-option img {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.account-submit,
+.account-secondary {
+  width: 100%;
+  min-height: 38px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.account-popover .account-submit {
+  border: 1px solid #292a2d;
+  background: #292a2d;
+  color: #fffefa;
+}
+
+.account-popover .account-submit:hover:not(:disabled) {
+  background: #111;
+  color: #fffefa;
+}
+
+.account-popover .account-secondary {
+  margin-top: 8px;
+  border: 0;
+  background: transparent;
+  color: #504a53;
+}
+
+.account-popover .account-secondary:hover:not(:disabled) {
+  background: #f1eae5;
+}
+
+.account-popover .account-submit:disabled,
+.account-popover .account-secondary:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.account-message {
+  margin: 10px 0 0;
+  color: #625b65;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.account-error {
+  color: #9c2f26;
+}
+
+@media (max-width: 520px) {
+  .account-popover {
+    position: fixed;
+    top: 78px;
+    right: 16px;
+  }
+}
