@@ -1843,6 +1843,23 @@
     font-size: 0.68rem;
   }
 
+  @media (max-width: 380px) {
+    .wordmark {
+      flex-shrink: 0;
+      gap: 6px;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .header-actions {
+      gap: 5px;
+    }
+
+    .add-card-button {
+      padding-inline: 4px;
+    }
+  }
+
   .deck-shell {
     width: min(100%, 380px);
     height: min(54svh, 420px);

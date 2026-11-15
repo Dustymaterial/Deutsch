@@ -1751,7 +1751,7 @@ function App() {
         <header className="app-header">
           <a className="wordmark" href="/" aria-label="Deutsch Deck home">
             <span className="wordmark-mark">d</span>
-            <span>deutsch</span>
+            <span>deutsch deck</span>
           </a>
           <div className="header-actions">
             <button type="button" className="add-card-button" onClick={() => setAddCardOpen(true)}>
@@ -1919,7 +1919,7 @@ function App() {
       <header className="app-header">
         <a className="wordmark" href="/" aria-label="Deutsch Deck home">
           <span className="wordmark-mark">d</span>
-          <span>deutsch</span>
+          <span>deutsch deck</span>
         </a>
         <div className="header-actions">
           <button type="button" className="add-card-button" onClick={() => setAddCardOpen(true)}>
