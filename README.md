@@ -2,6 +2,8 @@
 
 A calm, local-first German vocabulary companion for learners using a course such as the VHL Lernportal. It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official VHL product or a replacement for the course.
 
+![Deutsch Daily Deck showing a German vocabulary card and account setup](./public/Deck.PNG)
+
 Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not VHL or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Studying remains local-first; optionally create an account to sync your deck and goal across devices.
 
 ## Start the app
