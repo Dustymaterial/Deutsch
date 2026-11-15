@@ -9,10 +9,12 @@ import session from 'express-session'
 import { z } from 'zod'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { buildMongoConnectionString } from './mongoConfig.js'
 
 const isLocalDevelopment = process.argv.includes('--local')
 const envFile = dotenv.config()
 const configuration = isLocalDevelopment ? envFile.parsed ?? {} : process.env
+const mongoConnectionString = buildMongoConnectionString(configuration)
 
 const app = express()
 const port = Number(configuration.PORT ?? 3001)
@@ -21,16 +23,6 @@ const sessionCookieName = 'deutsch.sid'
 const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000
 const secureCookies = process.env.NODE_ENV === 'production' && !isLocalDevelopment
 const rootPath = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-
-const databaseFromUrl = (value) => {
-  try {
-    const url = new URL(value)
-    if (!['mongodb:', 'mongodb+srv:'].includes(url.protocol)) return ''
-    return decodeURIComponent(url.pathname.slice(1).split('/')[0] ?? '')
-  } catch {
-    return ''
-  }
-}
 
 app.disable('x-powered-by')
 app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false)
@@ -126,7 +118,7 @@ let progress
 
 const requireDatabase = (_req, res, next) => {
   if (!users || !progress) {
-    return res.status(503).json({ error: 'Account storage is not configured. Add DB_URL to .env.' })
+    return res.status(503).json({ error: 'Account storage is not configured. Set the MongoDB settings in .env.' })
   }
   next()
 }
@@ -168,19 +160,16 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api', requireDatabase)
 
-if (configuration.DB_URL) {
-  if (databaseFromUrl(configuration.DB_URL) !== databaseName) {
-    throw new Error('DB_URL must be a MongoDB URI targeting the deutsch database.')
-  }
+if (mongoConnectionString) {
   if (!configuration.SESSION_SECRET || configuration.SESSION_SECRET.length < 32) {
-    throw new Error('SESSION_SECRET must contain at least 32 characters when DB_URL is configured.')
+    throw new Error('SESSION_SECRET must contain at least 32 characters when MongoDB is configured.')
   }
 
-  client = new MongoClient(configuration.DB_URL)
+  client = new MongoClient(mongoConnectionString)
   try {
     await client.connect()
   } catch {
-    throw new Error('MongoDB connection failed. Check DB_URL and Atlas network access.')
+    throw new Error('MongoDB connection failed. Check the MongoDB settings and Atlas network access.')
   }
 
   const db = client.db(databaseName)
@@ -212,7 +201,7 @@ if (configuration.DB_URL) {
     },
   }))
 } else {
-  console.warn('DB_URL is empty; account endpoints will return a configuration error.')
+  console.warn('MongoDB settings are empty; account endpoints will return a configuration error.')
 }
 
 app.post('/api/auth/register', authLimiter, async (req, res) => {

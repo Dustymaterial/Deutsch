@@ -212,7 +212,7 @@ const readApiResponse = async (response: Response): Promise<unknown> => {
     body = await response.json()
   } catch {
     if (response.status >= 500) {
-      throw new Error('Could not reach the account service. Restart the app with npm run dev and configure DB_URL in .env.')
+      throw new Error('Could not reach the account service. Restart the app with npm run dev and configure the MongoDB settings in .env.')
     }
     throw new Error('The account server returned an invalid response.')
   }
