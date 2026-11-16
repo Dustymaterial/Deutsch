@@ -330,6 +330,29 @@ try {
   assert.equal((await request(respondPath, { response: 'thanks' }, other.cookie)).body.message.correction.response, 'saved')
   const correctorView = (await request(messagesPath, null, learner.cookie)).body.messages.find((item) => item.id === reply.body.message.id)
   assert.equal(correctorView.correction.response, 'saved')
+  const cheer = await request(messagesPath, { text: 'Super!' }, other.cookie)
+  const cheerPath = `/api/companions/messages/${cheer.body.message.id}/correction`
+  assert.equal((await request(cheerPath, { approve: true, text: 'Super!!' }, learner.cookie)).status, 400)
+  assert.equal((await request(cheerPath, { approve: true, note: 'Nice' }, learner.cookie)).status, 400)
+  assert.equal((await request(cheerPath, { approve: true }, other.cookie)).status, 404)
+  const approved = await request(cheerPath, { approve: true }, learner.cookie)
+  assert.equal(approved.status, 201)
+  assert.deepEqual(
+    { approved: approved.body.message.correction.approved, text: approved.body.message.correction.text, byMe: approved.body.message.correction.byMe },
+    { approved: true, text: undefined, byMe: true },
+  )
+  assert.equal((await request(cheerPath, { approve: true }, learner.cookie)).status, 409)
+  assert.equal((await request(`${cheerPath}/respond`, { response: 'saved' }, other.cookie)).status, 400)
+  assert.equal((await request(`${cheerPath}/respond`, { response: 'thanks' }, other.cookie)).body.message.correction.response, 'thanks')
+  assert.equal((await request(`/api/companions/messages/${cheer.body.message.id}/edit`, { text: 'Toll!' }, other.cookie)).status, 409)
+  const grammar = await request(messagesPath, { text: 'Ich habe gestern gegangen' }, other.cookie)
+  const grammarPath = `/api/companions/messages/${grammar.body.message.id}/correction`
+  assert.equal((await request(grammarPath, { text: 'Ich bin gestern gegangen', tags: ['grammar'] }, learner.cookie)).status, 400)
+  assert.equal((await request(grammarPath, { text: 'Ich bin gestern gegangen', tags: ['article', 'case', 'tense', 'spelling'] }, learner.cookie)).status, 400)
+  const tagged = await request(grammarPath, { text: 'Ich bin gestern gegangen', tags: ['verb-form', 'tense', 'verb-form'], note: 'Bewegung: sein' }, learner.cookie)
+  assert.equal(tagged.status, 201)
+  assert.deepEqual(tagged.body.message.correction.tags, ['verb-form', 'tense'])
+  assert.equal((await request(messagesPath, null, other.cookie)).body.messages.find((item) => item.id === grammar.body.message.id).correction.text, 'Ich bin gestern gegangen')
   assert.equal((await request(`/api/companions/messages/${reply.body.message.id}/edit`, { text: 'Danke sehr!' }, other.cookie)).status, 409)
   const editPath = `/api/companions/messages/${threaded.body.message.id}/edit`
   assert.equal((await request(editPath, { text: 'Gern geschehen!' }, other.cookie)).status, 404)

@@ -29,10 +29,18 @@ const chatMessageSchema = z.object({
 }).refine((message) => Boolean(message.text) !== Boolean(message.card))
 const reactionSchema = z.object({ emoji: z.enum(reactionEmojis).nullable() })
 const messageEditSchema = z.object({ text: z.string().trim().min(1).max(2000) })
+const correctionTags = [
+  'verb-position', 'verb-form', 'article', 'case', 'spelling',
+  'word-choice', 'word-order', 'tense', 'punctuation', 'more-natural',
+]
 const correctionSchema = z.object({
-  text: z.string().trim().min(1).max(2000),
+  text: z.string().trim().min(1).max(2000).optional(),
   note: z.string().trim().max(200).optional(),
-})
+  tags: z.array(z.enum(correctionTags)).max(3).optional(),
+  approve: z.literal(true).optional(),
+}).refine((value) => value.approve
+  ? !value.text && !value.note && !value.tags?.length
+  : Boolean(value.text))
 const correctionResponseSchema = z.object({ response: z.enum(['thanks', 'saved']) })
 const shareSchema = z.object({
   recipientId: z.string().regex(/^[a-f\d]{24}$/),
@@ -105,7 +113,9 @@ export function createCompanionRouter({
       ...(message.senderId === me ? { editableUntil: new Date(message.createdAt.getTime() + editWindow).toISOString() } : {}),
       ...(message.correction ? {
         correction: {
-          text: message.correction.text,
+          ...(message.correction.text ? { text: message.correction.text } : {}),
+          ...(message.correction.approved ? { approved: true } : {}),
+          ...(message.correction.tags?.length ? { tags: message.correction.tags } : {}),
           ...(message.correction.note ? { note: message.correction.note } : {}),
           byMe: message.correction.authorId === me,
           createdAt: message.correction.createdAt.toISOString(),
@@ -406,20 +416,24 @@ export function createCompanionRouter({
 
   router.post('/messages/:id/correction', async (req, res) => {
     const result = correctionSchema.safeParse(req.body)
-    if (!result.success) return res.status(400).json({ error: 'Write the corrected sentence, with an optional note under 200 characters.' })
+    if (!result.success) return res.status(400).json({ error: 'Write the corrected sentence, or mark the message as looking good. Notes can be up to 200 characters.' })
     const me = req.accountUser._id.toString()
     const found = await visibleMessage(me, req.params.id)
     if (!found || found.message.senderId === me || found.message.card) return unavailable(res)
     const { message, active } = found
-    if (message.correction) return res.status(409).json({ error: 'This message already has a suggested correction.' })
-    if (result.data.text === message.text) return res.status(400).json({ error: 'Change something in the sentence to suggest a correction.' })
+    if (message.correction) return res.status(409).json({ error: 'This message has already been reviewed.' })
+    if (!result.data.approve && result.data.text === message.text) {
+      return res.status(400).json({ error: 'Change something in the sentence to suggest a correction.' })
+    }
     const now = new Date()
     if (!await reserveMessageSlot(req.accountUser, now)) {
       return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
     }
+    const tags = [...new Set(result.data.tags ?? [])]
     const correction = {
       authorId: me,
-      text: result.data.text,
+      ...(result.data.approve ? { approved: true } : { text: result.data.text }),
+      ...(tags.length ? { tags } : {}),
       ...(result.data.note ? { note: result.data.note } : {}),
       createdAt: now,
     }
@@ -435,6 +449,9 @@ export function createCompanionRouter({
     const found = await visibleMessage(me, req.params.id)
     if (!found || found.message.senderId !== me || !found.message.correction) return unavailable(res)
     const { message } = found
+    if (message.correction.approved && result.data.response === 'saved') {
+      return res.status(400).json({ error: 'There is no corrected sentence to save.' })
+    }
     if (message.correction.response === 'saved' || message.correction.response === result.data.response) {
       return res.json({ message: serializeMessage(message, me) })
     }
@@ -453,7 +470,7 @@ export function createCompanionRouter({
     if (Date.now() - message.createdAt.getTime() > editWindow) {
       return res.status(403).json({ error: 'Messages can be edited for 10 minutes after sending.' })
     }
-    if (message.correction) return res.status(409).json({ error: 'This message has a suggested correction, so it can no longer be edited.' })
+    if (message.correction) return res.status(409).json({ error: 'This message has been reviewed, so it can no longer be edited.' })
     if (result.data.text === message.text) return res.json({ message: serializeMessage(message, me) })
     const editedAt = new Date()
     await companionMessages.updateOne({ _id: message._id }, { $set: { text: result.data.text, editedAt } })
