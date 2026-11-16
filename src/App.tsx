@@ -29,6 +29,8 @@ import {
 import { isProductionAnswerCorrect } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
 import { mergeAccountProgress, type AccountProgress } from './accountSync'
+import LearnMode from './LearnMode'
+import { reviewLearningCard, saveForLearning } from './learning'
 import starterPack from './data/german-starter-pack.json'
 import {
   getCardsForStudySet,
@@ -1090,6 +1092,9 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [struggledWith, setStruggledWith] = useState<RecallField[]>([])
   const [studyMode, setStudyMode] = useState<ReviewMode>('recall')
+  const [learnOpen, setLearnOpen] = useState(false)
+  const [learningReviewId, setLearningReviewId] = useState<string | null>(null)
+  const closeLearn = useCallback(() => setLearnOpen(false), [])
   const [studyTag, setStudyTag] = useState('')
   const [choiceFeedback, setChoiceFeedback] = useState<ChoiceFeedback | null>(null)
   const [productionAnswer, setProductionAnswer] = useState('')
@@ -1119,14 +1124,14 @@ function App() {
       ? 'Progress sync is paused until saved data can be read.'
       : accountSyncError ?? accountSyncStatus
 
-  const saveDeck = (nextCards: Card[]) => {
+  const saveDeck = (nextCards: Card[], failureMessage = 'Your browser could not save this review. Check available device storage.') => {
     if (!canSave) return
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextCards))
       localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
       setSavingError(null)
     } catch {
-      setSavingError('Your browser could not save this review. Check available device storage.')
+      setSavingError(failureMessage)
     }
   }
 
@@ -1348,7 +1353,10 @@ function App() {
   const practiceLoopCard = practiceLoopActive
     ? cards.find((card) => card.id === practiceLoopIds[practiceLoopIndex] && card.status === 'active')
     : undefined
-  const activeCard = feedbackCard ?? practiceLoopCard ?? queue[0]
+  const learningReviewCard = learningReviewId
+    ? cards.find((card) => card.id === learningReviewId && card.status === 'active' && card.lastReviewedAt === null)
+    : undefined
+  const activeCard = feedbackCard ?? learningReviewCard ?? practiceLoopCard ?? queue[0]
   const hasQuizFeedback = Boolean(choiceFeedback || productionFeedback)
   const visibleQueueCount = practiceLoopActive
     ? practiceLoopIds.length - practiceLoopIndex
@@ -1404,14 +1412,16 @@ function App() {
       return
     }
 
+    const reviewedAt = new Date(nowIso())
     const updatedCards = cards.map((card) =>
       card.id === activeCard.id
-        ? scheduleReview(card, rating, new Date(), struggledWith) as Card
+        ? reviewLearningCard(card, rating, reviewedAt, struggledWith)
         : card,
     )
     setCards(updatedCards)
     saveDeck(updatedCards)
     setRevealed(false)
+    setLearningReviewId(null)
     setStruggledWith([])
   }
 
@@ -1422,14 +1432,16 @@ function App() {
       setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
       return
     }
+    const reviewedAt = new Date()
     const updatedCards = cards.map((card) =>
       card.id === activeCard.id
-        ? scheduleReview(card, correct ? 'hard' : 'again', new Date(), [], 'choice', correct) as Card
+        ? reviewLearningCard(card, correct ? 'hard' : 'again', reviewedAt, [], 'choice', correct)
         : card,
     )
     setCards(updatedCards)
     saveDeck(updatedCards)
     setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
+    setLearningReviewId(null)
   }
 
   const handleProductionSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -1444,14 +1456,16 @@ function App() {
       setProductionAnswer('')
       return
     }
+    const reviewedAt = new Date()
     const updatedCards = cards.map((card) =>
       card.id === activeCard.id
-        ? scheduleReview(card, correct ? 'hard' : 'again', new Date(), [], 'production', correct) as Card
+        ? reviewLearningCard(card, correct ? 'hard' : 'again', reviewedAt, [], 'production', correct)
         : card,
     )
     setCards(updatedCards)
     saveDeck(updatedCards)
     setProductionFeedback({ cardId: activeCard.id, answer, correct })
+    setLearningReviewId(null)
     setProductionAnswer('')
   }
 
@@ -1744,6 +1758,42 @@ function App() {
   }
 
   const studyPlanSummary = `Goal: ${studyPlan.targetLevel} · ${goalEstimate.daysRemaining} days · ${intensitySettings.label} · up to ${intensitySettings.newCardsPerDay} new cards/day`
+  const saveLearningCard = (id: string) => {
+    if (!canSave) return
+    const at = new Date()
+    const updatedCards = cards.map((card) => card.id === id
+      ? saveForLearning(card, at)
+      : card)
+    setCards(updatedCards)
+    saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')
+  }
+  const startLearningReview = (id: string, mode: ReviewMode, beyondLimit: boolean) => {
+    const card = cards.find((item) => item.id === id && item.status === 'active' && item.lastReviewedAt === null)
+    if (!card) return
+    if (!card.learning?.saved) saveLearningCard(id)
+    if (beyondLimit) setNewCardLimitOverrideDay(getLocalDayKey(new Date()))
+    setPracticeLoopIds(null)
+    setPracticeLoopIndex(0)
+    setPracticeLoopDay(null)
+    setSessionIds((ids) => ids.includes(id) ? ids : [...ids, id])
+    setLearningReviewId(id)
+    setStudyMode(mode)
+    setRevealed(false)
+    continueQuiz()
+    closeLearn()
+  }
+  const learnDialog = learnOpen && (
+    <LearnMode
+      cards={cards}
+      initialTag={studyTag}
+      dailyLimitReached={!newCardLimitOverrideActive && getNewCardQuotaRemaining(cards, new Date(now), intensitySettings.newCardsPerDay) === 0}
+      canSave={canSave}
+      savingError={savingError}
+      onSave={saveLearningCard}
+      onReview={startLearningReview}
+      onClose={closeLearn}
+    />
+  )
 
   if (!activeCard) {
     return (
@@ -1806,6 +1856,7 @@ function App() {
           </div>
         )}
         <div className="empty-state">
+          <button type="button" className="quiet-button" onClick={() => setLearnOpen(true)}>Learn new words</button>
           <span className="complete-mark" aria-hidden="true">✓</span>
           <h1>That’s a good moment to pause.</h1>
           <p className="session-note">
@@ -1879,6 +1930,7 @@ function App() {
           )}
         </div>
         {notice && <p className="action-notice" role="status">{notice}</p>}
+        {learnDialog}
         <p className="privacy-note">
           {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
         </p>
@@ -1976,6 +2028,7 @@ function App() {
       )}
 
       <div className="study-mode-toggle" role="group" aria-label="Study mode">
+        <button type="button" aria-pressed={learnOpen} onClick={() => setLearnOpen(true)}>Learn</button>
         <button
           type="button"
           className={studyMode === 'recall' ? 'selected' : ''}
@@ -2002,6 +2055,7 @@ function App() {
         </button>
       </div>
       {notice && <p className="action-notice" role="status">{notice}</p>}
+      {learnDialog}
 
       <div className="deck-shell">
         <div className="card card-back card-back-3" aria-hidden="true" />

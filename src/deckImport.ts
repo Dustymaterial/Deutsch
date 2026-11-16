@@ -21,6 +21,7 @@ export type Card = {
   correctCount: number
   incorrectCount: number
   reviewHistory: ReviewEvent[]
+  learning?: { saved: boolean; updatedAt: string }
   createdAt: string
   updatedAt: string
 }
@@ -100,6 +101,11 @@ export const isDeckCard = (value: unknown): value is Card => {
     (card.lastReviewedAt === null ||
       (typeof card.lastReviewedAt === 'string' && Number.isFinite(Date.parse(card.lastReviewedAt)))) &&
     (card.lastRating === null || isRating(card.lastRating)) &&
+    (card.learning === undefined ||
+      (typeof card.learning === 'object' && card.learning !== null &&
+        typeof card.learning.saved === 'boolean' &&
+        typeof card.learning.updatedAt === 'string' &&
+        Number.isFinite(Date.parse(card.learning.updatedAt)))) &&
     Array.isArray(card.reviewHistory) &&
     card.reviewHistory.every(isReviewEvent)
   )

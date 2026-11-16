@@ -29,6 +29,9 @@ const cardIsNewer = (left: Card, right: Card) => {
 
 const mergeCard = (local: Card, remote: Card): Card => {
   const latest = cardIsNewer(local, remote) ? local : remote
+  const learning = !local.learning ? remote.learning : !remote.learning ? local.learning
+    : Date.parse(local.learning.updatedAt) >= Date.parse(remote.learning.updatedAt)
+      ? local.learning : remote.learning
   const reviews = new Map<string, ReviewEvent>()
   for (const review of [...local.reviewHistory, ...remote.reviewHistory]) {
     reviews.set(reviewKey(review), review)
@@ -39,6 +42,7 @@ const mergeCard = (local: Card, remote: Card): Card => {
 
   return {
     ...latest,
+    ...(learning ? { learning } : {}),
     tags: [...new Set([...local.tags, ...remote.tags])],
     status: local.status === 'archived' || remote.status === 'archived' ? 'archived' : latest.status,
     reviewHistory,
