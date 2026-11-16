@@ -846,42 +846,46 @@
 .companion-search-submit:hover:not(:disabled) { background: #dfe3e0; }
 .companion-search .field-error { grid-column: 1 / -1; padding: 2px 7px 4px; }
 .companion-sidebar-nav {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
   padding: 0;
   border-radius: 0;
   background: transparent;
 }
 .companion-sidebar-nav button {
   min-width: 0;
-  min-height: 33px;
+  max-width: 100%;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 9px;
-  padding: 6px 9px;
+  gap: 7px;
+  padding: 5px 10px;
   border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: #5c625e;
-  font: 550 0.7rem system-ui, sans-serif;
+  border-radius: 999px;
+  background: #e2e4e2;
+  color: #565c58;
+  font: 550 0.66rem system-ui, sans-serif;
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 .companion-sidebar-nav button.active {
-  background: var(--companion-paper);
+  background: #d3d7d3;
   color: var(--companion-text);
-  box-shadow: 0 1px 2px rgba(37, 42, 39, 0.06);
 }
+.companion-sidebar-nav button:hover { background: #d9dcd9; }
+.companion-sidebar-nav button.active:hover { background: #d3d7d3; }
 .companion-sidebar-nav button .companion-nav-label {
   color: inherit;
   font-size: inherit;
 }
 .companion-sidebar-nav button .companion-nav-count {
-  margin-left: auto;
+  margin-left: 3px;
   padding: 2px 6px;
   border-radius: 999px;
-  background: #dfe2df;
+  background: #d5d9d5;
   color: #737974;
   font-size: 0.6rem;
 }
