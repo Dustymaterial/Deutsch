@@ -583,13 +583,21 @@
   border-radius: 15px;
   color: #303e32;
   background: #dcebdd;
-  transition: transform 180ms ease, background-color 180ms ease;
+  animation: reveal-bounce 4s 500ms infinite;
+  transition: background-color 180ms ease;
 }
 
 .card-face:hover .reveal-cue-icon,
 .card-face:focus-visible .reveal-cue-icon {
   background: #cfe4d2;
-  transform: translate(2px, -2px) rotate(6deg);
+}
+
+@keyframes reveal-bounce {
+  0%, 25%, 100% { transform: translateY(0); }
+  0%, 16% { animation-timing-function: ease-out; }
+  10% { transform: translateY(-9px); animation-timing-function: ease-in; }
+  16% { transform: translateY(0); }
+  20% { transform: translateY(-4px); animation-timing-function: ease-in; }
 }
 
 .card-back-content {
@@ -2158,5 +2166,9 @@ input[aria-invalid="true"]:focus,
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .reveal-cue-icon {
+    animation: none;
   }
 }
