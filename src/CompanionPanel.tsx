@@ -120,6 +120,7 @@ export function CompanionPanel({
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
   const messageEnd = useRef<HTMLDivElement>(null)
+  const messageComposer = useRef<HTMLTextAreaElement>(null)
   const shareTools = useRef<HTMLDetailsElement>(null)
   const selectedChatId = useRef<string | null>(null)
   const lastScrolledMessage = useRef<string | null>(null)
@@ -203,6 +204,13 @@ export function CompanionPanel({
   }, [loadMessages, selectedChat])
 
   const newestMessageId = chatMessages.at(-1)?.id ?? null
+  useEffect(() => {
+    const composer = messageComposer.current
+    if (!composer) return
+    composer.style.height = 'auto'
+    composer.style.height = `${Math.min(composer.scrollHeight, 160)}px`
+  }, [messageDraft])
+
   useEffect(() => {
     if (!newestMessageId) {
       lastScrolledMessage.current = null
@@ -548,7 +556,7 @@ export function CompanionPanel({
             <header className="companion-chat-header">
               <button className="companion-mobile-back" type="button" onClick={closeChat} aria-label="Back to companion list"><ArrowLeft size={18} aria-hidden="true" /></button>
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
-              <div><h2>{selectedChat.companion.username}</h2><p>Learning companion · private chat</p></div>
+              <div><h2>{selectedChat.companion.username}</h2></div>
               <button className="companion-icon-button" type="button" onClick={() => setConfirmDeleteChat((value) => !value)} aria-label="Delete conversation from your list"><Trash2 size={17} aria-hidden="true" /></button>
             </header>
             {confirmDeleteChat && <div className="companion-delete-confirm" role="group" aria-label="Delete conversation">
@@ -562,9 +570,17 @@ export function CompanionPanel({
               {chatLoading ? <p className="companion-empty-note">Loading conversation…</p> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className={`companion-message-row${chatMessage.isMine ? ' mine' : ''}`} key={chatMessage.id}>
-                  <div className="companion-message-bubble">
-                    <p>{chatMessage.text}</p>
-                    <time dateTime={chatMessage.createdAt}>{formatChatTime(chatMessage.createdAt)}</time>
+                  <span className="companion-message-node" aria-hidden="true">
+                    {chatMessage.isMine
+                      ? <span />
+                      : <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />}
+                  </span>
+                  <div className="companion-message-content">
+                    <div className="companion-message-meta">
+                      <strong>{chatMessage.isMine ? 'You' : selectedChat.companion.username}</strong>
+                      <time dateTime={chatMessage.createdAt}>{formatChatTime(chatMessage.createdAt)}</time>
+                    </div>
+                    <p className="companion-message-text">{chatMessage.text}</p>
                     {!chatMessage.isMine && <div className="companion-message-tools">
                       {chatMessage.reported ? <span>Reported</span> : <button type="button" onClick={() => {
                         setReportingMessageId((current) => current === chatMessage.id ? null : chatMessage.id)
@@ -572,7 +588,6 @@ export function CompanionPanel({
                         setReportReason('other')
                       }}>Report</button>}
                     </div>}
-                  </div>
                   {reportingMessageId === chatMessage.id && <form className="companion-report-form" onSubmit={(event) => { event.preventDefault(); reportMessage(chatMessage) }}>
                     <label className="companion-field">Report reason
                       <select value={reportReason} onChange={(event) => setReportReason(event.target.value as ReportReason)}>
@@ -590,15 +605,16 @@ export function CompanionPanel({
                       <button type="button" disabled={busy} onClick={() => setReportingMessageId(null)}>Cancel</button>
                     </div>
                   </form>}
+                  </div>
                 </article>)}
               <div ref={messageEnd} />
             </div>
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
-              <textarea id="companion-message" maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" disabled={busy} />
+              <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" disabled={busy} />
               <div className="companion-composer-footer">
-                <span>{messageDraft.length}/2000 · Messages refresh automatically</span>
-                <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}><span>Send</span><Send size={16} aria-hidden="true" /></button>
+                <span>{messageDraft.length}/2000</span>
+                <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}><span>Send</span><Send size={15} aria-hidden="true" /></button>
               </div>
             </form>
           </> : <div className="companion-chat-welcome">
