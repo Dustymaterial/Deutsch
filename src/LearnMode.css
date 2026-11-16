@@ -77,6 +77,10 @@
 .learn-navigation { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .learn-navigation .quiet-button { gap: 5px; margin: 0; padding: 9px 5px; font-size: 0.73rem; }
 .learn-navigation .quiet-button:disabled { opacity: 0.4; cursor: default; }
+.learn-end { margin-top: 10px; padding: 12px; border-radius: 12px; background: #eeece5; text-align: center; }
+.learn-end p { margin: 0 0 6px; color: #686962; font-size: 0.8rem; line-height: 1.45; }
+.learn-end-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.learn-end-actions .quiet-button { margin: 0; padding: 6px 10px; font-size: 0.75rem; }
 .learn-revisit-status { margin: 14px 0 2px; color: #536e5c; text-align: center; font-size: 0.76rem; font-weight: 600; }
 .learn-review { text-align: center; }
 .learn-review-modes { justify-content: center; }
