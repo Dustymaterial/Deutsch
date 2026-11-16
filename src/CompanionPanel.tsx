@@ -331,6 +331,7 @@ export function CompanionPanel({
 
   const search = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!username.trim()) return
     if (!validate(event.currentTarget)) return
     setFound(null)
     void run(async () => {
