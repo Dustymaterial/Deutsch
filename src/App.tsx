@@ -1093,8 +1093,8 @@ function App() {
   const [struggledWith, setStruggledWith] = useState<RecallField[]>([])
   const [studyMode, setStudyMode] = useState<ReviewMode>('recall')
   const [learnOpen, setLearnOpen] = useState(false)
+  const [learnSettingsOpen, setLearnSettingsOpen] = useState(false)
   const [learningReviewId, setLearningReviewId] = useState<string | null>(null)
-  const closeLearn = useCallback(() => setLearnOpen(false), [])
   const [studyTag, setStudyTag] = useState('')
   const [choiceFeedback, setChoiceFeedback] = useState<ChoiceFeedback | null>(null)
   const [productionAnswer, setProductionAnswer] = useState('')
@@ -1689,6 +1689,8 @@ function App() {
     )
     .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())[0]
   const setMode = (mode: ReviewMode) => {
+    setLearnOpen(false)
+    setLearnSettingsOpen(false)
     setStudyMode(mode)
     continueQuiz()
     setRevealed(false)
@@ -1756,6 +1758,14 @@ function App() {
     setAccountMenuOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
+  const openLearnSettings = () => {
+    setLearnSettingsOpen(true)
+    if (deckMenu.current) deckMenu.current.open = false
+  }
+  const closeLearnSettings = useCallback((restoreFocus = false) => {
+    setLearnSettingsOpen(false)
+    if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
+  }, [])
 
   const studyPlanSummary = `Goal: ${studyPlan.targetLevel} · ${goalEstimate.daysRemaining} days · ${intensitySettings.label} · up to ${intensitySettings.newCardsPerDay} new cards/day`
   const saveLearningCard = (id: string) => {
@@ -1780,22 +1790,24 @@ function App() {
     setStudyMode(mode)
     setRevealed(false)
     continueQuiz()
-    closeLearn()
+    setLearnOpen(false)
+    setLearnSettingsOpen(false)
   }
-  const learnDialog = learnOpen && (
+  const learnContent = learnOpen && (
     <LearnMode
       cards={cards}
       initialTag={studyTag}
       dailyLimitReached={!newCardLimitOverrideActive && getNewCardQuotaRemaining(cards, new Date(now), intensitySettings.newCardsPerDay) === 0}
       canSave={canSave}
       savingError={savingError}
+      settingsOpen={learnSettingsOpen}
+      onCloseSettings={closeLearnSettings}
       onSave={saveLearningCard}
       onReview={startLearningReview}
-      onClose={closeLearn}
     />
   )
 
-  if (!activeCard) {
+  if (!activeCard && !learnOpen) {
     return (
       <main className="app-shell empty-state-shell">
         <header className="app-header">
@@ -1930,7 +1942,6 @@ function App() {
           )}
         </div>
         {notice && <p className="action-notice" role="status">{notice}</p>}
-        {learnDialog}
         <p className="privacy-note">
           {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
         </p>
@@ -1984,8 +1995,11 @@ function App() {
             syncStatus={accountSyncMessage}
           />
           <details className="deck-menu" ref={deckMenu}>
-            <summary aria-label="Deck backup options">···</summary>
+            <summary aria-label="Deck and study options">···</summary>
             <div className="deck-menu-popover">
+              {learnOpen && (
+                <button type="button" onClick={openLearnSettings}>Learn settings</button>
+              )}
               <button type="button" onClick={openAccountMenu}>
                 {accountUser ? 'Account settings' : 'Account'}
               </button>
@@ -2028,34 +2042,35 @@ function App() {
       )}
 
       <div className="study-mode-toggle" role="group" aria-label="Study mode">
-        <button type="button" aria-pressed={learnOpen} onClick={() => setLearnOpen(true)}>Learn</button>
+        <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => setLearnOpen(true)}>Learn</button>
         <button
           type="button"
-          className={studyMode === 'recall' ? 'selected' : ''}
-          aria-pressed={studyMode === 'recall'}
+          className={!learnOpen && studyMode === 'recall' ? 'selected' : ''}
+          aria-pressed={!learnOpen && studyMode === 'recall'}
           onClick={() => setMode('recall')}
         >
           Recall
         </button>
         <button
           type="button"
-          className={studyMode === 'production' ? 'selected' : ''}
-          aria-pressed={studyMode === 'production'}
+          className={!learnOpen && studyMode === 'production' ? 'selected' : ''}
+          aria-pressed={!learnOpen && studyMode === 'production'}
           onClick={() => setMode('production')}
         >
           Produce
         </button>
         <button
           type="button"
-          className={studyMode === 'choice' ? 'selected' : ''}
-          aria-pressed={studyMode === 'choice'}
+          className={!learnOpen && studyMode === 'choice' ? 'selected' : ''}
+          aria-pressed={!learnOpen && studyMode === 'choice'}
           onClick={() => setMode('choice')}
         >
           Choose
         </button>
       </div>
       {notice && <p className="action-notice" role="status">{notice}</p>}
-      {learnDialog}
+      {learnOpen ? learnContent : activeCard && (
+        <>
 
       <div className="deck-shell">
         <div className="card card-back card-back-3" aria-hidden="true" />
@@ -2342,6 +2357,8 @@ function App() {
               : 'Typed answers are case-insensitive; spelling and noun articles matter.'}
           </span>
         </div>
+      )}
+        </>
       )}
       <p className="privacy-note">
         {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}

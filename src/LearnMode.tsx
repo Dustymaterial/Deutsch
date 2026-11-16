@@ -12,12 +12,13 @@ type Props = {
   dailyLimitReached: boolean
   canSave: boolean
   savingError: string | null
+  settingsOpen: boolean
+  onCloseSettings: (restoreFocus?: boolean) => void
   onSave: (id: string) => void
   onReview: (id: string, mode: ReviewMode, beyondLimit: boolean) => void
-  onClose: () => void
 }
 
-export default function LearnMode({ cards, initialTag, dailyLimitReached, canSave, savingError, onSave, onReview, onClose }: Props) {
+export default function LearnMode({ cards, initialTag, dailyLimitReached, canSave, savingError, settingsOpen, onCloseSettings, onSave, onReview }: Props) {
   const [topic, setTopic] = useState(initialTag === 'A1' || initialTag === 'A2' ? '' : initialTag)
   const [level, setLevel] = useState(initialTag === 'A1' || initialTag === 'A2' ? initialTag : '')
   const [view, setView] = useState<'guided' | 'browse' | 'saved'>('guided')
@@ -29,9 +30,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
   const [showReview, setShowReview] = useState(false)
   const [audioMessage, setAudioMessage] = useState<string | null>(null)
   const recordingRef = useRef<HTMLAudioElement | null>(null)
-  const closeRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLElement>(null)
-  const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  const settingsRef = useRef<HTMLElement>(null)
   const tags = useMemo(() => getStudySetTags(cards), [cards])
   const scoped = useMemo(() => cards.filter((card) =>
     card.status === 'active' && card.lastReviewedAt === null &&
@@ -47,33 +46,31 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
   const recording = card ? getRecording(card) : undefined
   const choices = card ? getStudySetChoiceOptions(card, scoped, cards, 0) : null
 
+  useEffect(() => () => {
+    recordingRef.current?.pause()
+    recordingRef.current = null
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  }, [])
+
   useEffect(() => {
-    closeRef.current?.focus()
+    if (!settingsOpen) return
+    settingsRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-      if (event.key === 'Tab' && panelRef.current) {
-        const elements = [...panelRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]')]
-        const first = elements[0]
-        const last = elements[elements.length - 1]
-        if (first && last && event.shiftKey && document.activeElement === first) {
-          event.preventDefault()
-          last.focus()
-        } else if (first && last && !event.shiftKey && document.activeElement === last) {
-          event.preventDefault()
-          first.focus()
-        }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseSettings(true)
       }
     }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !settingsRef.current?.contains(event.target)) onCloseSettings()
+    }
     document.addEventListener('keydown', handleKeyDown)
-    const previousFocus = returnFocus.current
+    document.addEventListener('pointerdown', handlePointerDown)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
-      recordingRef.current?.pause()
-      recordingRef.current = null
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-      previousFocus?.focus()
+      document.removeEventListener('pointerdown', handlePointerDown)
     }
-  }, [onClose])
+  }, [settingsOpen, onCloseSettings])
 
   const speak = (fallback = false) => {
     if (!card) return
@@ -135,22 +132,29 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
   }
 
+  const toggleQuiz = () => {
+    setShowQuiz(!showQuiz)
+    setChoice(null)
+    setAudioMessage(null)
+    recordingRef.current?.pause()
+    recordingRef.current = null
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  }
+
   return (
-    <div className="learn-overlay">
-      <section ref={panelRef} className="learn-panel" role="dialog" aria-modal="true" aria-labelledby="learn-title">
-        <header className="learn-heading">
-          <div><p className="learn-eyebrow">Deutsch Deck</p><h1 id="learn-title">Learn new words</h1></div>
-          <button ref={closeRef} type="button" className="close-dialog" aria-label="Close Learn" onClick={onClose}>×</button>
-        </header>
-        <p className="learn-intro">Meet a word first. Practise when you feel ready.</p>
-        {!canSave && <p className="learn-note" role="alert">Your saved deck could not be read, so learning progress cannot be saved on this device.</p>}
-        {savingError && <p className="learn-note" role="alert">{savingError}</p>}
-        <div className="learn-tabs" role="group" aria-label="Learning view">
+    <section className="learn-mode" aria-label="Learn new words">
+      {settingsOpen && (
+        <aside ref={settingsRef} className="learn-settings" role="dialog" aria-labelledby="learn-settings-title">
+          <div className="learn-settings-heading">
+            <h2 id="learn-settings-title">Learn settings</h2>
+            <button type="button" className="quiet-button" onClick={() => onCloseSettings(true)}>Done</button>
+          </div>
+          <div className="learn-tabs" role="group" aria-label="Learning view">
           {([['guided', 'Guided'], ['browse', 'Browse'], ['saved', 'Continue learning']] as const).map(([id, label]) => (
             <button type="button" key={id} aria-pressed={view === id} onClick={() => { setView(id); setSelectedId(null); setQuery(''); resetActivity() }}>{label}</button>
           ))}
-        </div>
-        <div className="learn-filters">
+          </div>
+          <div className="learn-filters">
           <label>Topic
             <select value={topic} onChange={(event) => { setTopic(event.target.value); setSelectedId(null); resetActivity() }}>
               <option value="">All topics</option>
@@ -164,73 +168,94 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
               <option value="A2">A2</option>
             </select>
           </label>
-        </div>
-        {view === 'browse' && (
+          </div>
+          {view === 'browse' && (
           <label className="learn-search">Find a word
             <input value={query} onChange={(event) => { setQuery(event.target.value); setSelectedId(null); resetActivity() }} placeholder="German or meaning" />
           </label>
-        )}
-        {view !== 'guided' && visible.length > 0 && (
+          )}
+          {view !== 'guided' && visible.length > 0 && (
           <label className="learn-search">Select a word
             <select value={card?.id ?? ''} onChange={(event) => { setSelectedId(event.target.value); resetActivity() }}>
               {visible.map((item) => <option value={item.id} key={item.id}>{item.prompt} — {item.meaning}</option>)}
             </select>
           </label>
-        )}
-        {card ? (
-          <article className="learn-card">
-            <div className="learn-card-top"><span className="tag">{card.category}</span><span>{visible.length} {visible.length === 1 ? 'word' : 'words'} available</span></div>
-            <div className="learn-word">
-              <div><p className="prompt-label">German</p><h2 lang="de">{card.prompt}</h2></div>
-              <button type="button" className="quiet-button learn-audio" onClick={playPronunciation} aria-label={`Hear ${card.prompt}`}>♪ Listen</button>
-            </div>
-            {recording && <p className="learn-note">Word-only recording from Wikimedia Commons (played from an external site). <a href={recording.source} target="_blank" rel="noreferrer">Recording by {recording.author}</a>, <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a>, unchanged.</p>}
-            {audioMessage && <p className="learn-note" role="status">{audioMessage}</p>}
-            <div className="learn-meaning"><span>Meaning</span><strong>{card.meaning}</strong></div>
-            {(card.article || card.plural) && <div className="learn-facts">
-              {card.article && <span>Article: <strong>{card.article}</strong></span>}
-              {card.plural && <span>Plural: <strong lang="de">{card.plural}</strong></span>}
-            </div>}
-            <div className="learn-example"><span>In a sentence</span><strong lang="de">{card.example}</strong>{card.translation && <p>{card.translation}</p>}</div>
-            {!showQuiz && <button type="button" className="quiet-button" onClick={() => setShowQuiz(true)}>Try a gentle check</button>}
-            {showQuiz && (
-              <div className="learn-quiz">
-                <p>Which German word means <strong>{card.meaning}</strong>?</p>
-                {choices?.options.length === 4 ? (
-                  <div className="learn-choices" role="group" aria-label="Practice choices">
-                    {choices.options.map((option) => (
-                      <button key={option.cardId} type="button" disabled={choice !== null} onClick={() => setChoice(option.cardId)} lang="de">{option.prompt}</button>
-                    ))}
+          )}
+        </aside>
+      )}
+      {!canSave && <p className="learn-note" role="alert">Your saved deck could not be read, so learning progress cannot be saved on this device.</p>}
+      {savingError && <p className="learn-note" role="alert">{savingError}</p>}
+      {(topic || level || view !== 'guided' || query.trim()) && (
+        <p className="learn-scope">{[view === 'saved' ? 'Continue learning' : view === 'browse' ? 'Browse' : '', topic, level, query.trim() ? 'Search active' : ''].filter(Boolean).join(' · ')}</p>
+      )}
+      {card ? (
+        <>
+          <div className="deck-shell">
+            <div className="card card-back card-back-3" aria-hidden="true" />
+            <div className="card card-back card-back-2" aria-hidden="true" />
+            <article key={card.id} className="flashcard learn-card">
+              <div className="card-header"><span className="tag">{card.category}</span><span className="progress">{visible.length} available</span></div>
+              <div className="learn-card-content">
+                {showQuiz ? (
+                  <div className="learn-quiz">
+                    <p>Which German word means <strong>{card.meaning}</strong>?</p>
+                    {choices?.options.length === 4 ? (
+                      <div className="learn-choices" role="group" aria-label="Practice choices">
+                        {choices.options.map((option) => (
+                          <button key={option.cardId} type="button" disabled={choice !== null} onClick={() => setChoice(option.cardId)} lang="de">{option.prompt}</button>
+                        ))}
+                      </div>
+                    ) : <p className="learn-note">Not enough distinct choices yet. You can continue without a check.</p>}
+                    {choice && <p role="status" className="learn-note">{choice === card.id ? 'That’s right.' : `Not quite—${card.prompt} means ${card.meaning}.`} This check doesn’t affect your score or schedule.</p>}
                   </div>
-                ) : <p className="learn-note">Not enough distinct choices yet. You can continue without a check.</p>}
-                {choice && <p role="status" className="learn-note">{choice === card.id ? 'That’s right.' : `Not quite—${card.prompt} means ${card.meaning}.`} This check doesn’t affect your score or schedule.</p>}
+                ) : (
+                  <>
+                    <div className="learn-word">
+                      <div><p className="prompt-label">German</p><h2 lang="de">{card.prompt}</h2></div>
+                      <button type="button" className="quiet-button learn-audio" onClick={playPronunciation} aria-label={`Hear ${card.prompt}`}>♪ Listen</button>
+                    </div>
+                    {recording && <p className="learn-credit">External word-only audio: <a href={recording.source} target="_blank" rel="noreferrer">{recording.author} / Wikimedia Commons</a> · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a> · unchanged</p>}
+                    {audioMessage && <p className="learn-note" role="status">{audioMessage}</p>}
+                    <div className="learn-meaning"><span>Meaning</span><strong>{card.meaning}</strong></div>
+                    {(card.article || card.plural) && <div className="learn-facts">
+                      {card.article && <span>Article: <strong>{card.article}</strong></span>}
+                      {card.plural && <span>Plural: <strong lang="de">{card.plural}</strong></span>}
+                    </div>}
+                    <div className="learn-example"><span>In a sentence</span><strong lang="de">{card.example}</strong>{card.translation && <p>{card.translation}</p>}</div>
+                  </>
+                )}
               </div>
-            )}
-            {showReview ? (
-              <div className="learn-review">
-                <strong>Choose your first review</strong>
-                {dailyLimitReached && <p>Your daily new-word target is complete. Starting this review continues beyond today’s target.</p>}
-                <div className="learn-review-modes">
-                  {([['recall', 'Recall'], ['choice', 'Choose'], ['production', 'Produce']] as const).map(([mode, label]) => (
-                    <button type="button" key={mode} disabled={mode === 'choice' && choices?.options.length !== 4}
-                      onClick={() => onReview(card.id, mode, dailyLimitReached)}>{label}</button>
-                  ))}
-                </div>
-                {choices?.options.length !== 4 && <p className="learn-note">Choose needs four distinct words; Recall and Produce are available.</p>}
-                <button type="button" className="quiet-button" onClick={() => setShowReview(false)}>Not yet</button>
+            </article>
+          </div>
+          {showReview ? (
+            <div className="learn-review">
+              <strong>Choose your first review</strong>
+              {dailyLimitReached && <p>Your daily new-word target is complete. Starting this review continues beyond today’s target.</p>}
+              <div className="learn-review-modes">
+                {([['recall', 'Recall'], ['choice', 'Choose'], ['production', 'Produce']] as const).map(([mode, label]) => (
+                  <button type="button" key={mode} disabled={mode === 'choice' && choices?.options.length !== 4}
+                    onClick={() => onReview(card.id, mode, dailyLimitReached)}>{label}</button>
+                ))}
               </div>
-            ) : (
-              <div className="learn-actions">
-                <button type="button" className="primary-button" onClick={() => setShowReview(true)}>Ready to review</button>
-                <button type="button" className="quiet-button" disabled={!canSave || (card.learning?.saved && !savingError)} onClick={() => onSave(card.id)}>{card.learning?.saved && !savingError ? 'Saved for learning' : 'Save for learning'}</button>
+              {choices?.options.length !== 4 && <p className="learn-note">Choose needs four distinct words; Recall and Produce are available.</p>}
+              <button type="button" className="quiet-button" onClick={() => setShowReview(false)}>Not yet</button>
+            </div>
+          ) : (
+            <>
+              <div className="learn-actions" aria-label="Learning actions">
+                <button type="button" className="rating" onClick={toggleQuiz}>{showQuiz ? 'Back to word' : 'Gentle check'}</button>
+                <button type="button" className="rating" disabled={!canSave || (card.learning?.saved && !savingError)} onClick={() => onSave(card.id)}>{card.learning?.saved && !savingError ? 'Saved' : 'Save'}</button>
+                <button type="button" className="rating learn-ready" onClick={() => setShowReview(true)}>Ready to review</button>
+              </div>
+              <div className="learn-navigation">
                 <button type="button" className="quiet-button" onClick={() => { setSkipped((current) => [...current, card.id]); next() }}>Skip for now</button>
-                <button type="button" className="quiet-button" onClick={next}>Next word</button>
+                <button type="button" className="quiet-button" onClick={next}>Next word →</button>
               </div>
-            )}
-          </article>
-        ) : <p className="learn-empty">{view === 'saved' ? 'No saved words in these filters yet.' : 'No new words match these filters in this session.'}</p>}
-        <p className="learn-footer">Learning here doesn’t change your review schedule. Source examples and levels may contain errors.</p>
-      </section>
-    </div>
+            </>
+          )}
+        </>
+      ) : <p className="learn-empty">{view === 'saved' ? 'No saved words in these filters yet.' : 'No new words match these filters in this session.'} Open Learn settings in the ··· menu to change your selection.</p>}
+      <p className="learn-footer">Learning here doesn’t change your review schedule. Source examples and levels may contain errors.</p>
+    </section>
   )
 }
