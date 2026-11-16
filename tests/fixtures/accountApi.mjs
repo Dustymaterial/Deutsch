@@ -118,6 +118,10 @@ const waitForDelivery = async (count) => {
 try {
   const email = 'learner@example.test'
   const password = 'correct-password-123'
+  const invalidUsername = await request('/api/auth/register', { email, password, username: 'name@example.com', avatarSeed: 'pixel-lime' })
+  assert.equal(invalidUsername.status, 400)
+  assert.equal(invalidUsername.body.error, 'Username can use only letters, numbers, underscores, or hyphens; it cannot be an email address.')
+  assert.equal(deliveries.length, 0)
   const registration = await request('/api/auth/register', { email, password, username: 'learner', avatarSeed: 'pixel-lime' })
   assert.equal(registration.status, 201)
   assert.equal(registration.body.verificationRequired, true)

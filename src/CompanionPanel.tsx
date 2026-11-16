@@ -121,7 +121,7 @@ export function CompanionPanel({ onBack }: { onBack: () => void }) {
         <>
           <form noValidate onInput={handleInput} onSubmit={search}>
             <label className="account-field">Find a learner
-              <input name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Exact username" minLength={3} maxLength={20} pattern="[A-Za-z0-9_-]+" required />
+              <input name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Exact username" minLength={3} maxLength={20} pattern="[A-Za-z0-9_\-]+" required />
               {errors.username && <span className="field-error" id="companion-username-error">{errors.username}</span>}
             </label>
             <button className="account-submit" disabled={busy} type="submit">Find username</button>

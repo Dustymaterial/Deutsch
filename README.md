@@ -24,7 +24,11 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. For production, build the client and run the server with `NODE_ENV=production` and the same database/session environment variables:
+Open the local URL printed by Vite.
+
+If port 3001 is already in use, start the services separately with matching alternatives, for example `PORT=3002 node server/index.js --local` and `DEUTSCH_API_PORT=3002 npx vite`.
+
+For production, build the client and run the server with `NODE_ENV=production` and the same database/session environment variables:
 
 ```sh
 npm run build

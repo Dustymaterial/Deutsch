@@ -22,6 +22,10 @@ test('invalid email and short passwords have specific guidance', () => {
   assert.equal(inputError(input({ minLength: 10 }, { valid: false, tooShort: true })), 'Use at least 10 characters.')
 })
 
+test('invalid usernames describe the permitted characters', () => {
+  assert.equal(inputError(input({ name: 'username' }, { valid: false, patternMismatch: true })), 'Username can use only letters, numbers, underscores, or hyphens; it cannot be an email address.')
+})
+
 test('valid and optional empty fields have no error', () => {
   assert.equal(inputError(input()), undefined)
   assert.equal(inputError(input({ required: false, value: '' })), undefined)

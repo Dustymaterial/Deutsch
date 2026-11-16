@@ -21,7 +21,7 @@ const configuration = isLocalDevelopment ? envFile.parsed ?? {} : process.env
 const mongoConnectionString = buildMongoConnectionString(configuration)
 
 const app = express()
-const port = Number(configuration.PORT ?? 3001)
+const port = Number(process.env.PORT ?? configuration.PORT ?? 3001)
 const databaseName = 'deutsch'
 const sessionCookieName = 'deutsch.sid'
 const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000
@@ -101,13 +101,18 @@ const credentialsSchema = z.object({
   password: z.string().min(10).max(128),
 })
 
+const usernameSchema = z.string().trim()
+  .min(3, 'Username must be at least 3 characters.')
+  .max(20, 'Username must be no more than 20 characters.')
+  .regex(/^[A-Za-z0-9_-]+$/, 'Username can use only letters, numbers, underscores, or hyphens; it cannot be an email address.')
+
 const registrationSchema = credentialsSchema.extend({
-  username: z.string().trim().min(3).max(20).regex(/^[A-Za-z0-9_-]+$/),
+  username: usernameSchema,
   avatarSeed: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/).optional(),
 })
 
 const profileSchema = z.object({
-  username: z.string().trim().min(3).max(20).regex(/^[A-Za-z0-9_-]+$/),
+  username: usernameSchema,
   avatarSeed: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/),
 })
 

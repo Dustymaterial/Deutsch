@@ -237,14 +237,16 @@ export function AccountMenu({
                   name="username"
                   aria-label="Username"
                   aria-invalid={Boolean(errors.username) || undefined}
-                  aria-describedby={errors.username ? 'account-username-error' : undefined}
+                  aria-describedby={errors.username ? 'account-username-error' : 'account-username-hint'}
                   maxLength={20}
                   minLength={3}
                   onChange={(event) => setUsername(event.target.value)}
+                  pattern="[A-Za-z0-9_\-]+"
                   required
                   value={username}
                 />
                 {errors.username && <span className="field-error" id="account-username-error">{errors.username}</span>}
+                {!errors.username && <small id="account-username-hint">3–20 letters, numbers, underscores, or hyphens; not an email address.</small>}
               </label>
               <fieldset className="avatar-picker">
                 <legend>Pixel avatar</legend>
@@ -298,20 +300,21 @@ export function AccountMenu({
                   <label className="account-field">
                     Username
                     <input
-                      autoComplete="username"
+                      autoComplete="nickname"
                       name="username"
                       aria-label="Username"
                       aria-invalid={Boolean(errors.username) || undefined}
-                      aria-describedby={errors.username ? 'account-username-error' : undefined}
+                      aria-describedby={errors.username ? 'account-username-error' : 'account-username-hint'}
                       maxLength={20}
                       minLength={3}
                       onChange={(event) => setUsername(event.target.value)}
-                      pattern="[A-Za-z0-9_-]+"
-                      placeholder="3–20 letters or numbers"
+                      pattern="[A-Za-z0-9_\-]+"
+                      placeholder="e.g. learner_123"
                       required
                       value={username}
                     />
                     {errors.username && <span className="field-error" id="account-username-error">{errors.username}</span>}
+                    {!errors.username && <small id="account-username-hint">3–20 letters, numbers, underscores, or hyphens; not an email address.</small>}
                   </label>
                   <fieldset className="avatar-picker">
                     <legend>Choose your pixel avatar</legend>
