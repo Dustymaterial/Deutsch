@@ -702,6 +702,7 @@ export function CompanionPanel({
               </div>
             </form>
           </> : <div className="companion-chat-welcome">
+            <img className="companion-welcome-logo" src="/app-icon.svg" alt="" />
             <h2>Your learning community</h2>
             <p>Choose a connected companion to start a private conversation about German, share a useful word, or cheer each other on.</p>
             <span>Only you and your companion can see your messages.</span>
