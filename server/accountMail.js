@@ -66,7 +66,7 @@ export function createAccountMailer(configuration, fetchImpl = fetch) {
             Subject: subject,
             TextPart: text,
             HTMLPart: html,
-            InlineAttachments: [{
+            InlinedAttachments: [{
               ContentType: 'image/png',
               Filename: 'avatar.png',
               ContentID: 'avatar',

@@ -10,6 +10,9 @@ import { z } from 'zod'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildMongoConnectionString } from './mongoConfig.js'
+import { createAccountMailer } from './accountMail.js'
+import { accountAvatarPng } from './accountAvatar.js'
+import { createAccountSecurity } from './accountSecurity.js'
 
 const isLocalDevelopment = process.argv.includes('--local')
 const envFile = dotenv.config()
@@ -107,10 +110,19 @@ const profileSchema = z.object({
   avatarSeed: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/),
 })
 
+const emailSchema = z.object({ email: credentialsSchema.shape.email })
+const codeSchema = emailSchema.extend({ code: z.string().regex(/^\d{6}$/) })
+const resetSchema = codeSchema.extend({ password: credentialsSchema.shape.password })
+const changePasswordSchema = z.object({
+  currentPassword: credentialsSchema.shape.password,
+  password: credentialsSchema.shape.password,
+})
+
 const publicUser = (user) => ({
   username: user.username,
   email: user.email,
   avatarSeed: user.avatarSeed,
+  emailVerified: Boolean(user.emailVerifiedAt),
 })
 
 const authLimiter = rateLimit({
@@ -120,10 +132,26 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many sign-in attempts. Please wait a few minutes and try again.' },
 })
+const codeRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many code requests. Please wait a few minutes and try again.' },
+})
+const codeAttemptLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
+})
 
 let client
 let users
 let progress
+let accountSecurity
+const accountMailer = createAccountMailer(configuration)
 
 const requireDatabase = (_req, res, next) => {
   if (!users || !progress) {
@@ -149,9 +177,9 @@ const requireUser = async (req, res, next) => {
 
   const user = await users.findOne(
     { _id: new ObjectId(req.session.userId) },
-    { projection: { email: 1, username: 1, avatarSeed: 1 } },
+    { projection: { email: 1, username: 1, avatarSeed: 1, emailVerifiedAt: 1, sessionVersion: 1 } },
   )
-  if (!user) {
+  if (!user || (user.sessionVersion ?? 0) !== (req.session.sessionVersion ?? 0)) {
     req.session.destroy(() => {})
     return res.status(401).json({ error: 'Your session has expired. Please sign in again.' })
   }
@@ -184,6 +212,12 @@ if (mongoConnectionString) {
   const db = client.db(databaseName)
   users = db.collection('users')
   progress = db.collection('progress')
+  accountSecurity = createAccountSecurity({
+    users,
+    secret: configuration.SESSION_SECRET,
+    mailer: accountMailer,
+    renderAvatar: accountAvatarPng,
+  })
   await Promise.all([
     users.createIndex({ emailKey: 1 }, { unique: true }),
     users.createIndex({ usernameKey: 1 }, { unique: true }),
@@ -220,6 +254,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   if (Buffer.byteLength(result.data.password, 'utf8') > 72) {
     return res.status(400).json({ error: 'Password must be 72 bytes or less.' })
   }
+  if (!accountMailer.configured) return res.status(503).json({ error: 'Account email is not configured. Please try again later.' })
 
   const email = result.data.email.toLowerCase()
   const username = result.data.username
@@ -233,14 +268,18 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     avatarSeed: result.data.avatarSeed ?? username,
     createdAt: timestamp,
     updatedAt: timestamp,
+    verificationRequired: true,
   }
 
   try {
     const inserted = await users.insertOne(user)
-    await regenerateSession(req)
-    req.session.userId = inserted.insertedId.toString()
-    await saveSession(req)
-    res.status(201).json({ user: publicUser(user) })
+    try {
+      await accountSecurity.sendCode({ ...user, _id: inserted.insertedId }, 'verify')
+    } catch {
+      console.error('Account verification email could not be sent.')
+      return res.status(503).json({ error: 'Account created, but the code could not be sent. Please request another code.', verificationRequired: true })
+    }
+    res.status(201).json({ verificationRequired: true })
   } catch (error) {
     if (error?.code === 11000) {
       return res.status(409).json({ error: 'That email or username is already in use.' })
@@ -260,9 +299,13 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   if (!user || !(await bcrypt.compare(result.data.password, user.passwordHash))) {
     return res.status(401).json({ error: 'Email or password is incorrect.' })
   }
+  if (user.verificationRequired && !user.emailVerifiedAt) {
+    return res.status(403).json({ error: 'Verify your email before signing in.', verificationRequired: true })
+  }
 
   await regenerateSession(req)
   req.session.userId = user._id.toString()
+  req.session.sessionVersion = user.sessionVersion ?? 0
   await saveSession(req)
   res.json({ user: publicUser(user) })
 })
@@ -271,10 +314,67 @@ app.get('/api/auth/me', async (req, res) => {
   if (!ObjectId.isValid(req.session?.userId ?? '')) return res.status(401).json({ error: 'Not signed in.' })
   const user = await users.findOne(
     { _id: new ObjectId(req.session.userId) },
-    { projection: { email: 1, username: 1, avatarSeed: 1 } },
+    { projection: { email: 1, username: 1, avatarSeed: 1, emailVerifiedAt: 1, sessionVersion: 1 } },
   )
-  if (!user) return res.status(401).json({ error: 'Not signed in.' })
+  if (!user || (user.sessionVersion ?? 0) !== (req.session.sessionVersion ?? 0)) return res.status(401).json({ error: 'Not signed in.' })
   res.json({ user: publicUser(user) })
+})
+
+app.post('/api/auth/code', codeRequestLimiter, async (req, res) => {
+  const result = emailSchema.extend({ purpose: z.enum(['verify', 'reset']) }).safeParse(req.body)
+  if (!result.success) return sendValidationError(res, result)
+  if (!accountMailer.configured) return res.status(503).json({ error: 'Account email is not configured. Please try again later.' })
+  const user = await users.findOne({ emailKey: result.data.email.toLowerCase() })
+  if (user && (result.data.purpose === 'reset' || !user.emailVerifiedAt)) {
+    accountSecurity.sendCode(user, result.data.purpose).catch(() => {
+      console.error('Account email could not be sent.')
+    })
+  }
+  res.status(202).json({ ok: true })
+})
+
+app.post('/api/auth/verify', codeAttemptLimiter, async (req, res) => {
+  const result = codeSchema.safeParse(req.body)
+  if (!result.success) return sendValidationError(res, result)
+  const user = await users.findOne({ emailKey: result.data.email.toLowerCase() })
+  if (!user || !await accountSecurity.consumeCode(user, 'verify', result.data.code, {
+    set: { emailVerifiedAt: new Date(), verificationRequired: false },
+  })) return res.status(400).json({ error: 'This code is invalid or expired. Request a new code and try again.' })
+  res.json({ ok: true })
+})
+
+app.post('/api/auth/reset-password', codeAttemptLimiter, async (req, res) => {
+  const result = resetSchema.safeParse(req.body)
+  if (!result.success) return sendValidationError(res, result)
+  if (Buffer.byteLength(result.data.password, 'utf8') > 72) return res.status(400).json({ error: 'Password must be 72 bytes or less.' })
+  const passwordHash = await bcrypt.hash(result.data.password, 12)
+  const user = await users.findOne({ emailKey: result.data.email.toLowerCase() })
+  if (!user || !await accountSecurity.consumeCode(user, 'reset', result.data.code, {
+    set: { passwordHash },
+    inc: { sessionVersion: 1 },
+  })) return res.status(400).json({ error: 'This code is invalid or expired. Request a new code and try again.' })
+  res.json({ ok: true })
+})
+
+app.post('/api/auth/change-password', requireUser, codeAttemptLimiter, async (req, res) => {
+  const result = changePasswordSchema.safeParse(req.body)
+  if (!result.success) return sendValidationError(res, result)
+  if (Buffer.byteLength(result.data.password, 'utf8') > 72 || Buffer.byteLength(result.data.currentPassword, 'utf8') > 72) {
+    return res.status(400).json({ error: 'Passwords must be 72 bytes or less.' })
+  }
+  const user = await users.findOne({ _id: req.accountUser._id })
+  if (!user || !await bcrypt.compare(result.data.currentPassword, user.passwordHash)) {
+    return res.status(400).json({ error: 'Your current password is incorrect.' })
+  }
+  const updated = await users.updateOne({ _id: user._id, passwordHash: user.passwordHash }, {
+    $set: { passwordHash: await bcrypt.hash(result.data.password, 12), updatedAt: new Date() },
+    $inc: { sessionVersion: 1 },
+    $unset: { 'otp.reset': '' },
+  })
+  if (!updated.modifiedCount) return res.status(409).json({ error: 'Your account changed. Please sign in again.' })
+  req.session.sessionVersion = (user.sessionVersion ?? 0) + 1
+  await saveSession(req)
+  res.json({ ok: true })
 })
 
 app.post('/api/auth/logout', async (req, res) => {
@@ -387,6 +487,6 @@ app.get(/^(?!\/api\/).*/, (_req, res, next) => {
   })
 })
 
-app.listen(port, isLocalDevelopment ? '127.0.0.1' : '0.0.0.0', () => {
+export const server = app.listen(port, isLocalDevelopment ? '127.0.0.1' : '0.0.0.0', () => {
   console.log(`Deutsch account API listening on port ${port}`)
 })

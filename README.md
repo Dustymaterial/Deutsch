@@ -1,10 +1,10 @@
 # Deutsch Daily Deck
 
-A calm, local-first German vocabulary companion for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
+A calm German vocabulary companion for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
 
 ![Deutsch Daily Deck showing a German vocabulary card and account setup](./public/Deck.PNG)
 
-Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not vhs-Lernportal or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Studying remains local-first; optionally create an account to sync your deck and goal across devices.
+Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not vhs-Lernportal or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Study on this device or optionally create an account to sync your deck and goal across devices.
 
 On your first visit, a brief introduction explains what Deutsch Deck is and isn't; you can revisit it under **··· → About Deutsch Deck**.
 The footer links to the GitHub project and this documentation.
@@ -14,6 +14,8 @@ The footer links to the GitHub project and this documentation.
 Requirements: Node.js 22.12 or newer.
 
 Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_URI` to your full MongoDB Atlas connection string, including username and password, with the database path `/deutsch`. URL-encode special characters in the credentials and put query options after a single `?`. The server explicitly uses only the `deutsch` database, where it creates `users`, `progress`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB URI is only read by the server, not sent to the browser.
+
+Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and `SENDER_EMAIL` on the server to send account codes. Verify the sender or domain with Mailjet. Without these settings, existing accounts can still sign in, but new registrations and code requests are unavailable. Mailjet receives the recipient address and email content, including the account avatar and one-time code. Never put credentials in the client or commit them.
 
 The development command starts both the Vite app and account API:
 
@@ -35,7 +37,7 @@ The production service worker needs a secure context: HTTPS when hosted, or loca
 
 ## Deploy on Render
 
-The repository includes a Render Blueprint in `render.yaml`. Create a Render Blueprint instance from this repository and provide a full `MONGODB_URI` whose path names `/deutsch`. Use a rotated MongoDB user restricted to the `deutsch` database. Render generates `SESSION_SECRET` automatically. The service also sets `NODE_ENV=production` and trusts Render's HTTPS proxy for secure session cookies.
+The repository includes a Render Blueprint in `render.yaml`. Create a Render Blueprint instance from this repository and provide a full `MONGODB_URI` whose path names `/deutsch`, plus the Mailjet settings and verified sender address. Use a rotated MongoDB user restricted to the `deutsch` database. Render generates `SESSION_SECRET` automatically. The service also sets `NODE_ENV=production` and trusts Render's HTTPS proxy for secure session cookies.
 
 The Blueprint builds with `npm ci --include=dev && npm run build`, starts with `npm start`, and checks `/api/health`. Keep database credentials and secrets in Render's environment settings, never in the repository. Account creation and cloud sync require valid MongoDB settings; local study still works without them.
 
@@ -233,7 +235,8 @@ Use the JSON backup to move your deck manually between browser profiles or devic
 - Cards, saved learning progress, schedule, and review history are stored in this browser's local storage for this app origin. When signed in, they are also synced to the configured MongoDB database.
 - Clearing site data, changing browser profiles, or switching devices can remove or separate progress. Download backups regularly if the deck matters to you.
 - Account data is stored in the `deutsch` MongoDB database when account sync is configured. The browser only receives an HTTP-only session cookie; the database URI remains on the server.
-- Use a unique password. Email verification and password reset are not configured, so protect access to the account email and keep a local backup.
+- New accounts require a six-digit email code before signing in. Existing accounts can continue signing in and can verify their email from the account menu. Codes expire after 10 minutes, can be used once, and have attempt and resend limits. Never share a code.
+- Use **Forgot password?** for email-code recovery, or **Change password** when signed in. A reset invalidates existing sessions; a signed-in change keeps the current session and invalidates the others. Code requests return the same response whether an account exists or not; delivery failures are logged on the server. Keep a local backup.
 - If account sync is not configured, studying, adding cards, importing, and backups continue to work locally.
 - If saved data cannot be read, the app warns and avoids overwriting it. Export/recovery tooling is intentionally kept separate from silent resets.
 

@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a learner studying German through an external course such as the vhs-Lernportal. It helps capture the learner's own selected course vocabulary, organize it by lesson, and practise it between course activities; it is not an official vhs-Lernportal product or a replacement for instruction. Its goal is durable, usable vocabulary—not maximizing taps, streaks, or time in the app.
+Deutsch Daily Deck is a mobile-friendly German-learning companion, with a future community to help learners encourage each other. It helps capture a learner's own selected vocabulary, organize it by lesson, and practise it between course activities; it is not an official vhs-Lernportal product or a replacement for instruction. Its goal is durable, usable vocabulary—not maximizing taps, streaks, or time in the app. Community features must support learning and respect consent, privacy, and learner wellbeing.
 
 ## Learning philosophy
 
@@ -35,6 +35,7 @@ Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a 
 - Keep Add a word, Tune session, and Goal & pace in anchored panels; outside clicks must not discard unfinished entries or goal edits. Tune session changes apply immediately.
 - Keep scheduling deterministic, testable, local, and independent from AI or network services.
 - Store progress locally by default. Never require a backend for core study; add sync or a database only for a clear user need and with explicit privacy/security design.
+- Require email verification for new accounts while allowing existing unverified accounts to sign in and study. Account codes are time-limited, single-use, rate-limited, and stored as keyed digests; password resets invalidate existing sessions. Never expose Mailjet credentials or log codes.
 - Preserve saved Learn state through local storage, backups, and optional account sync, independently of review scheduling. A first review must supersede an older saved-learning state even when the save and review occurred on different devices.
 - Let learners search reviewed words in the selected study set, inspect recent review details and reset one word or the set. Resetting review progress requires explicit confirmation, affects shared words, and must not let older synced reviews reappear.
 - Preserve user data during migrations and imports. Backups must be understandable, validated, and non-destructive by default.

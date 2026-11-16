@@ -322,7 +322,7 @@ function AboutContent({ onDone, introduction = false }: { onDone: () => void; in
       {introduction && <h1>Welcome to Deutsch Deck</h1>}
       <section>
         <h2>What Deutsch Deck is</h2>
-        <p>A local-first companion for discovering and practising German vocabulary, on its own or alongside your course.</p>
+        <p>A companion for discovering and practising German vocabulary, on its own or alongside your course.</p>
       </section>
       <section>
         <h2>What Deutsch Deck isn’t</h2>

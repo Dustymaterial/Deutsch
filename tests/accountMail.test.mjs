@@ -28,8 +28,8 @@ test('sends an escaped, branded verification email with an inline avatar', async
   assert.match(email.TextPart, /012345/)
   assert.match(email.HTMLPart, /&lt;Learner&gt;/)
   assert.doesNotMatch(email.HTMLPart, /<Learner>/)
-  assert.equal(email.InlineAttachments[0].ContentID, 'avatar')
-  assert.equal(email.InlineAttachments[0].Base64Content, message.avatarPng.toString('base64'))
+  assert.equal(email.InlinedAttachments[0].ContentID, 'avatar')
+  assert.equal(email.InlinedAttachments[0].Base64Content, message.avatarPng.toString('base64'))
 })
 
 test('uses password recovery copy for reset codes', async () => {
