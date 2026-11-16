@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, BookOpen, ChevronLeft, Ellipsis, Inbox, MessageCircle, Send } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, MessageCircle, Send } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import type { Card } from './deckImport'
@@ -546,7 +546,9 @@ export function CompanionPanel({
                 </article>)}
               </section>}
               <details className="companion-share-tools" ref={shareTools}>
-                <summary>Share a word from your deck</summary>
+                <summary className="companion-share-tools-toggle">
+                  <span>Share a word from your deck</span><ChevronDown size={15} aria-hidden="true" />
+                </summary>
                 <label className="companion-field">Find a word
                   <input value={shareQuery} onChange={(event) => { setShareQuery(event.target.value); setSelectedCardId('') }} placeholder="German or meaning" />
                 </label>
@@ -561,7 +563,9 @@ export function CompanionPanel({
                     <textarea maxLength={240} value={shareNote} onChange={(event) => setShareNote(event.target.value)} placeholder="Why did this word stand out?" />
                     <small>{shareNote.length}/240</small>
                   </label>
-                  {connectedCompanions.map((user) => <button className="companion-primary-button" disabled={busy} key={user.id} type="button" onClick={() => sendWord(user)}>Share with {user.username}</button>)}
+                  <div className="companion-share-recipients">
+                    {connectedCompanions.map((user) => <button className="companion-primary-button" disabled={busy} key={user.id} type="button" onClick={() => sendWord(user)}>Share with {user.username}</button>)}
+                  </div>
                 </>}
               </details>
               <label className="companion-email-setting">
