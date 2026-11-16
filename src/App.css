@@ -1678,15 +1678,6 @@
   font-size: 0.82rem;
   font-weight: 600;
 }
-.app-settings-panel .pause-setting-toggle input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  min-height: 0;
-  flex: 0 0 18px;
-  margin: 0;
-  padding: 0;
-  accent-color: #54755d;
-}
 .pause-setting-row {
   display: grid;
   grid-template-columns: 1fr minmax(0, 150px);
@@ -1819,7 +1810,7 @@
   letter-spacing: 0.025em;
 }
 
-.add-dialog input,
+.add-dialog input:not([type="checkbox"]),
 .add-dialog .menu-select-trigger {
   width: 100%;
   min-height: 42px;
@@ -1849,7 +1840,7 @@
   letter-spacing: 0;
 }
 
-.anchored-panel input:not([type="radio"]),
+.anchored-panel input:not([type="radio"]):not([type="checkbox"]),
 .anchored-panel .menu-select-trigger,
 .anchored-panel .date-picker-trigger {
   min-height: 39px;

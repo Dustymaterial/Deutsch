@@ -363,7 +363,7 @@ function AppSettingsPanel({ settings, onChange, onClose }: {
       </div>
       <h3>Study pauses</h3>
       <label className="pause-setting-toggle">
-        <input type="checkbox" checked={settings.enabled} onChange={(event) => onChange({ ...settings, enabled: event.target.checked })} />
+        <input className="app-checkbox" type="checkbox" checked={settings.enabled} onChange={(event) => onChange({ ...settings, enabled: event.target.checked })} />
         <span>Suggest a short pause</span>
       </label>
       <p>Count distinct words added to reviews or reviewed. Pauses can always be skipped.</p>

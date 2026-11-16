@@ -160,7 +160,7 @@ export function CompanionPanel({ onBack }: { onBack: () => void }) {
             </div>
           </div>}
           <label className="companion-setting">
-            <input type="checkbox" checked={emailsEnabled} disabled={busy} onChange={(event) => {
+            <input className="app-checkbox" type="checkbox" checked={emailsEnabled} disabled={busy} onChange={(event) => {
               const value = event.target.checked
               void run(async () => { await request('/settings', { emailsEnabled: value }); setEmailsEnabled(value) })
             }} />
