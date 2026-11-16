@@ -39,6 +39,21 @@ type ReportReason = 'spam' | 'harassment' | 'inappropriate' | 'other'
 
 const reactionOptions = ['👍', '🎉', '💡', '❤️', '👏']
 
+const replyPalette = [
+  { accent: '#8fb9e6', tint: '#e8f1fb' },
+  { accent: '#f0a3cf', tint: '#fbe9f3' },
+  { accent: '#9fd49a', tint: '#e9f5e6' },
+  { accent: '#efc36a', tint: '#fbf1d9' },
+  { accent: '#b9a5e8', tint: '#f0ebfb' },
+  { accent: '#84d0c8', tint: '#e3f5f3' },
+]
+
+// Message ids end in an increasing counter, so neighbouring messages get different colours.
+const replyColor = (messageId: string) => {
+  const color = replyPalette[(Number.parseInt(messageId.slice(-6), 16) || 0) % replyPalette.length]
+  return { '--reply-accent': color.accent, '--reply-tint': color.tint } as React.CSSProperties
+}
+
 const shareableCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 
 const sharedCardPayload = (card: Card) => ({
@@ -560,6 +575,7 @@ export function CompanionPanel({
     .sort((a, b) => Date.parse(b.lastReviewedAt ?? b.createdAt) - Date.parse(a.lastReviewedAt ?? a.createdAt))
     .slice(0, 8)
   const deckWordKeys = new Set(cards.map(cardContentKey))
+  const repliedToIds = new Set(chatMessages.flatMap((item) => item.replyTo ? [item.replyTo.id] : []))
   const deckWordIndex = useMemo(() => indexWords(cards
     .filter((card) => card.status === 'active')
     .map((card) => ({ id: card.id, source: 'deck' as const, prompt: card.prompt, meaning: card.meaning, category: card.category, plural: card.plural }))), [cards])
@@ -795,12 +811,13 @@ export function CompanionPanel({
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className="companion-message-row" id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
                   <div className="companion-message-content">
-                    {chatMessage.replyTo && <button className="companion-reply-quote" type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
+                    {chatMessage.replyTo && <button className="companion-reply-quote" style={replyColor(chatMessage.replyTo.id)} type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
                       <strong>{chatMessage.replyTo.isMine ? 'You' : selectedChat.companion.username}</strong><span>{chatMessage.replyTo.text}</span>
                     </button>}
                     <div className="companion-message-meta">
                       <strong>{chatMessage.isMine ? 'You' : selectedChat.companion.username}</strong>
                       <time dateTime={chatMessage.createdAt}>{formatChatTime(chatMessage.createdAt)}</time>
+                      {repliedToIds.has(chatMessage.id) && <span className="companion-reply-dot" style={replyColor(chatMessage.id)} title="Has a reply" aria-hidden="true" />}
                     </div>
                     {chatMessage.kind === 'word' && chatMessage.card
                       ? <div className="companion-word-card">
@@ -876,7 +893,7 @@ export function CompanionPanel({
             </div>
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
-              {replyingTo && <div className="companion-reply-bar">
+              {replyingTo && <div className="companion-reply-bar" style={replyColor(replyingTo.id)}>
                 <span>Replying to <strong>{replyingTo.isMine ? 'yourself' : selectedChat.companion.username}</strong><em>{replyingTo.text}</em></span>
                 <button type="button" aria-label="Cancel reply" onClick={() => setReply(null)}><X size={14} aria-hidden="true" /></button>
               </div>}

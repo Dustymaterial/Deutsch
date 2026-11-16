@@ -1430,15 +1430,15 @@
   margin: 0 0 6px;
   padding: 5px 12px 6px 11px;
   border: 0;
-  border-left: 3px solid #8fb9e6;
+  border-left: 3px solid var(--reply-accent, #8fb9e6);
   border-radius: 4px 10px 10px 4px;
-  background: #f0f2f0;
+  background: var(--reply-tint, #f0f2f0);
   color: #5d635f;
   font: 450 0.64rem system-ui, sans-serif;
   text-align: left;
   cursor: pointer;
 }
-.companion-reply-quote:hover { background: #e8ebe8; }
+.companion-reply-quote:hover { filter: brightness(0.97); }
 .companion-reply-quote strong { color: #343937; font-weight: 630; }
 .companion-reply-quote span {
   min-width: 0;
@@ -1453,11 +1453,13 @@
   align-items: center;
   gap: 8px;
   padding: 5px 6px 5px 12px;
-  border-radius: 12px;
-  background: #f0f2f0;
+  border-left: 3px solid var(--reply-accent, #8fb9e6);
+  border-radius: 4px 12px 12px 4px;
+  background: var(--reply-tint, #f0f2f0);
   color: #5d635f;
   font-size: 0.64rem;
 }
+.companion-reply-dot { width: 8px; height: 8px; align-self: center; border-radius: 50%; background: var(--reply-accent, #8fb9e6); }
 .companion-reply-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .companion-reply-bar strong { color: #343937; font-weight: 630; }
 .companion-reply-bar em { margin-left: 6px; color: #7a817d; font-style: normal; }
@@ -1474,7 +1476,7 @@
   color: #5d635f;
   cursor: pointer;
 }
-.companion-reply-bar button:hover { background: #e3e6e3; }
+.companion-reply-bar button:hover { background: rgba(0, 0, 0, 0.07); }
 .companion-composer-footer { position: relative; }
 .companion-message-text .companion-known-word {
   padding: 0 1px;
