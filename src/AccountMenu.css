@@ -1469,6 +1469,68 @@
 }
 .companion-reply-bar button:hover { background: #e3e6e3; }
 .companion-composer-footer { position: relative; }
+.companion-message-text .companion-known-word {
+  padding: 0 1px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted #8fb9e6 2px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.companion-message-text .companion-known-word:hover,
+.companion-message-text .companion-known-word.active { background: var(--companion-blue-bg); }
+.companion-word-peek {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 6px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 10px;
+  background: #f0f2f0;
+  color: #343937;
+}
+.companion-word-peek strong { font: 600 0.9rem Georgia, serif; }
+.companion-word-peek > span:not(.companion-word-peek-status) { font: 450 0.7rem system-ui, sans-serif; }
+.companion-word-peek em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--companion-amber-bg);
+  color: var(--companion-amber);
+  font: normal 600 0.58rem system-ui, sans-serif;
+  text-transform: capitalize;
+}
+.companion-word-peek-add,
+.companion-word-peek-status {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  font: 600 0.64rem system-ui, sans-serif;
+}
+.companion-word-peek-add { background: var(--companion-blue-bg); color: var(--companion-blue); cursor: pointer; }
+.companion-word-peek-add:hover { background: #a7cff7; }
+.companion-word-peek-status { background: var(--companion-green-bg); color: var(--companion-green); }
+.companion-word-peek-close {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #5d635f;
+  cursor: pointer;
+}
+.companion-word-peek-close:hover { background: #e3e6e3; }
 .companion-word-picker { position: relative; }
 .companion-word-picker > summary {
   min-height: 26px;

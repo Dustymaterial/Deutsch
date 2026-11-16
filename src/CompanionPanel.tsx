@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Reply, SmilePlus, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
+import starterPack from './data/german-starter-pack.json'
+import { findWord, indexWords, normalizeWord, splitMessage } from './wordLookup'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -106,6 +108,15 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   return [...messages.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 }
 
+const starterWordIndex = indexWords(starterPack.cards.map((entry) => ({
+  id: entry.id,
+  source: 'starter' as const,
+  prompt: entry.article ? `${entry.article} ${entry.word}` : entry.word,
+  meaning: entry.meaning,
+  category: entry.category,
+  plural: entry.plural,
+})))
+
 function CompanionLoader({ label }: { label: string }) {
   return <div className="companion-loader" role="status" aria-label={label}><span /></div>
 }
@@ -113,11 +124,13 @@ function CompanionLoader({ label }: { label: string }) {
 export function CompanionPanel({
   cards,
   onReceiveWord,
+  onAddStarterWord,
   onNotify,
   onBack,
 }: {
   cards: Card[]
   onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
+  onAddStarterWord: (entryId: string) => 'added' | 'already-present' | false
   onNotify: (message: string) => void
   onBack: () => void
 }) {
@@ -147,6 +160,7 @@ export function CompanionPanel({
   const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
+  const [activeWord, setActiveWord] = useState<{ messageId: string; key: string } | null>(null)
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
@@ -261,11 +275,15 @@ export function CompanionPanel({
   }, [])
 
   useEffect(() => {
-    if (!reactionPickerFor) return
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setReactionPickerFor(null) }
+    if (!reactionPickerFor && !activeWord) return
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setReactionPickerFor(null)
+      setActiveWord(null)
+    }
     document.addEventListener('keydown', close)
     return () => document.removeEventListener('keydown', close)
-  }, [reactionPickerFor])
+  }, [reactionPickerFor, activeWord])
 
   const newestMessageId = chatMessages.at(-1)?.id ?? null
   useEffect(() => {
@@ -533,6 +551,19 @@ export function CompanionPanel({
     .sort((a, b) => Date.parse(b.lastReviewedAt ?? b.createdAt) - Date.parse(a.lastReviewedAt ?? a.createdAt))
     .slice(0, 8)
   const deckWordKeys = new Set(cards.map(cardContentKey))
+  const deckWordIndex = useMemo(() => indexWords(cards
+    .filter((card) => card.status === 'active')
+    .map((card) => ({ id: card.id, source: 'deck' as const, prompt: card.prompt, meaning: card.meaning, category: card.category, plural: card.plural }))), [cards])
+  const peekedWord = activeWord ? findWord(activeWord.key, deckWordIndex, starterWordIndex) : null
+
+  const pickWord = (messageId: string, word: string) => {
+    const key = normalizeWord(word)
+    setActiveWord((current) => current?.messageId === messageId && current.key === key ? null : { messageId, key })
+  }
+
+  const addPeekedWord = (entryId: string, prompt: string) => {
+    if (onAddStarterWord(entryId) === 'already-present') onNotify(`You already had ${prompt} in your deck.`)
+  }
   const incomingRequests = companions.filter((user) => user.status === 'incoming')
     .sort((a, b) => a.username.localeCompare(b.username))
   const outgoingRequests = companions.filter((user) => user.status === 'outgoing')
@@ -774,7 +805,23 @@ export function CompanionPanel({
                           ? <span className="companion-word-card-status">In your deck</span>
                           : <button className="companion-word-card-add" type="button" onClick={() => addChatWord(chatMessage)}>Add to deck</button>)}
                       </div>
-                      : <p className="companion-message-text">{chatMessage.text}</p>}
+                      : <>
+                        <p className="companion-message-text">{splitMessage(chatMessage.text).map((part, index) => {
+                          const known = part.word && findWord(part.text, deckWordIndex, starterWordIndex)
+                          if (!known) return part.text
+                          const open = activeWord?.messageId === chatMessage.id && activeWord.key === normalizeWord(part.text)
+                          return <button className={`companion-known-word${open ? ' active' : ''}`} key={index} type="button" aria-expanded={open} onClick={() => pickWord(chatMessage.id, part.text)}>{part.text}</button>
+                        })}</p>
+                        {activeWord?.messageId === chatMessage.id && peekedWord && <div className="companion-word-peek" role="status">
+                          <strong lang="de">{peekedWord.prompt}</strong>
+                          <span>{peekedWord.meaning}</span>
+                          <em>{peekedWord.category}</em>
+                          {peekedWord.source === 'deck'
+                            ? <span className="companion-word-peek-status">In your deck</span>
+                            : <button className="companion-word-peek-add" type="button" onClick={() => addPeekedWord(peekedWord.id, peekedWord.prompt)}>Add to deck</button>}
+                          <button className="companion-word-peek-close" type="button" aria-label="Close translation" onClick={() => setActiveWord(null)}><X size={13} aria-hidden="true" /></button>
+                        </div>}
+                      </>}
                     <div className="companion-message-tools">
                       {chatMessage.reactions.map((reaction) => <button className={`companion-reaction${reaction.mine ? ' mine' : ''}`} key={reaction.emoji} type="button" aria-pressed={reaction.mine} aria-label={`${reaction.emoji} ${reaction.count}`} onClick={() => void toggleReaction(chatMessage, reaction.emoji)}>
                         <span aria-hidden="true">{reaction.emoji}</span>{reaction.count}

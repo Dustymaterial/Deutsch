@@ -155,21 +155,21 @@ const makeCard = (
   updatedAt: nowIso(),
 })
 
-const createSeedDeck = (): Card[] =>
-  starterPack.cards.map((entry) =>
-    makeCard(
-      entry.id,
-      entry.article ? `${entry.article} ${entry.word}` : entry.word,
-      entry.meaning,
-      entry.example,
-      entry.translation,
-      entry.category,
-      [...new Set([...entry.tags, entry.level])],
-      entry.article
-        ? { article: entry.article, ...(entry.plural ? { plural: entry.plural } : {}) }
-        : {},
-    ),
+const cardFromStarterEntry = (entry: (typeof starterPack.cards)[number]) =>
+  makeCard(
+    entry.id,
+    entry.article ? `${entry.article} ${entry.word}` : entry.word,
+    entry.meaning,
+    entry.example,
+    entry.translation,
+    entry.category,
+    [...new Set([...entry.tags, entry.level])],
+    entry.article
+      ? { article: entry.article, ...(entry.plural ? { plural: entry.plural } : {}) }
+      : {},
   )
+
+const createSeedDeck = (): Card[] => starterPack.cards.map(cardFromStarterEntry)
 
 const loadDeck = (): LoadedDeck => {
   try {
@@ -1910,6 +1910,27 @@ function App() {
     return 'added' as const
   }
 
+  const addStarterWord = (entryId: string) => {
+    const entry = starterPack.cards.find((item) => item.id === entryId)
+    if (!entry) return false
+    const card = cardFromStarterEntry(entry)
+    if (cards.some((item) => item.id === card.id || cardContentKey(item) === cardContentKey(card))) {
+      return 'already-present' as const
+    }
+    if (!canSave) {
+      showToast('This word could not be saved because your deck has a storage issue.', 'error')
+      return false
+    }
+    const updatedCards = [...cards, card]
+    if (!saveDeck(updatedCards, 'The word could not be saved to this device. Check available device storage and try again.')) {
+      showToast('The word could not be saved to this device.', 'error')
+      return false
+    }
+    setCards(updatedCards)
+    showToast(`${card.prompt} is ready for your next study set.`)
+    return 'added' as const
+  }
+
   const handleExportDeck = () => {
     const backup = {
       format: 'deutsch-daily-deck',
@@ -2283,6 +2304,7 @@ function App() {
     <CompanionPanel
       cards={cards}
       onReceiveWord={receiveSharedWord}
+      onAddStarterWord={addStarterWord}
       onNotify={showToast}
       onBack={() => setCompanionWorkspaceOpen(false)}
     />
