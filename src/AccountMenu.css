@@ -1425,13 +1425,13 @@
 .companion-message-tools .companion-reaction-picker button:hover { background: #fff; }
 .companion-reply-quote {
   max-width: min(100%, 420px);
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-top: 5px;
-  padding: 4px 10px;
+  display: grid;
+  gap: 1px;
+  margin: 0 0 6px;
+  padding: 5px 12px 6px 11px;
   border: 0;
-  border-radius: 10px;
+  border-left: 3px solid #8fb9e6;
+  border-radius: 4px 10px 10px 4px;
   background: #f0f2f0;
   color: #5d635f;
   font: 450 0.64rem system-ui, sans-serif;
@@ -1439,8 +1439,15 @@
   cursor: pointer;
 }
 .companion-reply-quote:hover { background: #e8ebe8; }
-.companion-reply-quote strong { flex: 0 0 auto; color: #343937; font-weight: 630; }
-.companion-reply-quote span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.companion-reply-quote strong { color: #343937; font-weight: 630; }
+.companion-reply-quote span {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .companion-reply-bar {
   display: flex;
   align-items: center;

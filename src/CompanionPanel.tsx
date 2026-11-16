@@ -433,7 +433,9 @@ export function CompanionPanel({
       setChatMessages((current) => mergeMessages(current, [data.message]))
       setMessageDraft('')
       setReply(null)
-      setChatError(null)
+      setChatError(replyToId && !data.message.replyTo
+        ? 'Your message was sent, but replies need the latest server. Restart the API server to link replies.'
+        : null)
       await load()
     })
   }
@@ -792,13 +794,13 @@ export function CompanionPanel({
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className="companion-message-row" id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
                   <div className="companion-message-content">
+                    {chatMessage.replyTo && <button className="companion-reply-quote" type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
+                      <strong>{chatMessage.replyTo.isMine ? 'You' : selectedChat.companion.username}</strong><span>{chatMessage.replyTo.text}</span>
+                    </button>}
                     <div className="companion-message-meta">
                       <strong>{chatMessage.isMine ? 'You' : selectedChat.companion.username}</strong>
                       <time dateTime={chatMessage.createdAt}>{formatChatTime(chatMessage.createdAt)}</time>
                     </div>
-                    {chatMessage.replyTo && <button className="companion-reply-quote" type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
-                      <strong>{chatMessage.replyTo.isMine ? 'You' : selectedChat.companion.username}</strong><span>{chatMessage.replyTo.text}</span>
-                    </button>}
                     {chatMessage.kind === 'word' && chatMessage.card
                       ? <div className="companion-word-card">
                         <span className="companion-word-card-label">Shared a word <em>{chatMessage.card.category}</em></span>
