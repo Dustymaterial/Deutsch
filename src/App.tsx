@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowRight, ArrowUpRight, Clock3 } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Clock3, MessagesSquare } from 'lucide-react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
@@ -363,10 +363,13 @@ function AppSettingsPanel({ settings, onChange, onClose }: {
         <button type="button" className="quiet-button" onClick={() => onClose(true)}>Done</button>
       </div>
       <h3>Study pauses</h3>
-      <label className="pause-setting-toggle">
-        <input className="app-checkbox" type="checkbox" checked={settings.enabled} onChange={(event) => onChange({ ...settings, enabled: event.target.checked })} />
+      <div className="pause-setting-toggle">
         <span>Suggest a short pause</span>
-      </label>
+        <button className="app-toggle" type="button" role="switch" aria-label="Suggest a short pause" aria-checked={settings.enabled}
+          onClick={() => onChange({ ...settings, enabled: !settings.enabled })}>
+          <span aria-hidden="true" />
+        </button>
+      </div>
       <p>Count distinct words added to reviews or reviewed. Pauses can always be skipped.</p>
       <div className="pause-setting-row">
         <span>Pause after</span>
@@ -2844,6 +2847,11 @@ function App() {
     <>
       <div inert={pauseVisible || undefined} aria-hidden={pauseVisible || undefined}>
       {appContent}
+      {accountUser && !companionWorkspaceOpen && !learnOpen && !showIntroduction && !pauseVisible && (
+        <button className="companion-launcher" type="button" onClick={openCompanionWorkspace} aria-label="Open companion community" title="Open companion community">
+          <MessagesSquare size={22} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      )}
       {addCardOpen && (
         <AddCardDialog
           defaultTag={studyTag}

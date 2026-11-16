@@ -600,7 +600,7 @@ export function CompanionPanel({
               </details>
               <div className="companion-email-setting">
                 <span>Email notifications</span>
-                <button className="companion-email-toggle" type="button" role="switch" aria-label="Email notifications" aria-checked={emailsEnabled} disabled={busy} onClick={() => {
+                <button className="app-toggle" type="button" role="switch" aria-label="Email notifications" aria-checked={emailsEnabled} disabled={busy} onClick={() => {
                   const value = !emailsEnabled
                   void run(async () => { await request('/settings', { emailsEnabled: value }); setEmailsEnabled(value) })
                 }}>

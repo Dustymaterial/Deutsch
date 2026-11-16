@@ -1217,33 +1217,6 @@
 }
 .companion-sidebar-popover .companion-email-setting:hover { background: #f4f6f4; }
 .companion-sidebar-popover .companion-email-setting > span { font-size: 0.64rem; }
-.companion-email-toggle {
-  width: 34px;
-  height: 20px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 3px;
-  border: 0;
-  border-radius: 999px;
-  background: #d8dcd8;
-  cursor: pointer;
-  transition: background-color 140ms ease;
-}
-.companion-email-toggle > span {
-  width: 14px;
-  height: 14px;
-  display: block;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(35, 40, 37, 0.16);
-  transition: transform 140ms ease;
-}
-.companion-email-toggle[aria-checked="true"] { background: #80ae89; }
-.companion-email-toggle[aria-checked="true"] > span { transform: translateX(14px); }
-.companion-email-toggle:focus-visible { outline: 2px solid #78aef7; outline-offset: 2px; }
-.companion-email-toggle:disabled { cursor: not-allowed; opacity: 0.55; }
 .companion-blocked-card {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

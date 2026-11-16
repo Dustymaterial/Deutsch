@@ -25,6 +25,40 @@
     var(--paper);
 }
 
+.companion-launcher {
+  position: fixed;
+  z-index: 20;
+  right: 24px;
+  bottom: 24px;
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: #202220;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.companion-launcher:hover {
+  background: #090a09;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 520px) {
+  .companion-launcher {
+    right: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    width: 46px;
+    height: 46px;
+    border-radius: 11px;
+  }
+}
+
 .app-header {
   width: min(100%, 980px);
   display: flex;
