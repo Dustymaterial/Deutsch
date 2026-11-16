@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, MessageCircle, Send } from 'lucide-react'
+import { ArrowUpRight, BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, MessageCircle, Send } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import type { Card } from './deckImport'
@@ -124,6 +124,7 @@ export function CompanionPanel({
   const messageComposer = useRef<HTMLTextAreaElement>(null)
   const shareTools = useRef<HTMLDetailsElement>(null)
   const selectedChatId = useRef<string | null>(null)
+  const chatHistoryEntry = useRef(false)
   const lastScrolledMessage = useRef<string | null>(null)
   const { errors, validate, handleInput } = useFormValidation()
 
@@ -204,6 +205,19 @@ export function CompanionPanel({
     }
   }, [loadMessages, selectedChat])
 
+  useEffect(() => {
+    const handlePopState = () => {
+      if (!chatHistoryEntry.current) return
+      chatHistoryEntry.current = false
+      selectedChatId.current = null
+      setSelectedChat(null)
+      setChatMessages([])
+      setConfirmDeleteChat(false)
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   const newestMessageId = chatMessages.at(-1)?.id ?? null
   useEffect(() => {
     const composer = messageComposer.current
@@ -275,6 +289,10 @@ export function CompanionPanel({
     void run(async () => {
       const data = await request('/chats/open', { id: user.id }) as { id: string; companion: Profile }
       if (typeof data.id !== 'string' || !data.companion) throw new Error('The chat service returned an incomplete response.')
+      if (!chatHistoryEntry.current) {
+        window.history.pushState({ __deutschCompanionChat: true }, '', window.location.href)
+        chatHistoryEntry.current = true
+      }
       selectedChatId.current = data.id
       lastScrolledMessage.current = null
       setSelectedChat({ id: data.id, companion: data.companion })
@@ -291,10 +309,19 @@ export function CompanionPanel({
   }
 
   const closeChat = () => {
+    if (chatHistoryEntry.current) {
+      chatHistoryEntry.current = false
+      window.history.back()
+    }
     selectedChatId.current = null
     setSelectedChat(null)
     setChatMessages([])
     setConfirmDeleteChat(false)
+  }
+
+  const backToDeck = () => {
+    closeChat()
+    onBack()
   }
 
   const sendMessage = (event: React.FormEvent<HTMLFormElement>) => {
@@ -439,7 +466,7 @@ export function CompanionPanel({
           <div className="companion-sidebar-heading">
             <h1>Companions</h1>
             <span className="companion-sidebar-count">{connectedCompanions.length}</span>
-            <button className="companion-mobile-deck-back" type="button" onClick={onBack} aria-label="Back to deck" title="Back to deck">
+            <button className="companion-mobile-deck-back" type="button" onClick={backToDeck} aria-label="Back to deck" title="Back to deck">
               <ChevronLeft size={17} aria-hidden="true" />
             </button>
           </div>
@@ -594,14 +621,13 @@ export function CompanionPanel({
 
         <section className="companion-chat-panel" aria-label="Direct messages">
           <div className="companion-chat-toolbar">
-            <button className="companion-deck-toggle" type="button" onClick={onBack} aria-label="Back to deck" title="Back to deck">
+            <button className="companion-deck-toggle" type="button" onClick={backToDeck} aria-label="Back to deck" title="Back to deck">
               <ChevronLeft size={18} aria-hidden="true" />
             </button>
           </div>
           <div className="companion-chat-surface">
           {selectedChat ? <>
             <header className="companion-chat-header">
-              <button className="companion-mobile-back" type="button" onClick={closeChat} aria-label="Back to companion list"><ArrowLeft size={18} aria-hidden="true" /></button>
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
               <details className="companion-row-menu companion-chat-menu">
