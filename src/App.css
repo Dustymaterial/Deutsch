@@ -564,11 +564,32 @@
   font-weight: 550;
 }
 
-.tap-hint svg {
-  display: inline-block;
-  margin-left: 5px;
-  vertical-align: middle;
-  color: #4c4034;
+.reveal-cue {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 11px;
+  margin-top: 17px;
+  color: #342d29;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.reveal-cue-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 15px;
+  color: #303e32;
+  background: #dcebdd;
+  transition: transform 180ms ease, background-color 180ms ease;
+}
+
+.card-face:hover .reveal-cue-icon,
+.card-face:focus-visible .reveal-cue-icon {
+  background: #cfe4d2;
+  transform: translate(2px, -2px) rotate(6deg);
 }
 
 .card-back-content {

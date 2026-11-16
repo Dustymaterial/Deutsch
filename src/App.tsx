@@ -2109,8 +2109,10 @@ function App() {
                   <div className="card-front">
                     <p className="prompt-label">German</p>
                     <h2 lang="de">{promptWord}</h2>
-                    <span className="tap-hint">
-                      {promptHint} Tap to reveal <ArrowUpRight size={22} strokeWidth={2.75} aria-hidden="true" />
+                    <span className="tap-hint">{promptHint}</span>
+                    <span className="reveal-cue">
+                      <span className="reveal-cue-icon"><ArrowUpRight size={23} strokeWidth={3} aria-hidden="true" /></span>
+                      <span>Tap to reveal</span>
                     </span>
                   </div>
               </button> : (
