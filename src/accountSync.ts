@@ -7,13 +7,12 @@ export type AccountProgress = {
   studyPlan: StudyPlan
 }
 
-const reviewKey = (review: ReviewEvent) =>
+const reviewKey = (review: ReviewEvent, replayed: boolean) =>
   JSON.stringify([
     review.at,
     review.rating,
-    review.intervalDays,
-    review.easeFactor,
-    review.mode ?? '',
+    ...(replayed ? [] : [review.intervalDays, review.easeFactor]),
+    review.mode ?? (replayed ? 'recall' : ''),
     review.answerCorrect ?? null,
     review.struggledWith ?? [],
   ])
@@ -32,13 +31,13 @@ const mergeCard = (local: Card, remote: Card): Card => {
   const learning = !local.learning ? remote.learning : !remote.learning ? local.learning
     : Date.parse(local.learning.updatedAt) >= Date.parse(remote.learning.updatedAt)
       ? local.learning : remote.learning
-  const reviews = new Map<string, ReviewEvent>()
-  for (const review of [...local.reviewHistory, ...remote.reviewHistory]) {
-    reviews.set(reviewKey(review), review)
-  }
   const resetAt = [local.reviewResetAt, remote.reviewResetAt]
     .filter((value): value is string => value !== undefined)
     .sort((left, right) => Date.parse(right) - Date.parse(left))[0]
+  const reviews = new Map<string, ReviewEvent>()
+  for (const review of [...local.reviewHistory, ...remote.reviewHistory]) {
+    reviews.set(reviewKey(review, Boolean(resetAt)), review)
+  }
   if (resetAt && [local, remote].some((card) =>
     card.lastReviewedAt && Date.parse(card.lastReviewedAt) > Date.parse(resetAt) &&
     !card.reviewHistory.some((review) => review.at === card.lastReviewedAt),

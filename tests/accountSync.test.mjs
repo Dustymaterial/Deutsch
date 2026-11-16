@@ -117,3 +117,25 @@ test('sync reports post-reset reviews whose history cannot be reconciled', () =>
   const incomplete = card({ lastReviewedAt: '2026-11-17T12:00:00.000Z', reviewHistory: [] })
   assert.throws(() => mergeAccountCards([reset], [incomplete]), /missing from its history/)
 })
+
+test('repeated sync does not duplicate independently recorded reviews after a reset', () => {
+  const reset = resetReviewProgress(card(), new Date('2026-11-16T12:00:00.000Z'))
+  const firstDevice = scheduleReview(reset, 'good', new Date('2026-11-17T12:00:00.000Z'))
+  const secondDevice = scheduleReview(reset, 'good', new Date('2026-11-18T12:00:00.000Z'))
+  const merged = mergeAccountCards([firstDevice], [secondDevice])[0]
+  for (const [left, right] of [[merged, firstDevice], [merged, secondDevice], [secondDevice, merged]]) {
+    const syncedAgain = mergeAccountCards([left], [right])[0]
+    assert.deepEqual(syncedAgain.reviewHistory, merged.reviewHistory)
+    assert.equal(syncedAgain.correctCount, 2)
+    assert.equal(syncedAgain.dueAt, merged.dueAt)
+  }
+})
+
+test('replayed legacy recall reviews without a mode do not duplicate on sync', () => {
+  const reset = resetReviewProgress(card(), new Date('2026-11-16T12:00:00.000Z'))
+  const reviewed = scheduleReview(reset, 'good', new Date('2026-11-17T12:00:00.000Z'))
+  const { mode: _mode, ...legacyReview } = reviewed.reviewHistory[0]
+  const legacy = { ...reviewed, reviewHistory: [legacyReview] }
+  const merged = mergeAccountCards([reset], [legacy])[0]
+  assert.equal(mergeAccountCards([merged], [legacy])[0].reviewHistory.length, 1)
+})
