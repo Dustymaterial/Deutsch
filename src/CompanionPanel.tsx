@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, Ellipsis, MessageCircle, Send } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, BookOpen, ChevronLeft, Ellipsis, Inbox, MessageCircle, Send } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import type { Card } from './deckImport'
@@ -466,9 +466,15 @@ export function CompanionPanel({
             </section>}
 
             <nav className="companion-sidebar-nav" aria-label="Companion views">
-              <button className={sidebarView === 'chats' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'chats'} onClick={() => setSidebarView('chats')}>Chats <span>{connectedCompanions.length}</span>{unreadCount > 0 && <b>{unreadCount}</b>}</button>
-              <button className={sidebarView === 'requests' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'requests'} onClick={() => setSidebarView('requests')}>Requests <span>{requestCount}</span></button>
-              <button className={sidebarView === 'shared' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'shared'} onClick={() => setSidebarView('shared')}>Shared <span>{sharedWords.length}</span></button>
+              <button className={sidebarView === 'chats' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'chats'} onClick={() => setSidebarView('chats')}>
+                <MessageCircle size={15} aria-hidden="true" /><span className="companion-nav-label">Chats</span><span className="companion-nav-count">{connectedCompanions.length}</span>{unreadCount > 0 && <b aria-label={`${unreadCount} unread chats`}>{unreadCount}</b>}
+              </button>
+              <button className={sidebarView === 'requests' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'requests'} onClick={() => setSidebarView('requests')}>
+                <Inbox size={15} aria-hidden="true" /><span className="companion-nav-label">Requests</span><span className="companion-nav-count">{requestCount}</span>
+              </button>
+              <button className={sidebarView === 'shared' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'shared'} onClick={() => setSidebarView('shared')}>
+                <BookOpen size={15} aria-hidden="true" /><span className="companion-nav-label">Shared words</span><span className="companion-nav-count">{sharedWords.length}</span>
+              </button>
             </nav>
 
             {sidebarView === 'requests' && <section className="companion-list-section" aria-labelledby="requests-heading">
@@ -530,7 +536,8 @@ export function CompanionPanel({
             </section>}
 
             <details className="companion-sidebar-details">
-              <summary>More &amp; settings</summary>
+              <summary aria-label="More companion tools"><Ellipsis size={16} aria-hidden="true" /><span>More</span></summary>
+              <div className="companion-sidebar-popover">
               {blockedCompanions.length > 0 && <section className="companion-list-section">
                 <h2>Blocked learners <span>{blockedCompanions.length}</span></h2>
                 {blockedCompanions.map((user) => <article className="companion-person-card companion-blocked-card" key={user.id}>
@@ -562,8 +569,9 @@ export function CompanionPanel({
                   const value = event.target.checked
                   void run(async () => { await request('/settings', { emailsEnabled: value }); setEmailsEnabled(value) })
                 }} />
-                <span>Email me about requests, shared words, and nudges</span>
+                <span>Email notifications</span>
               </label>
+              </div>
             </details>
           </>}
           {confirm && <div className="companion-confirm-card" role="group" aria-label="Confirm companion action">
@@ -577,8 +585,8 @@ export function CompanionPanel({
 
         <section className="companion-chat-panel" aria-label="Direct messages">
           <div className="companion-chat-toolbar">
-            <button className="companion-deck-toggle" type="button" onClick={onBack}>
-              <ArrowLeft size={15} aria-hidden="true" /> Back to deck
+            <button className="companion-deck-toggle" type="button" onClick={onBack} aria-label="Back to deck" title="Back to deck">
+              <ChevronLeft size={18} aria-hidden="true" />
             </button>
           </div>
           <div className="companion-chat-surface">
@@ -647,10 +655,12 @@ export function CompanionPanel({
             </div>
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
-              <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" disabled={busy} />
+              <div className="companion-composer-input">
+                <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" disabled={busy} />
+                <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}><span>Send</span><Send size={14} aria-hidden="true" /></button>
+              </div>
               <div className="companion-composer-footer">
                 <span>{messageDraft.length}/2000</span>
-                <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}><span>Send</span><Send size={15} aria-hidden="true" /></button>
               </div>
             </form>
           </> : <div className="companion-chat-welcome">
