@@ -82,9 +82,13 @@
 .learn-end-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .learn-end-actions .quiet-button { margin: 0; padding: 6px 10px; font-size: 0.75rem; }
 .learn-revisit-status { margin: 14px 0 2px; color: #536e5c; text-align: center; font-size: 0.76rem; font-weight: 600; }
-.learn-review { text-align: center; }
+.learn-review { margin-top: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: #fcf8f4; text-align: center; }
+.learn-review strong { font-size: 0.85rem; }
+.learn-review p { margin: 6px 0 14px; color: #686962; }
+.learn-review-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.learn-review-actions .learn-review-confirm { background: #d9e8dc; }
+.learn-review-actions .learn-review-cancel { background: #eeece5; }
 .learn-review-modes { justify-content: center; }
-.learn-review .quiet-button { margin: 0 auto; padding: 7px 12px; font-size: 0.75rem; }
 .learn-footer { margin: 7px 0 0; text-align: center; font-size: 0.68rem; }
 
 @media (max-width: 520px) {

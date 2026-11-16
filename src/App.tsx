@@ -1212,6 +1212,22 @@ function SessionSettingsDialog({
   )
 }
 
+function AppFooter({ signedIn }: { signedIn: boolean }) {
+  return (
+    <footer className="app-footer">
+      <div className="app-footer-inner">
+        <p className="privacy-note">
+          {signedIn ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
+        </p>
+        <nav className="footer-links" aria-label="Project links">
+          <a href="https://github.com/saintheraldfaust/Deutsch">GitHub</a>
+          <a href="https://github.com/saintheraldfaust/Deutsch/blob/main/README.md">Docs</a>
+        </nav>
+      </div>
+    </footer>
+  )
+}
+
 function App() {
   const [loaded] = useState(loadDeck)
   const [loadedStudyPlan] = useState(loadStudyPlan)
@@ -2361,9 +2377,7 @@ function App() {
             </button>
           )}
         </div>}
-        <p className="privacy-note">
-          {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
-        </p>
+        <AppFooter signedIn={Boolean(accountUser)} />
       </main>
   ) : (
     <main className="app-shell">
@@ -2763,9 +2777,7 @@ function App() {
         </>
       )}
       </>}
-      <p className="privacy-note">
-        {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
-      </p>
+      <AppFooter signedIn={Boolean(accountUser)} />
     </main>
   )
 

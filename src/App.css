@@ -18,6 +18,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow-x: clip;
   padding: 24px 22px 28px;
   background:
     radial-gradient(ellipse at 50% 28%, rgba(255, 255, 255, 0.9), transparent 48%),
@@ -469,8 +470,9 @@
   perspective: 1200px;
 }
 
-.deck-shell-expanded {
+.deck-shell.deck-shell-expanded {
   height: auto;
+  margin-bottom: 24px;
 }
 
 .deck-shell-expanded .flashcard {
@@ -1261,12 +1263,45 @@
   background: #dce5f2;
 }
 
-.privacy-note {
+.app-footer {
+  width: min(100%, 410px);
   margin: auto 0 0;
-  padding-top: 18px;
-  color: #8a838b;
-  font-size: 0.68rem;
-  letter-spacing: 0.025em;
+  padding-top: 24px;
+}
+
+.app-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.privacy-note {
+  margin: 0;
+  color: #77717b;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.footer-links a {
+  color: #514a56;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .storage-warning {

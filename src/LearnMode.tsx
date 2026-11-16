@@ -240,10 +240,12 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
             <div className="learn-review">
               <strong>Your daily new-word target is complete.</strong>
               <p>Adding this word continues beyond today’s target.</p>
-              <button type="button" className="rating" disabled={!canSave} onClick={() => {
-                if (onSchedule(card.id, true)) next(true)
-              }}>Add anyway</button>
-              <button type="button" className="quiet-button" onClick={() => setShowReview(false)}>Not yet</button>
+              <div className="learn-review-actions">
+                <button type="button" className="rating learn-review-confirm" disabled={!canSave} onClick={() => {
+                  if (onSchedule(card.id, true)) next(true)
+                }}>Add anyway</button>
+                <button type="button" className="rating learn-review-cancel" onClick={() => setShowReview(false)}>Not yet</button>
+              </div>
             </div>
           ) : (
             <>
