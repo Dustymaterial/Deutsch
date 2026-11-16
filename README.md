@@ -44,7 +44,7 @@ The application code is licensed under the MIT License; see [`LICENSE`](./LICENS
 
 ### Learn unfamiliar words
 
-Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Use Guided, Browse, or Continue learning, with topic and level filters. Each card shows its meaning, example, and noun details where available. A gentle multiple-choice check gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save for learning keeps it in Continue learning, on this device and in optional account sync.
+Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Learn appears in the main card area; open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Active filters and searches are indicated above the card. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save keeps it in Continue learning, on this device and in optional account sync. Next word moves on without saving or skipping it.
 
 When you feel ready, choose **Ready to review**, then Recall, Choose, or Produce. The card's first review is recorded only when you submit an answer or rating, not when you open it. First reviews count toward the shared daily new-word target; if it is reached, the review chooser offers to continue beyond it for the current visit/day.
 
