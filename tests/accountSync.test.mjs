@@ -46,13 +46,13 @@ test('merges cards from both devices and keeps the newest schedule and unique hi
     lastRating: 'hard',
   })
   const remote = card({
-    tags: ['VHL'],
+    tags: ['vhs-Lernportal'],
     reviewHistory: [card().reviewHistory[0]],
   })
   const merged = mergeAccountCards([local], [remote])[0]
 
   assert.equal(merged.lastRating, 'hard')
-  assert.deepEqual(merged.tags, ['A1', 'Lesson 1', 'VHL'])
+  assert.deepEqual(merged.tags, ['A1', 'Lesson 1', 'vhs-Lernportal'])
   assert.equal(merged.reviewHistory.length, 2)
   assert.equal(merged.correctCount, 2)
 })

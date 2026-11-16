@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a learner studying German through an external course such as the VHL Lernportal. It helps capture the learner's own selected course vocabulary, organize it by lesson, and practise it between course activities; it is not an official VHL product or a replacement for instruction. Its goal is durable, usable vocabulary—not maximizing taps, streaks, or time in the app.
+Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a learner studying German through an external course such as the vhs-Lernportal. It helps capture the learner's own selected course vocabulary, organize it by lesson, and practise it between course activities; it is not an official vhs-Lernportal product or a replacement for instruction. Its goal is durable, usable vocabulary—not maximizing taps, streaks, or time in the app.
 
 ## Learning philosophy
 
