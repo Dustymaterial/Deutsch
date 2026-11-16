@@ -95,10 +95,16 @@ function formatChatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
+const normalizeMessage = (message: ChatMessage): ChatMessage => ({
+  ...message,
+  kind: message.kind ?? 'text',
+  reactions: Array.isArray(message.reactions) ? message.reactions : [],
+})
+
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   const messages = new Map(current.map((message) => [message.id, message]))
   let changed = false
-  incoming.forEach((message) => {
+  incoming.map(normalizeMessage).forEach((message) => {
     const previous = messages.get(message.id)
     if (!previous || previous.reported !== message.reported || previous.text !== message.text
       || JSON.stringify(previous.reactions) !== JSON.stringify(message.reactions)) changed = true
@@ -201,7 +207,7 @@ export function CompanionPanel({
       throw new Error('The chat service returned an incomplete response.')
     }
     if (selectedChatId.current !== chatId) return
-    setChatMessages((current) => mode === 'replace' ? data.messages : mergeMessages(current, data.messages))
+    setChatMessages((current) => mode === 'replace' ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
     if (mode === 'replace' || before) setHasOlderMessages(data.hasMore)
     setChatError(null)
   }, [])

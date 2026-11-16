@@ -1300,8 +1300,8 @@
 .companion-loader span {
   width: 28px;
   height: 28px;
-  border: 3px solid #d9dcd9;
-  border-top-color: #f45bb8;
+  border: 3px solid #e1e3e1;
+  border-top-color: #9a9f9b;
   border-radius: 50%;
   animation: companion-loader-spin 0.8s linear infinite;
 }
