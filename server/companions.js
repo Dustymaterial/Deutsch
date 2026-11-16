@@ -7,7 +7,6 @@ const usernameSchema = z.object({ username: z.string().trim().min(3).max(20).reg
 const targetSchema = z.object({ id: z.string().regex(/^[a-f\d]{24}$/) })
 const actionSchema = targetSchema.extend({ action: z.enum(['accept', 'decline', 'cancel', 'remove', 'block', 'unblock']) })
 const settingsSchema = z.object({ emailsEnabled: z.boolean() })
-const chatMessageSchema = z.object({ text: z.string().trim().min(1).max(2000) })
 const reportSchema = z.object({
   reason: z.enum(['spam', 'harassment', 'inappropriate', 'other']),
   details: z.string().trim().max(500).optional(),
@@ -21,6 +20,14 @@ const sharedCardSchema = z.object({
   translation: z.string().max(2000).optional(),
   category: z.enum(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase']),
 }).refine((card) => card.category !== 'noun' || Boolean(card.article), { message: 'Nouns require an article.' })
+const reactionEmojis = ['👍', '🎉', '💡', '❤️', '👏']
+const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/)
+const chatMessageSchema = z.object({
+  text: z.string().trim().min(1).max(2000).optional(),
+  card: sharedCardSchema.optional(),
+  replyToId: objectIdSchema.optional(),
+}).refine((message) => Boolean(message.text) !== Boolean(message.card))
+const reactionSchema = z.object({ emoji: z.enum(reactionEmojis).nullable() })
 const shareSchema = z.object({
   recipientId: z.string().regex(/^[a-f\d]{24}$/),
   card: sharedCardSchema,
@@ -57,6 +64,25 @@ export function createCompanionRouter({
   const hidden = (pair, me) => pair?.blockedBy?.some((id) => id !== me)
   const sentNudgeAt = (userId) => `nudges.sentAt.${userId}`
   const readNudgeAt = (userId) => `nudges.readAt.${userId}`
+  const previewText = (message) => message.text.slice(0, 140)
+  const summarizeReactions = (reactions, me) => reactionEmojis.flatMap((emoji) => {
+    const users = Object.entries(reactions ?? {}).filter(([, value]) => value === emoji).map(([id]) => id)
+    return users.length ? [{ emoji, count: users.length, mine: users.includes(me) }] : []
+  })
+  const serializeMessage = (message, me) => ({
+    id: message._id.toString(),
+    senderId: message.senderId,
+    isMine: message.senderId === me,
+    kind: message.card ? 'word' : 'text',
+    text: message.text,
+    ...(message.card ? { card: message.card } : {}),
+    ...(message.replyTo ? {
+      replyTo: { id: message.replyTo.id, isMine: message.replyTo.senderId === me, text: message.replyTo.text },
+    } : {}),
+    reactions: summarizeReactions(message.reactions, me),
+    createdAt: message.createdAt.toISOString(),
+    reported: message.reporterIds?.includes(me) ?? false,
+  })
 
   async function getOrCreatePair(me, them) {
     const key = pairKey(me, them)
@@ -235,14 +261,7 @@ export function createCompanionRouter({
     const messages = found.reverse()
     res.json({
       hasMore: messages.length === 50,
-      messages: messages.map((message) => ({
-        id: message._id.toString(),
-        senderId: message.senderId,
-        isMine: message.senderId === me,
-        text: message.text,
-        createdAt: message.createdAt.toISOString(),
-        reported: message.reporterIds?.includes(me) ?? false,
-      })),
+      messages: messages.map((message) => serializeMessage(message, me)),
     })
   })
 
@@ -252,6 +271,16 @@ export function createCompanionRouter({
     const me = req.accountUser._id.toString()
     const active = await activeConversation(me, req.params.id)
     if (!active) return unavailable(res)
+    const conversationId = active.conversation._id.toString()
+    let replyTo
+    if (result.data.replyToId) {
+      const target = await companionMessages.findOne({ _id: new ObjectId(result.data.replyToId), conversationId })
+      const hiddenAt = active.conversation.hiddenAt?.[me]
+      if (!target || (hiddenAt && target.createdAt <= hiddenAt)) {
+        return res.status(400).json({ error: 'That message is no longer available to reply to.' })
+      }
+      replyTo = { id: target._id.toString(), senderId: target.senderId, text: previewText(target) }
+    }
     const now = new Date()
     const throttle = await users.updateOne({
       _id: req.accountUser._id,
@@ -262,9 +291,11 @@ export function createCompanionRouter({
     }, { $push: { companionMessageHistory: { $each: [now], $position: 0, $slice: 60 } } })
     if (!throttle.modifiedCount) return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
     const message = {
-      conversationId: active.conversation._id.toString(),
+      conversationId,
       senderId: me,
-      text: result.data.text,
+      text: result.data.card ? `Shared a word: ${result.data.card.prompt}` : result.data.text,
+      ...(result.data.card ? { card: result.data.card } : {}),
+      ...(replyTo ? { replyTo } : {}),
       createdAt: now,
     }
     const { insertedId } = await companionMessages.insertOne(message)
@@ -275,16 +306,7 @@ export function createCompanionRouter({
         [`readAt.${me}`]: now,
       },
     })
-    res.status(201).json({
-      message: {
-        id: insertedId.toString(),
-        senderId: me,
-        isMine: true,
-        text: message.text,
-        createdAt: now.toISOString(),
-        reported: false,
-      },
-    })
+    res.status(201).json({ message: serializeMessage({ ...message, _id: insertedId }, me) })
   })
 
   router.post('/chats/:id/delete', async (req, res) => {
@@ -295,6 +317,25 @@ export function createCompanionRouter({
       $set: { [`hiddenAt.${me}`]: new Date() },
     })
     res.json({ ok: true })
+  })
+
+  router.post('/messages/:id/reaction', async (req, res) => {
+    const result = reactionSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose one of the available reactions.' })
+    if (!ObjectId.isValid(req.params.id)) return unavailable(res)
+    const me = req.accountUser._id.toString()
+    const message = await companionMessages.findOne({ _id: new ObjectId(req.params.id) })
+    if (!message) return unavailable(res)
+    const active = await activeConversation(me, message.conversationId)
+    const hiddenAt = active?.conversation.hiddenAt?.[me]
+    if (!active || (hiddenAt && message.createdAt <= hiddenAt)) return unavailable(res)
+    const path = `reactions.${me}`
+    const { emoji } = result.data
+    await companionMessages.updateOne({ _id: message._id }, emoji ? { $set: { [path]: emoji } } : { $unset: { [path]: '' } })
+    const reactions = { ...message.reactions }
+    if (emoji) reactions[me] = emoji
+    else delete reactions[me]
+    res.json({ reactions: summarizeReactions(reactions, me) })
   })
 
   router.post('/messages/:id/report', async (req, res) => {
