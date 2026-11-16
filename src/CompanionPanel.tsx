@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, MessageCircle, Send, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Ellipsis, MessageCircle, Send } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import type { Card } from './deckImport'
@@ -100,6 +100,7 @@ export function CompanionPanel({
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [sidebarView, setSidebarView] = useState<'chats' | 'requests' | 'shared'>('chats')
   const [username, setUsername] = useState('')
   const [found, setFound] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -238,6 +239,10 @@ export function CompanionPanel({
     }
   }
 
+  const closePopover = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.currentTarget.closest('details')?.removeAttribute('open')
+  }
+
   const search = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!validate(event.currentTarget)) return
@@ -266,6 +271,7 @@ export function CompanionPanel({
   }
 
   const openChat = (user: Profile) => {
+    setSidebarView('chats')
     void run(async () => {
       const data = await request('/chats/open', { id: user.id }) as { id: string; companion: Profile }
       if (typeof data.id !== 'string' || !data.companion) throw new Error('The chat service returned an incomplete response.')
@@ -401,31 +407,38 @@ export function CompanionPanel({
   const outgoingRequests = companions.filter((user) => user.status === 'outgoing')
     .sort((a, b) => a.username.localeCompare(b.username))
   const requestCount = incomingRequests.length + outgoingRequests.length
+  const unreadCount = chats.filter((chat) => chat.unread).length
+  const blockedCompanions = companions.filter((user) => user.status === 'blocked')
   const connectedCompanions = companions.filter((user) => user.status === 'connected')
     .sort((a, b) => {
       const aTime = chats.find((chat) => chat.companion.id === a.id)?.lastMessage?.createdAt ?? ''
       const bTime = chats.find((chat) => chat.companion.id === b.id)?.lastMessage?.createdAt ?? ''
       return bTime.localeCompare(aTime) || a.username.localeCompare(b.username)
     })
-  const requestCard = (user: Companion) => <article className="companion-person-card" key={user.id}>
+  const requestCard = (user: Companion) => <article className="companion-person-card companion-request-card" key={user.id}>
     <div className="companion-person">
       <img src={avatarDataUri(user.avatarSeed)} alt="" />
       <div><strong>{user.username}</strong><span>{user.status === 'incoming' ? 'Wants to connect' : 'Waiting for a reply'}</span></div>
     </div>
-    <div className="companion-card-actions">
-      {user.status === 'incoming'
-        ? <><button type="button" disabled={busy} onClick={() => action(user, 'accept')}>Accept</button><button type="button" disabled={busy} onClick={() => action(user, 'decline')}>Decline</button></>
-        : <button type="button" disabled={busy} onClick={() => action(user, 'cancel')}>Cancel request</button>}
-      <button className="companion-subtle-action" type="button" disabled={busy} onClick={() => setConfirm({ user, action: 'block' })}>Block</button>
-    </div>
+    <span className={`companion-status-tag ${user.status}`}>{user.status === 'incoming' ? 'Incoming' : 'Sent'}</span>
+    <details className="companion-row-menu">
+      <summary aria-label={`Actions for ${user.username}`}><Ellipsis size={17} aria-hidden="true" /></summary>
+      <div className="companion-row-popover">
+        {user.status === 'incoming'
+          ? <><button type="button" disabled={busy} onClick={(event) => { closePopover(event); action(user, 'accept') }}>Accept request</button><button type="button" disabled={busy} onClick={(event) => { closePopover(event); action(user, 'decline') }}>Decline request</button></>
+          : <button type="button" disabled={busy} onClick={(event) => { closePopover(event); action(user, 'cancel') }}>Cancel request</button>}
+        <button className="danger" type="button" disabled={busy} onClick={(event) => { closePopover(event); setConfirm({ user, action: 'block' }) }}>Block learner</button>
+      </div>
+    </details>
   </article>
 
   return (
     <div className="companion-workspace-view">
-      <div className={`companion-workspace${selectedChat ? ' chat-active' : ''}`}>
+      <div className={`companion-workspace${selectedChat && sidebarView === 'chats' ? ' chat-active' : ''}`}>
         <aside className="companion-sidebar" aria-label="Learning companions">
           <div className="companion-sidebar-heading">
             <h1>Companions</h1>
+            <span className="companion-sidebar-count">{connectedCompanions.length}</span>
           </div>
           {error && <p className="companion-alert" role="alert">{error}</p>}
           {message && <p className="companion-notice" role="status">{message}</p>}
@@ -433,11 +446,10 @@ export function CompanionPanel({
             <button className="companion-primary-button" disabled={busy} onClick={() => void run(load)} type="button">Try again</button>
           ) : <>
             <form className="companion-search" noValidate onInput={handleInput} onSubmit={search}>
-              <label className="companion-field">Find a learner
-                <input name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Exact username" minLength={3} maxLength={20} pattern="[A-Za-z0-9_\\-]+" required />
-                {errors.username && <span className="field-error" id="companion-username-error">{errors.username}</span>}
-              </label>
-              <button className="companion-primary-button" disabled={busy} type="submit">Find learner</button>
+              <label className="companion-visually-hidden" htmlFor="companion-search">Find a learner by exact username</label>
+              <input id="companion-search" name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Find learner…" minLength={3} maxLength={20} pattern="[A-Za-z0-9_\\-]+" required />
+              <button className="companion-search-submit" disabled={busy} type="submit">Find</button>
+              {errors.username && <span className="field-error" id="companion-username-error">{errors.username}</span>}
             </form>
 
             {found && <section className="companion-result-card">
@@ -453,7 +465,13 @@ export function CompanionPanel({
                 </div>}
             </section>}
 
-            <section className="companion-list-section" aria-labelledby="requests-heading">
+            <nav className="companion-sidebar-nav" aria-label="Companion views">
+              <button className={sidebarView === 'chats' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'chats'} onClick={() => setSidebarView('chats')}>Chats <span>{connectedCompanions.length}</span>{unreadCount > 0 && <b>{unreadCount}</b>}</button>
+              <button className={sidebarView === 'requests' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'requests'} onClick={() => setSidebarView('requests')}>Requests <span>{requestCount}</span></button>
+              <button className={sidebarView === 'shared' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'shared'} onClick={() => setSidebarView('shared')}>Shared <span>{sharedWords.length}</span></button>
+            </nav>
+
+            {sidebarView === 'requests' && <section className="companion-list-section" aria-labelledby="requests-heading">
               <h2 id="requests-heading">Requests <span>{requestCount}</span></h2>
               {requestCount === 0
                 ? <p className="companion-empty-note">No pending requests.</p>
@@ -461,81 +479,92 @@ export function CompanionPanel({
                   {incomingRequests.length > 0 && <div className="companion-request-group"><h3>For you</h3>{incomingRequests.map(requestCard)}</div>}
                   {outgoingRequests.length > 0 && <div className="companion-request-group"><h3>Sent requests</h3>{outgoingRequests.map(requestCard)}</div>}
                 </>}
-            </section>
+            </section>}
 
-            <section className="companion-list-section" aria-labelledby="companions-heading">
+            {sidebarView === 'chats' && <section className="companion-list-section" aria-labelledby="companions-heading">
               <h2 id="companions-heading">Your companions <span>{connectedCompanions.length}</span></h2>
               {connectedCompanions.length === 0
                 ? <p className="companion-empty-note">Accepted connections will appear here.</p>
                 : <div className="companion-contact-list">{connectedCompanions.map((user) => {
                   const chat = chats.find((item) => item.companion.id === user.id)
                   const isSelected = selectedChat?.id === chat?.id
-                  return <article className={`companion-person-card companion-contact-card${isSelected ? ' selected' : ''}`} key={user.id}>
+                  return <article className={`companion-contact-card${isSelected ? ' selected' : ''}`} key={user.id}>
                     <button className="companion-contact-open" type="button" disabled={busy} onClick={() => openChat(user)} aria-current={isSelected ? 'true' : undefined}>
                       <span className="companion-person">
                         <img src={avatarDataUri(user.avatarSeed)} alt="" />
                         <span className="companion-contact-copy"><strong>{user.username}</strong><span>{chat?.lastMessage ? `${chat.lastMessage.isMine ? 'You: ' : ''}${chat.lastMessage.text}` : 'Start a conversation'}</span></span>
                       </span>
-                      {chat?.unread && <span className="companion-unread-dot" aria-label="Unread messages" />}
+                      <span className="companion-contact-signals">
+                        <span className="companion-status-tag connected">Connected</span>
+                        {chat?.unread && <span className="companion-unread-dot" aria-label="Unread messages" />}
+                      </span>
                     </button>
-                    <div className="companion-card-actions">
-                      <button type="button" disabled={busy || !user.canNudge} onClick={() => sendNudge(user)}>{user.canNudge ? 'Send a nudge' : 'Nudged recently'}</button>
-                      {user.nudgeAt && <button type="button" disabled={busy} onClick={() => markNudgeRead(user)}>Got it</button>}
-                      <button className="companion-subtle-action" type="button" disabled={busy} onClick={() => setConfirm({ user, action: 'remove' })}>Remove</button>
-                    </div>
+                    <details className="companion-row-menu">
+                      <summary aria-label={`Actions for ${user.username}`}><Ellipsis size={17} aria-hidden="true" /></summary>
+                      <div className="companion-row-popover">
+                        {user.canNudge
+                          ? <button type="button" disabled={busy} onClick={(event) => { closePopover(event); sendNudge(user) }}>Send a nudge</button>
+                          : <span>Nudged recently</span>}
+                        {user.nudgeAt && <button type="button" disabled={busy} onClick={(event) => { closePopover(event); markNudgeRead(user) }}>Mark nudge as read</button>}
+                        <button className="danger" type="button" disabled={busy} onClick={(event) => { closePopover(event); setConfirm({ user, action: 'remove' }) }}>Remove companion</button>
+                      </div>
+                    </details>
                   </article>
                 })}</div>}
-            </section>
-
-            {companions.some((user) => user.status === 'blocked') && <section className="companion-list-section">
-              <h2>Blocked learners</h2>
-              {companions.filter((user) => user.status === 'blocked').map((user) => <article className="companion-person-card" key={user.id}>
-                <div className="companion-person"><img src={avatarDataUri(user.avatarSeed)} alt="" /><div><strong>{user.username}</strong><span>Blocked</span></div></div>
-                <div className="companion-card-actions"><button type="button" disabled={busy} onClick={() => action(user, 'unblock')}>Unblock</button></div>
-              </article>)}
             </section>}
 
-            {sharedWords.length > 0 && <section className="companion-list-section">
-              <h2>Words shared with you <span>{sharedWords.length}</span></h2>
-              {sharedWords.map((share) => <article className="companion-shared-card" key={share.id}>
-                <div className="companion-person"><img src={avatarDataUri(share.sender.avatarSeed)} alt="" /><div><strong>{share.sender.username}</strong><span>Shared a word</span></div></div>
-                <p className="shared-word-prompt" lang="de">{share.card.prompt}</p>
-                <p className="companion-word-meaning">{share.card.meaning}</p>
-                {share.note && <p className="shared-word-note">{share.note}</p>}
-                <div className="companion-card-actions">
-                  <button type="button" disabled={busy} onClick={() => resolveShare(share, 'add')}>Add word</button>
-                  <button type="button" disabled={busy} onClick={() => resolveShare(share, 'dismiss')}>Not now</button>
-                </div>
-              </article>)}
+            {sidebarView === 'shared' && <section className="companion-list-section" aria-labelledby="shared-heading">
+              <h2 id="shared-heading">Words shared with you <span>{sharedWords.length}</span></h2>
+              {sharedWords.length === 0
+                ? <p className="companion-empty-note">Shared words from your companions will appear here.</p>
+                : sharedWords.map((share) => <article className="companion-shared-card" key={share.id}>
+                  <div className="companion-person"><img src={avatarDataUri(share.sender.avatarSeed)} alt="" /><div><strong>{share.sender.username}</strong><span>Shared a word</span></div></div>
+                  <p className="shared-word-prompt" lang="de">{share.card.prompt}</p>
+                  <p className="companion-word-meaning">{share.card.meaning}</p>
+                  {share.note && <p className="shared-word-note">{share.note}</p>}
+                  <div className="companion-card-actions">
+                    <button type="button" disabled={busy} onClick={() => resolveShare(share, 'add')}>Add word</button>
+                    <button type="button" disabled={busy} onClick={() => resolveShare(share, 'dismiss')}>Not now</button>
+                  </div>
+                </article>)}
             </section>}
 
-            <details className="companion-share-tools" ref={shareTools}>
-              <summary>Share a word from your deck</summary>
-              <label className="companion-field">Find a word
-                <input value={shareQuery} onChange={(event) => { setShareQuery(event.target.value); setSelectedCardId('') }} placeholder="German or meaning" />
-              </label>
-              <div className="shared-word-results" role="group" aria-label="Words to share">
-                {matchingCards.slice(0, 6).map((card) => <button key={card.id} type="button" className={selectedCardId === card.id ? 'selected' : ''} aria-pressed={selectedCardId === card.id} onClick={() => setSelectedCardId(card.id)}>
-                  <strong lang="de">{card.prompt}</strong><span>{card.meaning}</span>
-                </button>)}
-                {!matchingCards.length && <p className="companion-empty-note">No matching shareable active words.</p>}
-              </div>
-              {selectedCardId && <>
-                <label className="companion-field">Short note (optional)
-                  <textarea maxLength={240} value={shareNote} onChange={(event) => setShareNote(event.target.value)} placeholder="Why did this word stand out?" />
-                  <small>{shareNote.length}/240</small>
+            <details className="companion-sidebar-details">
+              <summary>More &amp; settings</summary>
+              {blockedCompanions.length > 0 && <section className="companion-list-section">
+                <h2>Blocked learners <span>{blockedCompanions.length}</span></h2>
+                {blockedCompanions.map((user) => <article className="companion-person-card companion-blocked-card" key={user.id}>
+                  <div className="companion-person"><img src={avatarDataUri(user.avatarSeed)} alt="" /><div><strong>{user.username}</strong><span className="companion-status-tag blocked">Blocked</span></div></div>
+                  <button type="button" disabled={busy} onClick={() => action(user, 'unblock')}>Unblock</button>
+                </article>)}
+              </section>}
+              <details className="companion-share-tools" ref={shareTools}>
+                <summary>Share a word from your deck</summary>
+                <label className="companion-field">Find a word
+                  <input value={shareQuery} onChange={(event) => { setShareQuery(event.target.value); setSelectedCardId('') }} placeholder="German or meaning" />
                 </label>
-                {connectedCompanions.map((user) => <button className="companion-primary-button" disabled={busy} key={user.id} type="button" onClick={() => sendWord(user)}>Share with {user.username}</button>)}
-              </>}
-            </details>
-
-            <label className="companion-email-setting">
-              <input className="app-checkbox" type="checkbox" checked={emailsEnabled} disabled={busy} onChange={(event) => {
-                const value = event.target.checked
-                void run(async () => { await request('/settings', { emailsEnabled: value }); setEmailsEnabled(value) })
-              }} />
+                <div className="shared-word-results" role="group" aria-label="Words to share">
+                  {matchingCards.slice(0, 6).map((card) => <button key={card.id} type="button" className={selectedCardId === card.id ? 'selected' : ''} aria-pressed={selectedCardId === card.id} onClick={() => setSelectedCardId(card.id)}>
+                    <strong lang="de">{card.prompt}</strong><span>{card.meaning}</span>
+                  </button>)}
+                  {!matchingCards.length && <p className="companion-empty-note">No matching shareable active words.</p>}
+                </div>
+                {selectedCardId && <>
+                  <label className="companion-field">Short note (optional)
+                    <textarea maxLength={240} value={shareNote} onChange={(event) => setShareNote(event.target.value)} placeholder="Why did this word stand out?" />
+                    <small>{shareNote.length}/240</small>
+                  </label>
+                  {connectedCompanions.map((user) => <button className="companion-primary-button" disabled={busy} key={user.id} type="button" onClick={() => sendWord(user)}>Share with {user.username}</button>)}
+                </>}
+              </details>
+              <label className="companion-email-setting">
+                <input className="app-checkbox" type="checkbox" checked={emailsEnabled} disabled={busy} onChange={(event) => {
+                  const value = event.target.checked
+                  void run(async () => { await request('/settings', { emailsEnabled: value }); setEmailsEnabled(value) })
+                }} />
                 <span>Email me about requests, shared words, and nudges</span>
-            </label>
+              </label>
+            </details>
           </>}
           {confirm && <div className="companion-confirm-card" role="group" aria-label="Confirm companion action">
             <p>{confirm.action === 'block' ? `Block ${confirm.user.username}? This ends any connection and prevents requests.` : `Remove ${confirm.user.username} from your companions?`}</p>
@@ -556,8 +585,13 @@ export function CompanionPanel({
             <header className="companion-chat-header">
               <button className="companion-mobile-back" type="button" onClick={closeChat} aria-label="Back to companion list"><ArrowLeft size={18} aria-hidden="true" /></button>
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
-              <div><h2>{selectedChat.companion.username}</h2></div>
-              <button className="companion-icon-button" type="button" onClick={() => setConfirmDeleteChat((value) => !value)} aria-label="Delete conversation from your list"><Trash2 size={17} aria-hidden="true" /></button>
+              <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
+              <details className="companion-row-menu companion-chat-menu">
+                <summary aria-label="Conversation actions"><Ellipsis size={18} aria-hidden="true" /></summary>
+                <div className="companion-row-popover">
+                  <button type="button" onClick={(event) => { closePopover(event); setConfirmDeleteChat(true) }}>Hide conversation</button>
+                </div>
+              </details>
             </header>
             {confirmDeleteChat && <div className="companion-delete-confirm" role="group" aria-label="Delete conversation">
               <p>Hide this conversation from your list? Your companion keeps their copy. New messages can bring it back.</p>
@@ -582,11 +616,17 @@ export function CompanionPanel({
                     </div>
                     <p className="companion-message-text">{chatMessage.text}</p>
                     {!chatMessage.isMine && <div className="companion-message-tools">
-                      {chatMessage.reported ? <span>Reported</span> : <button type="button" onClick={() => {
-                        setReportingMessageId((current) => current === chatMessage.id ? null : chatMessage.id)
-                        setReportDetails('')
-                        setReportReason('other')
-                      }}>Report</button>}
+                      <details className="companion-message-menu">
+                        <summary aria-label={`Actions for message from ${selectedChat.companion.username}`}><Ellipsis size={15} aria-hidden="true" /></summary>
+                        <div className="companion-row-popover">
+                          {chatMessage.reported ? <span>Reported</span> : <button type="button" onClick={(event) => {
+                            closePopover(event)
+                            setReportingMessageId(chatMessage.id)
+                            setReportDetails('')
+                            setReportReason('other')
+                          }}>Report message</button>}
+                        </div>
+                      </details>
                     </div>}
                   {reportingMessageId === chatMessage.id && <form className="companion-report-form" onSubmit={(event) => { event.preventDefault(); reportMessage(chatMessage) }}>
                     <label className="companion-field">Report reason
