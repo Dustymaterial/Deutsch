@@ -75,7 +75,9 @@
 .learn-actions .rating { background: #e9e9e2; text-align: center; }
 .learn-actions .learn-ready { background: #d9e8dc; }
 .learn-navigation { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
-.learn-navigation .quiet-button { margin: 0; padding: 9px; font-size: 0.73rem; }
+.learn-navigation .quiet-button { gap: 5px; margin: 0; padding: 9px 5px; font-size: 0.73rem; }
+.learn-navigation .quiet-button:disabled { opacity: 0.4; cursor: default; }
+.learn-revisit-status { margin: 14px 0 2px; color: #536e5c; text-align: center; font-size: 0.76rem; font-weight: 600; }
 .learn-review { text-align: center; }
 .learn-review-modes { justify-content: center; }
 .learn-review .quiet-button { margin: 0 auto; padding: 7px 12px; font-size: 0.75rem; }

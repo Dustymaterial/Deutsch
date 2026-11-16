@@ -48,7 +48,7 @@ On opening the app, Recall starts when locally saved reviews are due; otherwise,
 
 ### Study pauses
 
-By default, the app offers a 60-second pause after three distinct words are added to reviews in Learn or completed in Recall, Choose, or Produce, including the optional repeat loop. A word counts only once between pauses; viewing, saving, skipping, and gentle checks do not count. Quiz feedback stays visible until you continue, then the pause begins. You can skip any pause, and the same activity resumes without changing scores or review schedules.
+By default, the app offers a 60-second pause after three distinct words are added to reviews in Learn or completed in Recall, Choose, or Produce, including the optional repeat loop. A word counts only once between pauses; viewing, saving, skipping, and gentle checks do not count. Quiz feedback stays visible until you continue, then the pause begins. A bar shows the remaining time. You can skip any pause, and the same activity resumes without changing scores or review schedules.
 
 Open **··· → App settings** to turn pauses off or choose a frequency of 3, 5, or 10 words and a duration of 30 seconds, 60 seconds, or 2 minutes. Changing settings resets the current count. Settings, count, and any active pause are stored on this device, not synced or included in deck backups. The timer uses an end timestamp, so time away from the tab counts; on return or reload it resumes or finishes according to the clock. A reload during a pause restores the study mode, although the exact card and Learn filters may change. If a reload interrupts quiz feedback, the pending pause starts on reopening. Storage errors are reported.
 
@@ -65,6 +65,8 @@ In **··· → Tune session**, open **View reviewed words** to search the selec
 ### Learn unfamiliar words
 
 Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save keeps it in Continue learning, on this device and in optional account sync.
+
+Use **Previous** to revisit words seen in this Learn session; **Next word** retraces that path before continuing. Skipped words remain excluded from Guided unless revisited through the path. Words already added to reviews are shown read-only, with copy and Listen still available. Revisiting does not change review schedules, scores, or pause counts. History resets when you change the learning view or filters, or leave Learn.
 
 Choose **Add to reviews** when ready. The word is due in 10 minutes and joins the review queue; if you leave, it remains due when you return. Adding it counts toward the shared daily new-word target, but does not record an answer or score. If the target is complete, you can explicitly add the word anyway. The first review is recorded when you submit an answer or rating. Save separately keeps a word in Learn without scheduling it.
 

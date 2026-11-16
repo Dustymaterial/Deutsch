@@ -399,8 +399,10 @@ function ActivityDialog({ days, today, onClose }: { days: Map<string, DayActivit
   )
 }
 
-function PauseScreen({ seconds, onSkip }: { seconds: number; onSkip: () => void }) {
+function PauseScreen({ remainingMs, duration, onSkip }: { remainingMs: number; duration: number; onSkip: () => void }) {
   const skipRef = useRef<HTMLButtonElement>(null)
+  const remaining = Math.min(1, Math.max(0, remainingMs / (duration * 1000)))
+  const seconds = Math.max(0, Math.ceil(remainingMs / 1000))
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     skipRef.current?.focus()
@@ -417,7 +419,11 @@ function PauseScreen({ seconds, onSkip }: { seconds: number; onSkip: () => void 
         <span className="complete-mark"><Clock3 size={21} aria-hidden="true" /></span>
         <h1 id="pause-title">A little space to breathe.</h1>
         <p id="pause-description" className="session-note">Take a short pause. Your place is right here.</p>
-        <p className="pause-countdown" aria-label={`${seconds} seconds remaining`}>{seconds}<span> sec</span></p>
+        <div className="pause-progress" role="progressbar" aria-label="Time remaining"
+          aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(remaining * 100)}
+          aria-valuetext={`${seconds} ${seconds === 1 ? 'second' : 'seconds'} remaining`}>
+          <div className="pause-progress-fill" style={{ transform: `scaleX(${remaining})` }} />
+        </div>
         <button ref={skipRef} type="button" className="quiet-button" onClick={onSkip}>Skip pause</button>
       </section>
     </div>
@@ -2814,7 +2820,7 @@ function App() {
       </div>
       </div>
       {pauseVisible && pauseState.until !== null && (
-        <PauseScreen seconds={Math.max(0, Math.ceil((pauseState.until - pauseNow) / 1000))}
+        <PauseScreen remainingMs={pauseState.until - pauseNow} duration={pauseState.settings.seconds}
           onSkip={() => changePause(finishPause)} />
       )}
     </>
