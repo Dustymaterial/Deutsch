@@ -471,7 +471,7 @@ function AddCardDialog({
       >
         <div className="dialog-heading">
           <div>
-            <h2 id="add-card-title">Add a word</h2>
+            <h2 id="add-card-title" className="menu-panel-title">Add a word</h2>
           </div>
         </div>
 
