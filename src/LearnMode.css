@@ -39,9 +39,9 @@
 }
 .learn-tabs button[aria-pressed="true"] { color: #fff; background: #292a2d; }
 .learn-review-modes button:disabled, .learn-choices button:disabled { opacity: 0.6; cursor: default; }
-.learn-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.learn-filters label, .learn-search { display: grid; gap: 6px; font-size: 0.75rem; font-weight: 700; }
-.learn-filters select, .learn-search input, .learn-search select {
+.learn-filters { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 10px; }
+.learn-filter, .learn-search { display: grid; gap: 6px; min-width: 0; font-size: 0.75rem; font-weight: 700; }
+.learn-search input {
   width: 100%;
   min-width: 0;
   padding: 9px;
@@ -52,7 +52,10 @@
   font: inherit;
 }
 .learn-search { margin-top: 12px; }
-.learn-card-content { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: 12px 2px 0; }
+.learn-settings .menu-select { width: 100%; }
+.learn-mode .deck-shell { height: auto; min-height: max(330px, min(55vh, 460px)); }
+.learn-mode .learn-card { position: relative; height: auto; min-height: inherit; }
+.learn-card-content { flex: 1; min-height: 0; overflow-wrap: anywhere; padding: 12px 2px 0; }
 .learn-word { align-items: flex-start; }
 .learn-word > div { min-width: 0; }
 .learn-word h2 { margin: 7px 0 0; font: 500 clamp(1.8rem, 7vw, 2.8rem)/1.1 Georgia, serif; letter-spacing: -0.04em; overflow-wrap: anywhere; }
@@ -80,6 +83,7 @@
 .learn-footer { margin: 7px 0 0; text-align: center; font-size: 0.68rem; }
 
 @media (max-width: 520px) {
+  .learn-mode .deck-shell { min-height: max(295px, min(54svh, 420px)); }
   .learn-actions { gap: 7px; }
   .learn-choices { grid-template-columns: 1fr; }
 }
