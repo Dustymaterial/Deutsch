@@ -62,6 +62,7 @@ const cardSchema = z.object({
   incorrectCount: z.number().finite(),
   reviewHistory: z.array(reviewSchema).max(10000),
   reviewResetAt: isoDate.optional(),
+  firstReviewScheduledAt: isoDate.optional(),
   learning: z.object({ saved: z.boolean(), updatedAt: isoDate }).optional(),
   createdAt: isoDate,
   updatedAt: isoDate,

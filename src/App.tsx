@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight } from 'lucide-react'
+import { ArrowRight, ArrowUpRight } from 'lucide-react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
   getInitialStudyMode,
+  getReviewDueAt,
   getLocalDayKey,
   getNewCardQuotaRemaining,
   getSessionCardIds,
+  isDueForReview,
+  isUnintroduced,
   resetReviewProgress,
   scheduleReview,
   type RecallField,
@@ -41,7 +44,7 @@ import { Toast, type ToastMessage } from './Toast'
 import { CopyText } from './CopyText'
 import { InteractiveExample } from './InteractiveExample'
 import { WordAudio } from './WordAudio'
-import { reviewLearningCard, saveForLearning } from './learning'
+import { reviewLearningCard, saveForLearning, scheduleFirstReview } from './learning'
 import starterPack from './data/german-starter-pack.json'
 import {
   getCardsForStudySet,
@@ -208,7 +211,7 @@ const formatHours = (hours: number) => {
 
 const relativeReviewTime = (dueAt: string, now: number) => {
   const minutes = Math.max(1, Math.ceil((new Date(dueAt).getTime() - now) / 60_000))
-  if (minutes < 60) return `A card will be ready again in ${minutes} min.`
+  if (minutes < 60) return `A card will be ready for review in ${minutes} min.`
   const hours = Math.ceil(minutes / 60)
   if (hours < 24) return `Your next review is in about ${hours} hr.`
   const days = Math.ceil(hours / 24)
@@ -1183,7 +1186,6 @@ function App() {
     () => getInitialStudyMode(loaded.cards, new Date(INITIAL_NOW)) === 'learn',
   )
   const [learnSettingsOpen, setLearnSettingsOpen] = useState(false)
-  const [learningReviewId, setLearningReviewId] = useState<string | null>(null)
   const [studyTag, setStudyTag] = useState('')
   const [choiceFeedback, setChoiceFeedback] = useState<ChoiceFeedback | null>(null)
   const [productionAnswer, setProductionAnswer] = useState('')
@@ -1435,19 +1437,6 @@ function App() {
     }
   }, [accountEmail, accountSyncReady, canSave, cards, studyPlan, studyPlanWarning])
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const currentNow = Date.now()
-      setNow(currentNow)
-      if (practiceLoopIds && practiceLoopDay !== getLocalDayKey(new Date(currentNow))) {
-        setPracticeLoopIds(null)
-        setPracticeLoopIndex(0)
-        setPracticeLoopDay(null)
-      }
-    }, 30_000)
-    return () => window.clearInterval(timer)
-  }, [practiceLoopDay, practiceLoopIds])
-
   const queue = useMemo(() => {
     const sessionSet = new Set(sessionIds)
     return cards
@@ -1455,15 +1444,42 @@ function App() {
         (card) =>
           sessionSet.has(card.id) &&
           card.status === 'active' &&
-          (card.lastReviewedAt === null || new Date(card.dueAt).getTime() <= now),
+          (isUnintroduced(card) || isDueForReview(card, new Date(now))),
       )
       .sort((a, b) => {
-        const aNew = a.lastReviewedAt === null
-        const bNew = b.lastReviewedAt === null
+        const aNew = isUnintroduced(a)
+        const bNew = isUnintroduced(b)
         if (aNew !== bNew) return aNew ? 1 : -1
-        return new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime()
+        return Date.parse(getReviewDueAt(a)) - Date.parse(getReviewDueAt(b))
       })
   }, [cards, now, sessionIds])
+
+  const includeDueFirstReviews = useCallback((at: Date) => {
+    const due = scopedCards.filter((card) =>
+      card.lastReviewedAt === null && card.firstReviewScheduledAt && isDueForReview(card, at),
+    )
+    setSessionIds((current) => {
+      const available = Math.max(0, intensitySettings.reviewLimit - current.length)
+      const additions = due.filter((card) => !current.includes(card.id)).slice(0, available)
+      return additions.length ? [...current, ...additions.map((card) => card.id)] : current
+    })
+  }, [scopedCards, intensitySettings.reviewLimit])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const currentNow = Date.now()
+      setNow(currentNow)
+      if ((learnOpen || queue.length === 0) && !choiceFeedback && !productionFeedback && !practiceLoopIds) {
+        includeDueFirstReviews(new Date(currentNow))
+      }
+      if (practiceLoopIds && practiceLoopDay !== getLocalDayKey(new Date(currentNow))) {
+        setPracticeLoopIds(null)
+        setPracticeLoopIndex(0)
+        setPracticeLoopDay(null)
+      }
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [practiceLoopDay, practiceLoopIds, learnOpen, queue.length, choiceFeedback, productionFeedback, includeDueFirstReviews])
 
   const choiceScore = studyProgress.choice
   const productionScore = studyProgress.production
@@ -1477,10 +1493,7 @@ function App() {
   const practiceLoopCard = practiceLoopActive
     ? cards.find((card) => card.id === practiceLoopIds[practiceLoopIndex] && card.status === 'active')
     : undefined
-  const learningReviewCard = learningReviewId
-    ? cards.find((card) => card.id === learningReviewId && card.status === 'active' && card.lastReviewedAt === null)
-    : undefined
-  const activeCard = feedbackCard ?? learningReviewCard ?? practiceLoopCard ?? queue[0]
+  const activeCard = feedbackCard ?? practiceLoopCard ?? queue[0]
   const hasQuizFeedback = Boolean(choiceFeedback || productionFeedback)
   const visibleQueueCount = practiceLoopActive
     ? practiceLoopIds.length - practiceLoopIndex
@@ -1501,7 +1514,7 @@ function App() {
     ? 'Think of the article, plural, and meaning.'
     : 'Think of the meaning and how it works in a sentence.'
   const unseenCardsRemaining = scopedCards.filter(
-    (card) => card.lastReviewedAt === null,
+    isUnintroduced,
   ).length
   const dailyNewCardsRemaining = getStudySetNewCardLimit(
     cards,
@@ -1520,13 +1533,12 @@ function App() {
   const dueReviewsRemaining = scopedCards.some(
     (card) =>
       card.status === 'active' &&
-      card.lastReviewedAt !== null &&
-      new Date(card.dueAt).getTime() <= now &&
+      isDueForReview(card, new Date(now)) &&
       !sessionIdSet.has(card.id),
   )
   const getNewCardLimitForSession = (scope: Card[], at: Date, dailyLimit: number) =>
     newCardLimitOverrideDay === getLocalDayKey(at)
-      ? scope.filter((card) => card.lastReviewedAt === null).length
+      ? scope.filter(isUnintroduced).length
       : getStudySetNewCardLimit(cards, scope, at, dailyLimit)
 
   const handleRating = (rating: Rating) => {
@@ -1545,7 +1557,7 @@ function App() {
     setCards(updatedCards)
     saveDeck(updatedCards)
     setRevealed(false)
-    setLearningReviewId(null)
+    includeDueFirstReviews(reviewedAt)
     setStruggledWith([])
   }
 
@@ -1565,7 +1577,7 @@ function App() {
     setCards(updatedCards)
     saveDeck(updatedCards)
     setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
-    setLearningReviewId(null)
+    includeDueFirstReviews(reviewedAt)
   }
 
   const handleProductionSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -1589,7 +1601,7 @@ function App() {
     setCards(updatedCards)
     saveDeck(updatedCards)
     setProductionFeedback({ cardId: activeCard.id, answer, correct })
-    setLearningReviewId(null)
+    includeDueFirstReviews(reviewedAt)
     setProductionAnswer('')
   }
 
@@ -1804,19 +1816,22 @@ function App() {
     .filter(
       (card) =>
         card.status === 'active' &&
-        card.lastRating === 'again' &&
-        new Date(card.dueAt).getTime() > now,
+        (card.lastRating === 'again' || (card.lastReviewedAt === null && card.firstReviewScheduledAt)) &&
+        Date.parse(getReviewDueAt(card)) > now,
     )
-    .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())[0]
+    .sort((a, b) => Date.parse(getReviewDueAt(a)) - Date.parse(getReviewDueAt(b)))[0]
   const nextDueCard = scopedCards
     .filter(
       (card) =>
         card.status === 'active' &&
-        card.lastReviewedAt !== null &&
-        new Date(card.dueAt).getTime() > now,
+        !isUnintroduced(card) &&
+        Date.parse(getReviewDueAt(card)) > now,
     )
-    .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())[0]
+    .sort((a, b) => Date.parse(getReviewDueAt(a)) - Date.parse(getReviewDueAt(b)))[0]
   const setMode = (mode: ReviewMode) => {
+    const at = new Date()
+    includeDueFirstReviews(at)
+    setNow(at.getTime())
     setLearnOpen(false)
     setLearnSettingsOpen(false)
     setStudyMode(mode)
@@ -1887,7 +1902,6 @@ function App() {
     setPracticeLoopIds(null)
     setPracticeLoopIndex(0)
     setPracticeLoopDay(null)
-    setLearningReviewId(null)
     setRevealed(false)
     continueQuiz()
     setStruggledWith([])
@@ -1970,21 +1984,24 @@ function App() {
     const saved = saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')
     if (notify && !saved) showToast('Word saved for this visit only.', 'error')
   }
-  const startLearningReview = (id: string, mode: ReviewMode, beyondLimit: boolean) => {
-    const card = cards.find((item) => item.id === id && item.status === 'active' && item.lastReviewedAt === null)
-    if (!card) return
-    if (!card.learning?.saved) saveLearningCard(id, false)
-    if (beyondLimit) setNewCardLimitOverrideDay(getLocalDayKey(new Date()))
-    setPracticeLoopIds(null)
-    setPracticeLoopIndex(0)
-    setPracticeLoopDay(null)
-    setSessionIds((ids) => ids.includes(id) ? ids : [...ids, id])
-    setLearningReviewId(id)
-    setStudyMode(mode)
-    setRevealed(false)
-    continueQuiz()
-    setLearnOpen(false)
-    setLearnSettingsOpen(false)
+  const addToReviews = (id: string, beyondLimit: boolean) => {
+    const card = cards.find((item) => item.id === id && item.status === 'active' && isUnintroduced(item))
+    if (!card || !canSave) return false
+    const at = new Date()
+    if (!beyondLimit && getNewCardQuotaRemaining(cards, at, intensitySettings.newCardsPerDay) === 0) {
+      showToast('Your daily new-word target is complete.', 'error')
+      return false
+    }
+    const updatedCards = cards.map((item) => item.id === id ? scheduleFirstReview(item, at) : item)
+    if (!saveDeck(updatedCards, 'The review could not be scheduled. Check device storage and try again.')) {
+      showToast('The review could not be scheduled. Check device storage and try again.', 'error')
+      return false
+    }
+    setCards(updatedCards)
+    setSessionIds((ids) => ids.filter((item) => item !== id))
+    setNow(at.getTime())
+    showToast('Added to reviews. Ready in 10 minutes.')
+    return true
   }
   const learnContent = learnOpen && (
     <LearnMode
@@ -1996,7 +2013,7 @@ function App() {
       settingsOpen={learnSettingsOpen}
       onCloseSettings={closeLearnSettings}
       onSave={saveLearningCard}
-      onReview={startLearningReview}
+      onSchedule={addToReviews}
       onCopy={copyText}
     />
   )
@@ -2072,10 +2089,10 @@ function App() {
           <span className="complete-mark" aria-hidden="true">✓</span>
           <h1>That’s a good moment to pause.</h1>
           <p className="session-note">
-            {dailyLimitReached
+            {nextDueCard
+              ? relativeReviewTime(getReviewDueAt(nextDueCard), now)
+              : dailyLimitReached
               ? 'Your daily new-card pace is complete. More new cards will be ready tomorrow.'
-              : nextDueCard
-              ? relativeReviewTime(nextDueCard.dueAt, now)
               : 'You’re all caught up for now.'}
           </p>
           <p className="goal-summary">{studyPlanSummary}</p>
@@ -2102,7 +2119,7 @@ function App() {
           {dueReviewsRemaining || newCardsRemaining > 0 ? (
             <button type="button" className="primary-button" onClick={startNextSession}>
               {dueReviewsRemaining ? 'Continue due reviews' : 'Start next set'}
-              <span aria-hidden="true">→</span>
+              <ArrowRight size={16} aria-hidden="true" />
               <small>
                 {dueReviewsRemaining
                   ? `Up to ${intensitySettings.reviewLimit} reviews`
@@ -2110,7 +2127,11 @@ function App() {
               </small>
             </button>
           ) : shortDueCard ? (
-            <button type="button" className="quiet-button" onClick={() => setNow(Date.now())}>
+            <button type="button" className="quiet-button" onClick={() => {
+              const at = new Date()
+              includeDueFirstReviews(at)
+              setNow(at.getTime())
+            }}>
               Check for reviews
             </button>
           ) : unseenCardsRemaining > 0 ? null : (
@@ -2468,7 +2489,7 @@ function App() {
               onClick={advancePracticeLoop}
               disabled={!revealed}
             >
-              Next word <span aria-hidden="true">→</span>
+              Next word <ArrowRight size={16} aria-hidden="true" />
             </button>
           ) : (
             <>
@@ -2496,9 +2517,17 @@ function App() {
         <button
           type="button"
           className="primary-button choice-next"
-          onClick={practiceLoopActive ? advancePracticeLoop : continueQuiz}
+          onClick={() => {
+            if (practiceLoopActive) advancePracticeLoop()
+            else {
+              const at = new Date()
+              includeDueFirstReviews(at)
+              setNow(at.getTime())
+              continueQuiz()
+            }
+          }}
         >
-          {practiceLoopActive ? 'Next word' : 'Continue to next card'} <span aria-hidden="true">→</span>
+          {practiceLoopActive ? 'Next word' : 'Continue to next card'} <ArrowRight size={16} aria-hidden="true" />
         </button>
       ) : studyMode === 'choice' ? (
         <div className="choice-score" aria-live="polite">

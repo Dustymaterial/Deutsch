@@ -1,5 +1,5 @@
 import type { Card } from './deckImport'
-import { getNewCardQuotaRemaining } from './scheduler.ts'
+import { getNewCardQuotaRemaining, isUnintroduced } from './scheduler.ts'
 
 const CARD_METADATA_TAGS = new Set([
   'a1',
@@ -54,7 +54,7 @@ export const getStudySetNewCardLimit = (
   now: Date,
   dailyLimit: number,
 ) => {
-  const unseenInSet = scopedCards.filter((card) => card.lastReviewedAt === null).length
+  const unseenInSet = scopedCards.filter(isUnintroduced).length
   const remainingDailyQuota = getNewCardQuotaRemaining(allCards, now, dailyLimit)
   return Math.min(unseenInSet, remainingDailyQuota)
 }
