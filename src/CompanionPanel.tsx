@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Reply, SmilePlus, SpellCheck, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Reply, Search, SmilePlus, SpellCheck, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
 import starterPack from './data/german-starter-pack.json'
 import { findWord, indexWords, normalizeWord, splitMessage } from './wordLookup'
+import { matchSnippet } from './messageSearch'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -150,8 +151,8 @@ const starterWordIndex = indexWords(starterPack.cards.map((entry) => ({
   plural: entry.plural,
 })))
 
-function CompanionLoader({ label }: { label: string }) {
-  return <div className="companion-loader" role="status" aria-label={label}><span /></div>
+function CompanionLoader({ label, compact = false }: { label: string; compact?: boolean }) {
+  return <div className={`companion-loader${compact ? ' compact' : ''}`} role="status" aria-label={label}><span /></div>
 }
 
 export function CompanionPanel({
@@ -193,6 +194,10 @@ export function CompanionPanel({
   const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
+  const [searchFor, setSearchFor] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchState, setSearchState] = useState<{ chatId: string; query: string; messages: ChatMessage[]; hasMore: boolean } | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ messageId: string; text: string } | null>(null)
   const [confirmUnsendId, setConfirmUnsendId] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
@@ -238,10 +243,11 @@ export function CompanionPanel({
     if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean') {
       throw new Error('The chat service returned an incomplete response.')
     }
-    if (selectedChatId.current !== chatId) return
+    if (selectedChatId.current !== chatId) return null
     setChatMessages((current) => mode === 'replace' ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
     if (mode === 'replace' || before) setHasOlderMessages(data.hasMore)
     setChatError(null)
+    return data
   }, [])
 
   useEffect(() => {
@@ -328,6 +334,25 @@ export function CompanionPanel({
     const timer = window.setInterval(() => setNow(Date.now()), 15000)
     return () => window.clearInterval(timer)
   }, [selectedChat])
+
+  const searchOpen = Boolean(selectedChat) && searchFor === selectedChat?.id
+  const searchTerm = searchQuery.trim()
+  useEffect(() => {
+    if (!searchFor || searchTerm.length < 2) return
+    let active = true
+    const timer = window.setTimeout(() => {
+      request(`/chats/${searchFor}/search?q=${encodeURIComponent(searchTerm)}`).then((data) => {
+        const result = data as { messages: ChatMessage[]; hasMore: boolean }
+        if (!Array.isArray(result.messages)) throw new Error('The chat service returned an incomplete response.')
+        if (active) setSearchState({ chatId: searchFor, query: searchTerm, messages: result.messages.map(normalizeMessage), hasMore: Boolean(result.hasMore) })
+      }).catch((failure: unknown) => {
+        if (!active) return
+        setSearchState({ chatId: searchFor, query: searchTerm, messages: [], hasMore: false })
+        setChatError(failure instanceof Error ? failure.message : 'Could not search this conversation.')
+      })
+    }, 300)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [searchFor, searchTerm])
 
   const newestMessageId = chatMessages.at(-1)?.id ?? null
   useEffect(() => {
@@ -492,6 +517,45 @@ export function CompanionPanel({
       await respondToCorrection(chatMessage, 'saved')
       setSavingCorrection(null)
     })
+  }
+
+  const toggleSearch = () => {
+    if (!selectedChat) return
+    if (searchOpen) {
+      setSearchFor(null)
+      return
+    }
+    if (searchState?.chatId !== selectedChat.id) setSearchQuery('')
+    setSearchFor(selectedChat.id)
+  }
+
+  const showSearchResult = async (result: ChatMessage) => {
+    if (!selectedChat) return
+    const chatId = selectedChat.id
+    let found = chatMessages.some((item) => item.id === result.id)
+    let before = chatMessages[0]?.createdAt
+    setLoadingOlder(true)
+    try {
+      for (let page = 0; !found && before && page < 20; page += 1) {
+        const loaded = await loadMessages(chatId, 'merge', before)
+        if (!loaded?.messages.length) break
+        found = loaded.messages.some((item) => item.id === result.id)
+        before = loaded.messages[0].createdAt
+        if (!loaded.hasMore) break
+      }
+    } catch (failure) {
+      setChatError(failure instanceof Error ? failure.message : 'Could not load earlier messages.')
+    } finally {
+      setLoadingOlder(false)
+    }
+    if (!found) {
+      setChatError('That message is too far back to show here.')
+      return
+    }
+    setSearchFor(null)
+    setHighlightId(result.id)
+    window.setTimeout(() => jumpToMessage(result.id), 60)
+    window.setTimeout(() => setHighlightId((current) => current === result.id ? null : current), 2600)
   }
 
   const canModify = (chatMessage: ChatMessage) =>
@@ -888,13 +952,41 @@ export function CompanionPanel({
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
-              <details className="companion-row-menu companion-chat-menu">
-                <summary aria-label="Conversation actions"><Ellipsis size={18} aria-hidden="true" /></summary>
-                <div className="companion-row-popover">
-                  <button type="button" onClick={(event) => { closePopover(event); setConfirmDeleteChat(true) }}>Hide conversation</button>
-                </div>
-              </details>
+              <div className="companion-chat-header-actions">
+                <button className="companion-header-icon" type="button" aria-label="Search this conversation" title="Search this conversation" aria-pressed={searchOpen} onClick={toggleSearch}><Search size={16} aria-hidden="true" /></button>
+                <details className="companion-row-menu companion-chat-menu">
+                  <summary aria-label="Conversation actions"><Ellipsis size={18} aria-hidden="true" /></summary>
+                  <div className="companion-row-popover">
+                    <button type="button" onClick={(event) => { closePopover(event); setConfirmDeleteChat(true) }}>Hide conversation</button>
+                  </div>
+                </details>
+              </div>
             </header>
+            {searchOpen && <div className="companion-search-panel">
+              <div className="companion-message-search">
+                <Search size={14} aria-hidden="true" />
+                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setSearchFor(null) }} placeholder="Search words or phrases" aria-label="Search this conversation" maxLength={100} autoFocus />
+                {searchQuery && <button type="button" aria-label="Clear search" onClick={() => setSearchQuery('')}><X size={13} aria-hidden="true" /></button>}
+              </div>
+              {searchTerm.length >= 2 && (searchState?.chatId === searchFor && searchState.query === searchTerm
+                ? searchState.messages.length
+                  ? <>
+                    <ul className="companion-search-results">
+                      {searchState.messages.map((result) => {
+                        const snippet = matchSnippet(result, searchTerm)
+                        return <li key={result.id}>
+                          <button type="button" disabled={loadingOlder} onClick={() => void showSearchResult(result)}>
+                            <span><strong>{result.isMine ? 'You' : selectedChat.companion.username}</strong><time dateTime={result.createdAt}>{formatChatTime(result.createdAt)}</time></span>
+                            <span>{snippet ? <>{snippet.before}<mark>{snippet.match}</mark>{snippet.after}</> : result.text}</span>
+                          </button>
+                        </li>
+                      })}
+                    </ul>
+                    {searchState.hasMore && <p className="companion-search-note">Showing the 30 most recent matches.</p>}
+                  </>
+                  : <p className="companion-search-note">No messages match “{searchTerm}”.</p>
+                : <CompanionLoader label="Searching" compact />)}
+            </div>}
             <aside className="companion-practice-nudge" aria-label="Practice suggestion">
               <p>Try using one word you reviewed recently in a sentence. A small practice moment counts.</p>
             </aside>
@@ -908,7 +1000,7 @@ export function CompanionPanel({
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
-                : chatMessages.map((chatMessage) => <article className="companion-message-row" id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
+                : chatMessages.map((chatMessage) => <article className={`companion-message-row${highlightId === chatMessage.id ? ' highlighted' : ''}`} id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
                   <div className="companion-message-content">
                     {chatMessage.replyTo && <button className="companion-reply-quote" style={replyColor(chatMessage.replyTo.id)} type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
                       <strong>{chatMessage.replyTo.isMine ? 'You' : selectedChat.companion.username}</strong><span>{chatMessage.replyTo.text}</span>
