@@ -36,6 +36,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
   const [choice, setChoice] = useState<string | null>(null)
   const [showQuiz, setShowQuiz] = useState(false)
   const [showReview, setShowReview] = useState(false)
+  const [noOtherSavedWord, setNoOtherSavedWord] = useState(false)
   const [audioVersion, setAudioVersion] = useState(0)
   const settingsRef = useRef<HTMLElement>(null)
   const tags = useMemo(() => getStudySetTags(cards), [cards])
@@ -61,6 +62,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
   const previousHistory = moveLearnHistory(currentHistory, -1, availableHistory)
   const readOnly = card ? !isUnintroduced(card) : false
   const choices = card ? getStudySetChoiceOptions(card, scoped, cards, 0) : null
+  const showNoOtherSavedWord = noOtherSavedWord && card && !visible.some((item) => item.id !== card.id)
 
   useEffect(() => {
     if (!settingsOpen) return
@@ -86,6 +88,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
     setChoice(null)
     setShowQuiz(false)
     setShowReview(false)
+    setNoOtherSavedWord(false)
     setAudioVersion((version) => version + 1)
   }
 
@@ -102,7 +105,13 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
     resetActivity()
   }
 
-  const next = (removeCurrent = false) => {
+  const changeView = (nextView: 'guided' | 'browse' | 'saved') => {
+    setView(nextView)
+    setQuery('')
+    resetNavigation()
+  }
+
+  const next = (removeCurrent = false, notifyWhenAlone = false) => {
     if (!card) return
     const forwardAvailable = new Set(availableHistory)
     if (removeCurrent) forwardAvailable.delete(card.id)
@@ -116,6 +125,10 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
     const index = visible.findIndex((item) => item.id === card.id)
     const ordered = index < 0 ? visible : [...visible.slice(index + 1), ...visible.slice(0, index + 1)]
     const target = ordered.find((item) => !removeCurrent || item.id !== card.id)
+    if (view === 'saved' && notifyWhenAlone && (!target || target.id === card.id)) {
+      setNoOtherSavedWord(true)
+      return
+    }
     if (target) {
       setHistory(visitLearnWord(currentHistory, target.id))
       setSelectedId(target.id)
@@ -147,7 +160,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
           </div>
           <div className="learn-tabs" role="group" aria-label="Learning view">
           {([['guided', 'Guided'], ['browse', 'Browse'], ['saved', 'Continue learning']] as const).map(([id, label]) => (
-            <button type="button" key={id} aria-pressed={view === id} onClick={() => { setView(id); setQuery(''); resetNavigation() }}>{label}</button>
+            <button type="button" key={id} aria-pressed={view === id} onClick={() => changeView(id)}>{label}</button>
           ))}
           </div>
           <div className="learn-filters">
@@ -250,13 +263,22 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
               setSkipped((current) => current.includes(card.id) ? current : [...current, card.id])
               next(view === 'guided')
             }}>Skip for now</button>}
-            <button type="button" className="quiet-button" onClick={() => next()}>Next word <ArrowRight size={16} aria-hidden="true" /></button>
+            <button type="button" className="quiet-button" onClick={() => next(false, true)}>Next word <ArrowRight size={16} aria-hidden="true" /></button>
           </div>}
         </>
       ) : <>
-        <p className="learn-empty">{view === 'saved' ? 'No saved words in these filters yet.' : 'No new words match these filters in this session.'} Open Learn settings in the ··· menu to change your selection.</p>
+        <p className="learn-empty" role="status">{view === 'saved' ? 'No saved words in these filters yet.' : 'No new words match these filters in this session.'} Open Learn settings in the ··· menu to change your selection.</p>
         {previousHistory && <div className="learn-navigation"><button type="button" className="quiet-button" onClick={previous}><ArrowLeft size={16} aria-hidden="true" /> Previous</button></div>}
       </>}
+      {view === 'saved' && (showNoOtherSavedWord || !card) && (
+        <div className="learn-end">
+          {showNoOtherSavedWord && <p role="status">There are no other saved words in these filters.</p>}
+          <div className="learn-end-actions" role="group" aria-label="Switch learning view">
+            <button type="button" className="quiet-button" onClick={() => changeView('guided')}>Go to Guided</button>
+            <button type="button" className="quiet-button" onClick={() => changeView('browse')}>Go to Browse</button>
+          </div>
+        </div>
+      )}
       <p className="learn-footer">Words added to reviews are due in 10 minutes. Source examples and levels may contain errors.</p>
     </section>
   )

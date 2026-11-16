@@ -64,11 +64,13 @@ In **··· → Tune session**, open **View reviewed words** to search the selec
 
 ### Learn unfamiliar words
 
-Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save keeps it in Continue learning, on this device and in optional account sync.
+Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session.
+
+**Save** bookmarks a word in **Continue learning** without scheduling it, recording an answer, counting toward your daily new-word target, or adding activity. It stays on this device and syncs with your account when signed in. Saving does not exclude it from the new cards in other study modes; reviewing it there removes it from Continue learning. If there is no other saved word to move to, **Next word** lets you know and offers Guided or Browse instead. Topic and level filters still apply.
 
 Use **Previous** to revisit words seen in this Learn session; **Next word** retraces that path before continuing. Skipped words remain excluded from Guided unless revisited through the path. Words already added to reviews are shown read-only, with copy and Listen still available. Revisiting does not change review schedules, scores, or pause counts. History resets when you change the learning view or filters, or leave Learn.
 
-Choose **Add to reviews** when ready. The word is due in 10 minutes and joins the review queue; if you leave, it remains due when you return. Adding it counts toward the shared daily new-word target, but does not record an answer or score. If the target is complete, you can explicitly add the word anyway. The first review is recorded when you submit an answer or rating. Save separately keeps a word in Learn without scheduling it.
+Choose **Add to reviews** when ready. The word is due in 10 minutes and joins the review queue; if you leave, it remains due when you return. It is removed from Continue learning, counts toward the shared daily new-word target and activity, but does not record an answer or score. If the target is complete, you can explicitly add the word anyway. The first review is recorded when you submit an answer or rating.
 
 Use the copy icon beside a German word or example. In Recall, these are available after revealing the answer; in Choose and Produce, the answer can be copied after submission. Noun words include their article.
 
