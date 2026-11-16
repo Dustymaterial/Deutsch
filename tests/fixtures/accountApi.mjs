@@ -40,6 +40,18 @@ const records = {
   users: [], progress: [], relationships: [], sharedWords: [],
   companionConversations: [], companionMessages: [], companionReports: [],
 }
+const applyUpdate = (record, update) => {
+  for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
+  for (const [path, value] of Object.entries(update.$inc ?? {})) set(record, path, (get(record, path) ?? 0) + value)
+  for (const [path, value] of Object.entries(update.$addToSet ?? {})) {
+    const current = get(record, path) ?? []
+    if (!current.includes(value)) set(record, path, [...current, value])
+  }
+  for (const [path, value] of Object.entries(update.$push ?? {})) {
+    set(record, path, [...value.$each, ...(get(record, path) ?? [])].slice(0, value.$slice))
+  }
+  for (const path of Object.keys(update.$unset ?? {})) unset(record, path)
+}
 const collection = (name) => ({
   async createIndex() {},
   find(query, options = {}) {
@@ -81,17 +93,13 @@ const collection = (name) => ({
   async updateOne(query, update) {
     const record = records[name].find((item) => matches(item, query))
     if (!record) return { matchedCount: 0, modifiedCount: 0 }
-    for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
-    for (const [path, value] of Object.entries(update.$inc ?? {})) set(record, path, (get(record, path) ?? 0) + value)
-    for (const [path, value] of Object.entries(update.$addToSet ?? {})) {
-      const current = get(record, path) ?? []
-      if (!current.includes(value)) set(record, path, [...current, value])
-    }
-    for (const [path, value] of Object.entries(update.$push ?? {})) {
-      set(record, path, [...value.$each, ...(get(record, path) ?? [])].slice(0, value.$slice))
-    }
-    for (const path of Object.keys(update.$unset ?? {})) unset(record, path)
+    applyUpdate(record, update)
     return { matchedCount: 1, modifiedCount: 1 }
+  },
+  async updateMany(query, update) {
+    const found = records[name].filter((item) => matches(item, query))
+    for (const record of found) applyUpdate(record, update)
+    return { matchedCount: found.length, modifiedCount: found.length }
   },
 })
 class FakeMongoClient {
@@ -298,6 +306,60 @@ try {
   assert.deepEqual(reacted.reactions, [{ emoji: '💡', count: 2, mine: true }])
   assert.deepEqual((await request(reactionPath, { emoji: null }, other.cookie)).body.reactions, [{ emoji: '💡', count: 1, mine: false }])
   assert.equal((await request(`/api/companions/messages/${new ObjectId().toString()}/reaction`, { emoji: '👍' }, other.cookie)).status, 404)
+  const correctionPath = `/api/companions/messages/${reply.body.message.id}/correction`
+  assert.equal((await request(correctionPath, { text: '   ' }, learner.cookie)).status, 400)
+  assert.equal((await request(correctionPath, { text: 'Danke!' }, learner.cookie)).status, 400)
+  assert.equal((await request(correctionPath, { text: 'Danke schön!' }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${wordMessage.body.message.id}/correction`, { text: 'Die Lektionen' }, other.cookie)).status, 404)
+  const suggested = await request(correctionPath, { text: 'Danke schön!', note: 'A friendlier closing.' }, learner.cookie)
+  assert.equal(suggested.status, 201)
+  assert.deepEqual(
+    { text: suggested.body.message.correction.text, note: suggested.body.message.correction.note, byMe: suggested.body.message.correction.byMe },
+    { text: 'Danke schön!', note: 'A friendlier closing.', byMe: true },
+  )
+  assert.equal((await request(correctionPath, { text: 'Vielen Dank!' }, learner.cookie)).status, 409)
+  const authorView = (await request(messagesPath, null, other.cookie)).body.messages.find((item) => item.id === reply.body.message.id)
+  assert.equal(authorView.text, 'Danke!')
+  assert.equal(authorView.correction.byMe, false)
+  assert.equal(authorView.correction.response, undefined)
+  const respondPath = `${correctionPath}/respond`
+  assert.equal((await request(respondPath, { response: 'thanks' }, learner.cookie)).status, 404)
+  assert.equal((await request(respondPath, { response: 'maybe' }, other.cookie)).status, 400)
+  assert.equal((await request(respondPath, { response: 'thanks' }, other.cookie)).body.message.correction.response, 'thanks')
+  assert.equal((await request(respondPath, { response: 'saved' }, other.cookie)).body.message.correction.response, 'saved')
+  assert.equal((await request(respondPath, { response: 'thanks' }, other.cookie)).body.message.correction.response, 'saved')
+  const correctorView = (await request(messagesPath, null, learner.cookie)).body.messages.find((item) => item.id === reply.body.message.id)
+  assert.equal(correctorView.correction.response, 'saved')
+  assert.equal((await request(`/api/companions/messages/${reply.body.message.id}/edit`, { text: 'Danke sehr!' }, other.cookie)).status, 409)
+  const editPath = `/api/companions/messages/${threaded.body.message.id}/edit`
+  assert.equal((await request(editPath, { text: 'Gern geschehen!' }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${wordMessage.body.message.id}/edit`, { text: 'Changed' }, learner.cookie)).status, 404)
+  assert.equal((await request(editPath, { text: '  ' }, learner.cookie)).status, 400)
+  const edited = await request(editPath, { text: '  Gern geschehen!  ' }, learner.cookie)
+  assert.equal(edited.status, 200)
+  assert.equal(edited.body.message.text, 'Gern geschehen!')
+  assert.ok(edited.body.message.editedAt)
+  assert.equal((await request(messagesPath, null, other.cookie)).body.messages.find((item) => item.id === threaded.body.message.id).editableUntil, undefined)
+  records.companionMessages.find((item) => item._id.toString() === threaded.body.message.id).createdAt = new Date(Date.now() - 11 * 60 * 1000)
+  assert.equal((await request(editPath, { text: 'Too late' }, learner.cookie)).status, 403)
+  assert.equal((await request(`/api/companions/messages/${threaded.body.message.id}/unsend`, {}, learner.cookie)).status, 403)
+  const oops = await request(messagesPath, { text: 'Oops, wrong chat' }, learner.cookie)
+  const answered = await request(messagesPath, { text: 'Verstanden', replyToId: oops.body.message.id }, other.cookie)
+  assert.equal(answered.body.message.replyTo.text, 'Oops, wrong chat')
+  const unsendPath = `/api/companions/messages/${oops.body.message.id}/unsend`
+  assert.equal((await request(unsendPath, {}, other.cookie)).status, 404)
+  const unsent = await request(unsendPath, {}, learner.cookie)
+  assert.equal(unsent.status, 200)
+  assert.equal(unsent.body.message.kind, 'unsent')
+  assert.equal(unsent.body.message.text, 'Message unsent')
+  const afterUnsend = (await request(messagesPath, null, other.cookie)).body.messages
+  assert.equal(afterUnsend.find((item) => item.id === oops.body.message.id).kind, 'unsent')
+  assert.equal(afterUnsend.find((item) => item.id === answered.body.message.id).replyTo.text, 'Message unsent')
+  assert.equal(records.companionMessages.find((item) => item._id.toString() === oops.body.message.id).text, '')
+  assert.equal((await request(unsendPath, {}, learner.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${oops.body.message.id}/reaction`, { emoji: '👍' }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${oops.body.message.id}/report`, { reason: 'spam' }, other.cookie)).status, 404)
+  assert.equal((await request(messagesPath, { text: 'Reply', replyToId: oops.body.message.id }, other.cookie)).status, 400)
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/delete`, {}, learner.cookie)).status, 200)
   assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats.length, 0)
   assert.equal((await request('/api/companions/chats', null, other.cookie)).body.chats.length, 1)

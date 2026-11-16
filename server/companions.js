@@ -28,12 +28,20 @@ const chatMessageSchema = z.object({
   replyToId: objectIdSchema.optional(),
 }).refine((message) => Boolean(message.text) !== Boolean(message.card))
 const reactionSchema = z.object({ emoji: z.enum(reactionEmojis).nullable() })
+const messageEditSchema = z.object({ text: z.string().trim().min(1).max(2000) })
+const correctionSchema = z.object({
+  text: z.string().trim().min(1).max(2000),
+  note: z.string().trim().max(200).optional(),
+})
+const correctionResponseSchema = z.object({ response: z.enum(['thanks', 'saved']) })
 const shareSchema = z.object({
   recipientId: z.string().regex(/^[a-f\d]{24}$/),
   card: sharedCardSchema,
   note: z.string().trim().max(240).optional(),
 })
 const hour = 60 * 60 * 1000
+const editWindow = 10 * 60 * 1000
+const unsentText = 'Message unsent'
 const cooldown = 24 * hour
 const shareLifetime = 30 * 24 * hour
 
@@ -69,20 +77,58 @@ export function createCompanionRouter({
     const users = Object.entries(reactions ?? {}).filter(([, value]) => value === emoji).map(([id]) => id)
     return users.length ? [{ emoji, count: users.length, mine: users.includes(me) }] : []
   })
-  const serializeMessage = (message, me) => ({
-    id: message._id.toString(),
-    senderId: message.senderId,
-    isMine: message.senderId === me,
-    kind: message.card ? 'word' : 'text',
-    text: message.text,
-    ...(message.card ? { card: message.card } : {}),
-    ...(message.replyTo ? {
-      replyTo: { id: message.replyTo.id, isMine: message.replyTo.senderId === me, text: message.replyTo.text },
-    } : {}),
-    reactions: summarizeReactions(message.reactions, me),
-    createdAt: message.createdAt.toISOString(),
-    reported: message.reporterIds?.includes(me) ?? false,
-  })
+  const serializeMessage = (message, me) => {
+    const base = {
+      id: message._id.toString(),
+      senderId: message.senderId,
+      isMine: message.senderId === me,
+      createdAt: message.createdAt.toISOString(),
+    }
+    if (message.unsentAt) return { ...base, kind: 'unsent', text: unsentText, reactions: [], reported: false }
+    return {
+      ...base,
+      kind: message.card ? 'word' : 'text',
+      text: message.text,
+      ...(message.card ? { card: message.card } : {}),
+      ...(message.replyTo ? {
+        replyTo: { id: message.replyTo.id, isMine: message.replyTo.senderId === me, text: message.replyTo.text },
+      } : {}),
+      ...(message.editedAt ? { editedAt: message.editedAt.toISOString() } : {}),
+      ...(message.senderId === me ? { editableUntil: new Date(message.createdAt.getTime() + editWindow).toISOString() } : {}),
+      ...(message.correction ? {
+        correction: {
+          text: message.correction.text,
+          ...(message.correction.note ? { note: message.correction.note } : {}),
+          byMe: message.correction.authorId === me,
+          createdAt: message.correction.createdAt.toISOString(),
+          ...(message.correction.response ? { response: message.correction.response } : {}),
+        },
+      } : {}),
+      reactions: summarizeReactions(message.reactions, me),
+      reported: message.reporterIds?.includes(me) ?? false,
+    }
+  }
+
+  async function reserveMessageSlot(user, now) {
+    const throttle = await users.updateOne({
+      _id: user._id,
+      $or: [
+        { 'companionMessageHistory.59': { $exists: false } },
+        { 'companionMessageHistory.59': { $lte: new Date(now.getTime() - hour) } },
+      ],
+    }, { $push: { companionMessageHistory: { $each: [now], $position: 0, $slice: 60 } } })
+    return throttle.modifiedCount === 1
+  }
+
+  async function visibleMessage(me, id) {
+    if (!ObjectId.isValid(id)) return null
+    const message = await companionMessages.findOne({ _id: new ObjectId(id) })
+    if (!message || message.unsentAt) return null
+    const active = await activeConversation(me, message.conversationId)
+    const hiddenAt = active?.conversation.hiddenAt?.[me]
+    if (!active || (hiddenAt && message.createdAt <= hiddenAt)) return null
+    return { message, active }
+  }
 
   async function getOrCreatePair(me, them) {
     const key = pairKey(me, them)
@@ -204,7 +250,7 @@ export function createCompanionRouter({
         id: conversationId,
         companion: profile(companion),
         lastMessage: lastMessage ? {
-          text: lastMessage.text,
+          text: lastMessage.unsentAt ? unsentText : lastMessage.text,
           isMine: lastMessage.senderId === me,
           createdAt: lastMessage.createdAt.toISOString(),
         } : null,
@@ -276,20 +322,15 @@ export function createCompanionRouter({
     if (result.data.replyToId) {
       const target = await companionMessages.findOne({ _id: new ObjectId(result.data.replyToId), conversationId })
       const hiddenAt = active.conversation.hiddenAt?.[me]
-      if (!target || (hiddenAt && target.createdAt <= hiddenAt)) {
+      if (!target || target.unsentAt || (hiddenAt && target.createdAt <= hiddenAt)) {
         return res.status(400).json({ error: 'That message is no longer available to reply to.' })
       }
       replyTo = { id: target._id.toString(), senderId: target.senderId, text: previewText(target) }
     }
     const now = new Date()
-    const throttle = await users.updateOne({
-      _id: req.accountUser._id,
-      $or: [
-        { 'companionMessageHistory.59': { $exists: false } },
-        { 'companionMessageHistory.59': { $lte: new Date(now.getTime() - hour) } },
-      ],
-    }, { $push: { companionMessageHistory: { $each: [now], $position: 0, $slice: 60 } } })
-    if (!throttle.modifiedCount) return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
+    if (!await reserveMessageSlot(req.accountUser, now)) {
+      return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
+    }
     const message = {
       conversationId,
       senderId: me,
@@ -322,13 +363,10 @@ export function createCompanionRouter({
   router.post('/messages/:id/reaction', async (req, res) => {
     const result = reactionSchema.safeParse(req.body)
     if (!result.success) return res.status(400).json({ error: 'Choose one of the available reactions.' })
-    if (!ObjectId.isValid(req.params.id)) return unavailable(res)
     const me = req.accountUser._id.toString()
-    const message = await companionMessages.findOne({ _id: new ObjectId(req.params.id) })
-    if (!message) return unavailable(res)
-    const active = await activeConversation(me, message.conversationId)
-    const hiddenAt = active?.conversation.hiddenAt?.[me]
-    if (!active || (hiddenAt && message.createdAt <= hiddenAt)) return unavailable(res)
+    const found = await visibleMessage(me, req.params.id)
+    if (!found) return unavailable(res)
+    const { message } = found
     const path = `reactions.${me}`
     const { emoji } = result.data
     await companionMessages.updateOne({ _id: message._id }, emoji ? { $set: { [path]: emoji } } : { $unset: { [path]: '' } })
@@ -338,13 +376,89 @@ export function createCompanionRouter({
     res.json({ reactions: summarizeReactions(reactions, me) })
   })
 
+  router.post('/messages/:id/correction', async (req, res) => {
+    const result = correctionSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Write the corrected sentence, with an optional note under 200 characters.' })
+    const me = req.accountUser._id.toString()
+    const found = await visibleMessage(me, req.params.id)
+    if (!found || found.message.senderId === me || found.message.card) return unavailable(res)
+    const { message, active } = found
+    if (message.correction) return res.status(409).json({ error: 'This message already has a suggested correction.' })
+    if (result.data.text === message.text) return res.status(400).json({ error: 'Change something in the sentence to suggest a correction.' })
+    const now = new Date()
+    if (!await reserveMessageSlot(req.accountUser, now)) {
+      return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
+    }
+    const correction = {
+      authorId: me,
+      text: result.data.text,
+      ...(result.data.note ? { note: result.data.note } : {}),
+      createdAt: now,
+    }
+    await companionMessages.updateOne({ _id: message._id }, { $set: { correction } })
+    await conversations.updateOne({ _id: active.conversation._id }, { $set: { updatedAt: now } })
+    res.status(201).json({ message: serializeMessage({ ...message, correction }, me) })
+  })
+
+  router.post('/messages/:id/correction/respond', async (req, res) => {
+    const result = correctionResponseSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose how you want to respond.' })
+    const me = req.accountUser._id.toString()
+    const found = await visibleMessage(me, req.params.id)
+    if (!found || found.message.senderId !== me || !found.message.correction) return unavailable(res)
+    const { message } = found
+    if (message.correction.response === 'saved' || message.correction.response === result.data.response) {
+      return res.json({ message: serializeMessage(message, me) })
+    }
+    const correction = { ...message.correction, response: result.data.response, respondedAt: new Date() }
+    await companionMessages.updateOne({ _id: message._id }, { $set: { correction } })
+    res.json({ message: serializeMessage({ ...message, correction }, me) })
+  })
+
+  router.post('/messages/:id/edit', async (req, res) => {
+    const result = messageEditSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Write a message up to 2,000 characters.' })
+    const me = req.accountUser._id.toString()
+    const found = await visibleMessage(me, req.params.id)
+    if (!found || found.message.senderId !== me || found.message.card) return unavailable(res)
+    const { message } = found
+    if (Date.now() - message.createdAt.getTime() > editWindow) {
+      return res.status(403).json({ error: 'Messages can be edited for 10 minutes after sending.' })
+    }
+    if (message.correction) return res.status(409).json({ error: 'This message has a suggested correction, so it can no longer be edited.' })
+    if (result.data.text === message.text) return res.json({ message: serializeMessage(message, me) })
+    const editedAt = new Date()
+    await companionMessages.updateOne({ _id: message._id }, { $set: { text: result.data.text, editedAt } })
+    res.json({ message: serializeMessage({ ...message, text: result.data.text, editedAt }, me) })
+  })
+
+  router.post('/messages/:id/unsend', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    const found = await visibleMessage(me, req.params.id)
+    if (!found || found.message.senderId !== me) return unavailable(res)
+    const { message } = found
+    if (Date.now() - message.createdAt.getTime() > editWindow) {
+      return res.status(403).json({ error: 'Messages can be unsent for 10 minutes after sending.' })
+    }
+    const unsentAt = new Date()
+    await companionMessages.updateOne({ _id: message._id }, {
+      $set: { unsentAt, text: '' },
+      $unset: { card: '', replyTo: '', reactions: '', correction: '', editedAt: '' },
+    })
+    await companionMessages.updateMany(
+      { conversationId: message.conversationId, 'replyTo.id': message._id.toString() },
+      { $set: { 'replyTo.text': unsentText } },
+    )
+    res.json({ message: serializeMessage({ ...message, unsentAt, text: '' }, me) })
+  })
+
   router.post('/messages/:id/report', async (req, res) => {
     const result = reportSchema.safeParse(req.body)
     if (!result.success) return res.status(400).json({ error: 'Choose a reason and keep details under 500 characters.' })
     if (!ObjectId.isValid(req.params.id)) return unavailable(res)
     const me = req.accountUser._id.toString()
     const message = await companionMessages.findOne({ _id: new ObjectId(req.params.id) })
-    if (!message || message.senderId === me) return unavailable(res)
+    if (!message || message.unsentAt || message.senderId === me) return unavailable(res)
     const conversation = await conversations.findOne({
       _id: new ObjectId(message.conversationId),
       participants: me,
