@@ -36,6 +36,7 @@ import { isProductionAnswerCorrect } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
 import { CompanionPanel, type SharedWordPreview } from './CompanionPanel'
 import { useConfirm } from './confirmContext'
+import type { WordEntry } from './wordLookup'
 import { mergeAccountProgress, type AccountProgress } from './accountSync'
 import LearnMode from './LearnMode'
 import { MenuSelect, type MenuSelectOption } from './MenuSelect'
@@ -1915,6 +1916,34 @@ function App() {
     return 'added' as const
   }
 
+  const addDictionaryWord = (entry: WordEntry) => {
+    const article = /^(der|die|das) /.test(entry.prompt) ? entry.prompt.split(' ')[0] : undefined
+    const level = entry.level === 'A1' || entry.level === 'A2' ? [entry.level] : []
+    const card = makeCard(
+      `dictionary-${crypto.randomUUID()}`,
+      entry.prompt,
+      entry.meaning,
+      entry.example ?? '',
+      entry.translation ?? '',
+      entry.category,
+      [...new Set([entry.category, 'From chat', ...level])],
+      article ? { article, ...(entry.plural ? { plural: entry.plural } : {}) } : {},
+    )
+    if (cards.some((item) => cardContentKey(item) === cardContentKey(card))) return 'already-present' as const
+    if (!canSave) {
+      showToast('This word could not be saved because your deck has a storage issue.', 'error')
+      return false
+    }
+    const updatedCards = [...cards, card]
+    if (!saveDeck(updatedCards, 'The word could not be saved to this device. Check available device storage and try again.')) {
+      showToast('The word could not be saved to this device.', 'error')
+      return false
+    }
+    setCards(updatedCards)
+    showToast(`${card.prompt} is ready for your next study set.`)
+    return 'added' as const
+  }
+
   const handleExportDeck = () => {
     const backup = {
       format: 'deutsch-daily-deck',
@@ -2311,6 +2340,7 @@ function App() {
       cards={cards}
       onReceiveWord={receiveSharedWord}
       onAddStarterWord={addStarterWord}
+      onAddDictionaryWord={addDictionaryWord}
       onNotify={showToast}
       onBack={() => setCompanionWorkspaceOpen(false)}
     />

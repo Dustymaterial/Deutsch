@@ -2,7 +2,7 @@ export type MatchSource = {
   kind?: string
   text: string
   card?: { prompt: string; meaning: string; example: string; translation?: string }
-  correction?: { text: string; note?: string }
+  correction?: { text?: string; note?: string }
 }
 
 export type Snippet = { before: string; match: string; after: string }
@@ -32,7 +32,7 @@ export const findMatch = (text: string, query: string): [number, number] | null 
 export const searchableFields = (message: MatchSource) => [
   ...(message.card ? [] : [message.text]),
   ...(message.card ? [message.card.prompt, message.card.meaning, message.card.example, message.card.translation ?? ''] : []),
-  ...(message.correction ? [message.correction.text, message.correction.note ?? ''] : []),
+  ...(message.correction ? [message.correction.text ?? '', message.correction.note ?? ''] : []),
 ].filter(Boolean)
 
 export const matchSnippet = (message: MatchSource, query: string, radius = 48): Snippet | null => {

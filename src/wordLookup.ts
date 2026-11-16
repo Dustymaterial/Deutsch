@@ -1,12 +1,18 @@
 export type WordEntry = {
   id: string
-  source: 'deck' | 'starter'
+  source: 'deck' | 'starter' | 'dictionary'
   prompt: string
   meaning: string
   category: string
+  plural?: string
+  example?: string
+  translation?: string
+  level?: string
+  // Set when the tapped word is an inflected form of this entry, e.g. "ging" for "gehen".
+  form?: string
 }
 
-export type WordSource = WordEntry & { plural?: string }
+export type WordSource = WordEntry
 export type MessagePart = { text: string; word: boolean }
 
 const wordPattern = /([\p{L}\p{M}]+(?:[-'’][\p{L}\p{M}]+)*)/u
@@ -22,8 +28,8 @@ export const splitMessage = (text: string): MessagePart[] =>
 // Only exact single-word forms (the headword and a noun's plural) are indexed; no inflections are guessed.
 export const indexWords = (entries: WordSource[]) => {
   const index = new Map<string, WordEntry>()
-  for (const { plural, ...entry } of entries) {
-    for (const form of [entry.prompt, plural]) {
+  for (const entry of entries) {
+    for (const form of [entry.prompt, entry.plural]) {
       if (!form) continue
       const word = stripArticle(form)
       if (!singleWord.test(word)) continue

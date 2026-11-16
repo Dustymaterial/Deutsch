@@ -11,6 +11,7 @@
     "dev": "concurrently -k -n api,vite \"node --watch server/index.js --local\" \"vite\"",
     "build": "tsc -b && vite build",
     "data:starter-pack": "node scripts/buildStarterPack.mjs",
+    "data:dictionary": "node scripts/buildDictionary.mjs",
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test",
     "preview": "vite preview",
