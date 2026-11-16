@@ -97,7 +97,7 @@ The weak-pattern notice is another deterministic heuristic, not automatic adapta
 
 ## Set a goal and daily pace
 
-Open **Goal & pace** to set your current CEFR level, target level, target date, and vocabulary intensity. The editable default is an intensive B1 goal about 90 days away; choose your actual starting level and timeline rather than treating that example as a prediction.
+Open **Goal & pace** to set your current CEFR level, target level, target date, and vocabulary intensity. Changes are saved with **Save goal**; clicking outside keeps an edited goal open, while Cancel or Escape discards the edits. **Tune session** settings apply immediately. The editable default is an intensive B1 goal about 90 days away; choose your actual starting level and timeline rather than treating that example as a prediction.
 
 | Pace | New cards per day | Due reviews per set | Approximate planning time |
 | --- | ---: | ---: | ---: |
@@ -111,7 +111,7 @@ There is no universal best number of new words per day. A practical start is **5
 
 ## Add a word in the app
 
-Select **Add a word** in the top bar. If a tag-based study set is selected, its tag is prefilled so new words stay with that lesson. Provide:
+Select **Add a word** in the top bar to open the entry panel. Clicking outside closes an unchanged form, but leaves an unfinished entry open; Cancel or Escape discards it. If a tag-based study set is selected, its tag is prefilled so new words stay with that lesson. Provide:
 
 - The German word or phrase (enter a noun without its article; choose the article separately).
 - The type and A1/A2 level.
@@ -121,6 +121,8 @@ Select **Add a word** in the top bar. If a tag-based study set is selected, its 
 - Course and lesson tags separated by `|`, for example `VHL Lernportal|Lektion 2|Essen`.
 
 Prefer one clear, common meaning per card. If a word has several unrelated meanings, make separate cards with distinct examples. Keep example sentences short and grammatical. Do not label a word A1/A2 unless you have checked a reliable course or vocabulary source.
+
+Required-field and account-entry errors appear beside the relevant field. The account password field has a show/hide control. Brief notifications confirm saves, account actions, imports, and backups; error notifications remain until dismissed. Learn saves are confirmed by the **Saved** button instead of a notification. Review and quiz feedback stays on the cards.
 
 ## Prepare and import a vocabulary set
 

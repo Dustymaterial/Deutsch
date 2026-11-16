@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
@@ -30,6 +30,11 @@ import { isProductionAnswerCorrect } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
 import { mergeAccountProgress, type AccountProgress } from './accountSync'
 import LearnMode from './LearnMode'
+import { MenuSelect, type MenuSelectOption } from './MenuSelect'
+import { useFormValidation } from './formValidation'
+import { FloatingPopover } from './FloatingPopover'
+import { containsFloatingTarget } from './floatingTarget'
+import { Toast, type ToastMessage } from './Toast'
 import { reviewLearningCard, saveForLearning } from './learning'
 import starterPack from './data/german-starter-pack.json'
 import {
@@ -252,176 +257,64 @@ const isCloudProgress = (value: unknown): value is CloudProgress =>
       (!('studyPlanUpdatedAt' in value) || typeof value.studyPlanUpdatedAt === 'string'),
   )
 
-type MenuSelectOption<T extends string> = {
-  value: T
-  label: string
-  group?: string
-}
-
-function MenuSelect<T extends string>({
-  ariaLabel,
-  invalid = false,
-  describedBy,
-  options,
-  value,
-  onChange,
-}: {
-  ariaLabel: string
-  invalid?: boolean
-  describedBy?: string
-  options: MenuSelectOption<T>[]
-  value: T
-  onChange: (value: T) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const selectId = useId()
-  const rootRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const selectedIndex = options.findIndex((option) => option.value === value)
-  const selectedLabel = options[selectedIndex]?.label ?? 'Choose an option'
-
+function usePanelDismiss(
+  panelRef: React.RefObject<HTMLElement | null>,
+  onClose: (restoreFocus?: boolean) => void,
+  hasChanges: () => boolean,
+) {
   useEffect(() => {
-    if (!open) return
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && panelRef.current?.contains(document.activeElement)) onClose(true)
+    }
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
-        setOpen(false)
-      }
+      if (!(event.target instanceof Node) || containsFloatingTarget(panelRef.current, event.target)) return
+      if (!hasChanges()) onClose()
     }
+    window.addEventListener('keydown', handleEscape)
     document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [open])
-
-  const focusOption = (index: number) => {
-    const nextIndex = Math.max(0, Math.min(index, options.length - 1))
-    window.requestAnimationFrame(() => optionRefs.current[nextIndex]?.focus())
-  }
-
-  const openFromKeyboard = (index: number) => {
-    if (options.length === 0) return
-    setOpen(true)
-    focusOption(index)
-  }
-
-  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      openFromKeyboard(selectedIndex < 0 ? 0 : selectedIndex)
-    } else if (event.key === 'Escape' && open) {
-      event.preventDefault()
-      event.stopPropagation()
-      setOpen(false)
+    return () => {
+      window.removeEventListener('keydown', handleEscape)
+      document.removeEventListener('pointerdown', handlePointerDown)
     }
-  }
-
-  const handleOptionKeyDown = (
-    event: React.KeyboardEvent<HTMLButtonElement>,
-    index: number,
-  ) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      setOpen(false)
-      triggerRef.current?.focus()
-      return
-    }
-
-    let nextIndex: number | null = null
-    if (event.key === 'ArrowDown') nextIndex = (index + 1) % options.length
-    if (event.key === 'ArrowUp') nextIndex = (index - 1 + options.length) % options.length
-    if (event.key === 'Home') nextIndex = 0
-    if (event.key === 'End') nextIndex = options.length - 1
-    if (nextIndex !== null) {
-      event.preventDefault()
-      focusOption(nextIndex)
-    }
-  }
-
-  const chooseOption = (option: MenuSelectOption<T>) => {
-    onChange(option.value)
-    setOpen(false)
-    triggerRef.current?.focus()
-  }
-
-  return (
-    <div
-      className="menu-select"
-      ref={rootRef}
-      onBlur={(event) => {
-        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
-          setOpen(false)
-        }
-      }}
-    >
-      <button
-        ref={triggerRef}
-        type="button"
-        className="menu-select-trigger"
-        aria-label={ariaLabel}
-        aria-invalid={invalid || undefined}
-        aria-describedby={describedBy}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={selectId}
-        onClick={() => setOpen((current) => !current)}
-        onKeyDown={handleTriggerKeyDown}
-      >
-        <span>{selectedLabel}</span>
-        <span className="menu-select-chevron" aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="menu-select-popover" id={selectId} role="listbox" aria-label={ariaLabel}>
-          {options.map((option, index) => (
-            <Fragment key={option.value}>
-              {option.group && options[index - 1]?.group !== option.group && (
-                <p className="menu-select-group" aria-hidden="true">{option.group}</p>
-              )}
-              <button
-                ref={(element) => { optionRefs.current[index] = element }}
-                type="button"
-                role="option"
-                aria-label={option.group ? `${option.group}: ${option.label}` : option.label}
-                aria-selected={option.value === value}
-                className={option.value === value ? 'menu-select-option selected' : 'menu-select-option'}
-                onClick={() => chooseOption(option)}
-                onKeyDown={(event) => handleOptionKeyDown(event, index)}
-              >
-                <span>{option.label}</span>
-              </button>
-            </Fragment>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+  }, [panelRef, onClose, hasChanges])
 }
 
 function AddCardDialog({
   defaultTag,
   onClose,
   onSave,
+  isFront,
+  onActivate,
 }: {
   defaultTag: string
-  onClose: () => void
+  onClose: (restoreFocus?: boolean) => void
   onSave: (input: NewCardInput) => void
+  isFront: boolean
+  onActivate: () => void
 }) {
   const [category, setCategory] = useState('noun')
   const [article, setArticle] = useState('')
   const [articleError, setArticleError] = useState(false)
   const [level, setLevel] = useState('A1')
+  const { errors, validate, handleInput } = useFormValidation()
+  const panelRef = useRef<HTMLElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
 
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleEscape)
-    return () => window.removeEventListener('keydown', handleEscape)
-  }, [onClose])
+  usePanelDismiss(panelRef, onClose, () =>
+    [...(formRef.current?.querySelectorAll('input') ?? [])]
+      .some((input) => input.value !== input.defaultValue) ||
+    category !== 'noun' || article !== '' || level !== 'A1',
+  )
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (category === 'noun' && !article) {
-      setArticleError(true)
+    const valid = validate(event.currentTarget)
+    const missingArticle = category === 'noun' && !article
+    setArticleError(missingArticle)
+    if (!valid || missingArticle) {
+      if (valid && missingArticle) {
+        requestAnimationFrame(() => panelRef.current?.querySelector<HTMLButtonElement>('[aria-label="Article"]')?.focus())
+      }
       return
     }
     const formData = new FormData(event.currentTarget)
@@ -439,38 +332,36 @@ function AddCardDialog({
   }
 
   return (
-    <div
-      className="modal-scrim add-modal-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
       <section
-        className="add-dialog"
+        ref={panelRef}
+        className="add-dialog anchored-panel"
+        style={{ zIndex: isFront ? 4 : 3 }}
+        onPointerDownCapture={onActivate}
+        onFocusCapture={onActivate}
         role="dialog"
-        aria-modal="true"
         aria-labelledby="add-card-title"
       >
         <div className="dialog-heading">
           <div>
             <h2 id="add-card-title">Add a word</h2>
           </div>
-          <button type="button" className="close-dialog" onClick={onClose} aria-label="Close dialog">
-            ×
-          </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form ref={formRef} noValidate onInput={handleInput} onSubmit={handleSubmit}>
           <div className="form-row">
             <label>
               {category === 'noun' ? 'Noun without article' : 'German word or phrase'}
               <input
                 name="word"
+                aria-label={category === 'noun' ? 'Noun without article' : 'German word or phrase'}
+                aria-invalid={Boolean(errors.word) || undefined}
+                aria-describedby={errors.word ? 'add-word-error' : undefined}
                 autoFocus
                 required
                 maxLength={100}
                 placeholder={category === 'noun' ? 'Wohnung' : 'gehen'}
               />
+              {errors.word && <span className="field-error" id="add-word-error">{errors.word}</span>}
             </label>
             <div className="custom-select-field">
               <span>Type</span>
@@ -529,7 +420,8 @@ function AddCardDialog({
           <div className="form-row">
             <label>
               Meaning
-              <input name="meaning" required maxLength={160} placeholder="apartment" />
+              <input name="meaning" aria-label="Meaning" required maxLength={160} placeholder="apartment" aria-invalid={Boolean(errors.meaning) || undefined} aria-describedby={errors.meaning ? 'add-meaning-error' : undefined} />
+              {errors.meaning && <span className="field-error" id="add-meaning-error">{errors.meaning}</span>}
             </label>
             <div className="custom-select-field">
               <span>Level</span>
@@ -547,11 +439,13 @@ function AddCardDialog({
 
           <label>
             Example in German
-            <input name="example" required maxLength={240} placeholder="Die Wohnung ist sehr schön." />
+            <input name="example" aria-label="Example in German" required maxLength={240} placeholder="Die Wohnung ist sehr schön." aria-invalid={Boolean(errors.example) || undefined} aria-describedby={errors.example ? 'add-example-error' : undefined} />
+            {errors.example && <span className="field-error" id="add-example-error">{errors.example}</span>}
           </label>
           <label>
             Example translation
-            <input name="translation" required maxLength={240} placeholder="The apartment is very beautiful." />
+            <input name="translation" aria-label="Example translation" required maxLength={240} placeholder="The apartment is very beautiful." aria-invalid={Boolean(errors.translation) || undefined} aria-describedby={errors.translation ? 'add-translation-error' : undefined} />
+            {errors.translation && <span className="field-error" id="add-translation-error">{errors.translation}</span>}
           </label>
           <label>
             Course or unit tags <small>Separate tags with |</small>
@@ -564,12 +458,11 @@ function AddCardDialog({
           </label>
 
           <div className="dialog-actions">
-            <button type="button" className="quiet-button" onClick={onClose}>Cancel</button>
+            <button type="button" className="quiet-button" onClick={() => onClose(true)}>Cancel</button>
             <button type="submit" className="primary-button">Add to deck</button>
           </div>
         </form>
       </section>
-    </div>
   )
 }
 
@@ -594,6 +487,8 @@ function DatePicker({
   })
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const pickerId = useId()
   const selectedDate = parseLocalDate(value)
   const minimumDate = parseLocalDate(min)
   const minimumMonth = new Date(minimumDate.getFullYear(), minimumDate.getMonth(), 1)
@@ -629,7 +524,7 @@ function DatePicker({
   useEffect(() => {
     if (!open) return
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target) && !popoverRef.current?.contains(event.target)) {
         setOpen(false)
       }
     }
@@ -665,7 +560,7 @@ function DatePicker({
         }
       }}
       onBlur={(event) => {
-        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+        if (!(event.relatedTarget instanceof Node) || (!event.currentTarget.contains(event.relatedTarget) && !popoverRef.current?.contains(event.relatedTarget))) {
           setOpen(false)
         }
       }}
@@ -677,6 +572,7 @@ function DatePicker({
         aria-label={`Target date: ${formattedDate}`}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-controls={pickerId}
         onClick={() => {
           if (!open) setDisplayMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
           setOpen((current) => !current)
@@ -689,7 +585,11 @@ function DatePicker({
         </svg>
       </button>
       {open && (
-        <div className="date-picker-popover" role="dialog" aria-label="Choose target date">
+        <FloatingPopover anchorRef={triggerRef} popoverRef={popoverRef} owner={pickerId} preferredWidth={292}
+          id={pickerId} className="date-picker-popover" role="dialog" aria-label="Choose target date"
+          onBlur={(event) => {
+            if (!(event.relatedTarget instanceof Node) || (!rootRef.current?.contains(event.relatedTarget) && !event.currentTarget.contains(event.relatedTarget))) setOpen(false)
+          }}>
           <div className="date-picker-heading">
             <button
               type="button"
@@ -745,7 +645,7 @@ function DatePicker({
               </div>
             ))}
           </div>
-        </div>
+        </FloatingPopover>
       )}
     </div>
   )
@@ -756,26 +656,32 @@ function StudyPlanDialog({
   now,
   onClose,
   onSave,
+  isFront,
+  onActivate,
 }: {
   initialPlan: StudyPlan
   now: Date
-  onClose: () => void
+  onClose: (restoreFocus?: boolean) => void
   onSave: (plan: StudyPlan) => void
+  isFront: boolean
+  onActivate: () => void
 }) {
   const [draft, setDraft] = useState(initialPlan)
+  const originalPlan = useRef(initialPlan)
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => { panelRef.current?.focus() }, [])
   const today = localDateString(now)
   const estimate = estimateGoalPace(draft, now)
   const intensity = INTENSITY_SETTINGS[draft.intensity]
   const update = <K extends keyof StudyPlan,>(key: K, value: StudyPlan[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
 
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleEscape)
-    return () => window.removeEventListener('keydown', handleEscape)
-  }, [onClose])
+  usePanelDismiss(panelRef, onClose, () =>
+    draft.currentLevel !== originalPlan.current.currentLevel ||
+    draft.targetLevel !== originalPlan.current.targetLevel ||
+    draft.targetDate !== originalPlan.current.targetDate ||
+    draft.intensity !== originalPlan.current.intensity,
+  )
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -797,25 +703,20 @@ function StudyPlanDialog({
         : 'An estimate is not available for this goal yet.'
 
   return (
-    <div
-      className="modal-scrim"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
       <section
-        className="add-dialog study-plan-dialog"
+        ref={panelRef}
+        tabIndex={-1}
+        className="add-dialog study-plan-dialog anchored-panel"
+        style={{ zIndex: isFront ? 4 : 3 }}
+        onPointerDownCapture={onActivate}
+        onFocusCapture={onActivate}
         role="dialog"
-        aria-modal="true"
         aria-labelledby="study-plan-title"
       >
         <div className="dialog-heading">
           <div>
             <h2 id="study-plan-title">Goal &amp; study pace</h2>
           </div>
-          <button type="button" className="close-dialog" onClick={onClose} aria-label="Close dialog">
-            ×
-          </button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -903,12 +804,11 @@ function StudyPlanDialog({
             </details>
           </div>
           <div className="dialog-actions">
-            <button type="button" className="quiet-button" onClick={onClose}>Cancel</button>
+            <button type="button" className="quiet-button" onClick={() => onClose(true)}>Cancel</button>
             <button type="submit" className="primary-button">Save goal</button>
           </div>
         </form>
       </section>
-    </div>
   )
 }
 
@@ -993,37 +893,39 @@ function SessionSettingsDialog({
   onChange,
   onAdjustGoal,
   onClose,
+  isFront,
+  onActivate,
 }: {
   cards: Card[]
   tag: string
   goalSummary: string
   onChange: (tag: string) => void
   onAdjustGoal: () => void
-  onClose: () => void
+  onClose: (restoreFocus?: boolean) => void
+  isFront: boolean
+  onActivate: () => void
 }) {
   const scopedCards = getCardsForStudySet(cards, tag)
   const reviewedCount = scopedCards.filter((card) => card.lastReviewedAt !== null).length
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => { panelRef.current?.focus() }, [])
+  usePanelDismiss(panelRef, onClose, () => false)
 
   return (
-    <div
-      className="modal-scrim"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
       <section
-        className="add-dialog session-settings-dialog"
+        ref={panelRef}
+        tabIndex={-1}
+        className="add-dialog session-settings-dialog anchored-panel"
+        style={{ zIndex: isFront ? 4 : 3 }}
+        onPointerDownCapture={onActivate}
+        onFocusCapture={onActivate}
         role="dialog"
-        aria-modal="true"
         aria-labelledby="session-settings-title"
       >
         <div className="dialog-heading">
           <div>
             <h2 id="session-settings-title">Tune your session</h2>
           </div>
-          <button type="button" className="close-dialog" onClick={onClose} aria-label="Close dialog">
-            ×
-          </button>
         </div>
         <div className="session-setting-block">
           <StudySetSelect cards={cards} value={tag} onChange={onChange} />
@@ -1043,10 +945,9 @@ function SessionSettingsDialog({
           </button>
         </div>
         <div className="dialog-actions">
-          <button type="button" className="primary-button" onClick={onClose}>Done</button>
+          <button type="button" className="primary-button" onClick={() => onClose(true)}>Done</button>
         </div>
       </section>
-    </div>
   )
 }
 
@@ -1089,7 +990,16 @@ function App() {
   const [addCardOpen, setAddCardOpen] = useState(false)
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
   const [studyPlanOpen, setStudyPlanOpen] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [frontPanel, setFrontPanel] = useState<'add' | 'session' | 'goal'>('add')
+  const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const toastId = useRef(0)
+  const showToast = useCallback((message: string, kind: 'success' | 'error' = 'success') => {
+    const toast = { id: ++toastId.current, message, kind }
+    setToasts((current) => [...current.filter((item) => item.kind === 'error'), toast])
+  }, [])
+  const dismissToast = useCallback((id: number) => {
+    setToasts((current) => current.filter((item) => item.id !== id))
+  }, [])
   const [struggledWith, setStruggledWith] = useState<RecallField[]>([])
   const [studyMode, setStudyMode] = useState<ReviewMode>('recall')
   const [learnOpen, setLearnOpen] = useState(false)
@@ -1101,6 +1011,33 @@ function App() {
   const [productionFeedback, setProductionFeedback] = useState<ProductionFeedback | null>(null)
   const importInput = useRef<HTMLInputElement>(null)
   const deckMenu = useRef<HTMLDetailsElement>(null)
+  const addCardButton = useRef<HTMLButtonElement>(null)
+  const restoreAddCardFocus = useRef(false)
+  const restoreSettingsFocus = useRef(false)
+  const closeAddCard = useCallback((restoreFocus = false) => {
+    restoreAddCardFocus.current = restoreFocus
+    setAddCardOpen(false)
+  }, [])
+  useEffect(() => {
+    if (!addCardOpen && restoreAddCardFocus.current) {
+      addCardButton.current?.focus()
+      restoreAddCardFocus.current = false
+    }
+  }, [addCardOpen])
+  const closeSessionSettings = useCallback((restoreFocus = false) => {
+    restoreSettingsFocus.current = restoreFocus
+    setSessionSettingsOpen(false)
+  }, [])
+  const closeStudyPlan = useCallback((restoreFocus = false) => {
+    restoreSettingsFocus.current = restoreFocus
+    setStudyPlanOpen(false)
+  }, [])
+  useEffect(() => {
+    if (!sessionSettingsOpen && !studyPlanOpen && restoreSettingsFocus.current) {
+      deckMenu.current?.querySelector('summary')?.focus()
+      restoreSettingsFocus.current = false
+    }
+  }, [sessionSettingsOpen, studyPlanOpen])
   const handleAccountUserChange = useCallback((user: AccountUser | null) => {
     const nextIdentity = user?.email ?? null
     if (accountIdentity.current !== nextIdentity) {
@@ -1125,13 +1062,15 @@ function App() {
       : accountSyncError ?? accountSyncStatus
 
   const saveDeck = (nextCards: Card[], failureMessage = 'Your browser could not save this review. Check available device storage.') => {
-    if (!canSave) return
+    if (!canSave) return false
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextCards))
       localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
       setSavingError(null)
+      return true
     } catch {
       setSavingError(failureMessage)
+      return false
     }
   }
 
@@ -1533,11 +1472,11 @@ function App() {
     )
     const updatedCards = [...cards, card]
     setCards(updatedCards)
-    saveDeck(updatedCards)
-    setAddCardOpen(false)
-    setNotice(canSave
+    const saved = saveDeck(updatedCards)
+    closeAddCard(true)
+    showToast(saved
       ? `${prompt} is ready for your next study set.`
-      : `${prompt} was added in this session, but cannot be saved until you start with the starter pack.`)
+      : `${prompt} was added for this visit but could not be saved.`, saved ? 'success' : 'error')
   }
 
   const handleExportDeck = () => {
@@ -1554,7 +1493,7 @@ function App() {
     link.download = `deutsch-deck-${new Date().toISOString().slice(0, 10)}.json`
     link.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 0)
-    setNotice('Deck backup downloaded.')
+    showToast('Backup download started.')
   }
 
   const mergeImportedCards = (incoming: Card[], kind: 'backup' | 'vocabulary') => {
@@ -1569,13 +1508,17 @@ function App() {
     })
     const merged = [...cards, ...additions]
     setCards(merged)
-    saveDeck(merged)
-    setNotice(
+    const saved = saveDeck(merged)
+    const itemLabel = kind === 'vocabulary'
+      ? additions.length === 1 ? 'new word' : 'new words'
+      : additions.length === 1 ? 'card' : 'cards'
+    showToast(
       additions.length
-        ? canSave
-          ? `Imported ${additions.length} ${kind === 'vocabulary' ? 'new words' : additions.length === 1 ? 'card' : 'cards'}. Existing cards were kept.`
-          : `Added ${additions.length} cards for this session only. Start with the starter pack to save a fresh deck.`
+        ? saved
+          ? `Imported ${additions.length} ${itemLabel}. Existing cards were kept.`
+          : `Added ${additions.length} cards for this visit only; they could not be saved.`
         : 'No new cards found. Existing cards were kept.',
+      additions.length && !saved ? 'error' : 'success',
     )
   }
 
@@ -1587,7 +1530,7 @@ function App() {
       )
       mergeImportedCards(incoming, kind)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not add the starter vocabulary pack.')
+      showToast(error instanceof Error ? error.message : 'Could not add the starter vocabulary pack.', 'error')
     }
   }
 
@@ -1601,7 +1544,7 @@ function App() {
 
       mergeImportedCards(incoming, kind)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not read that deck file.')
+      showToast(error instanceof Error ? error.message : 'Could not read that deck file.', 'error')
     }
   }
 
@@ -1718,7 +1661,7 @@ function App() {
 
   const handleSaveStudyPlan = (plan: StudyPlan) => {
     setStudyPlan(plan)
-    setStudyPlanOpen(false)
+    closeStudyPlan(true)
     const nextNow = new Date()
     setSessionIds(
       getSessionCardIds(
@@ -1741,16 +1684,20 @@ function App() {
       localStorage.setItem(LOCAL_STUDY_PLAN_UPDATED_AT_KEY, planUpdatedAt)
       localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, planUpdatedAt)
       setStudyPlanWarning(null)
+      showToast('Goal and pace saved.')
     } catch {
       setStudyPlanWarning('Your goal was updated for this visit but could not be saved on this device.')
+      showToast('Your goal was updated for this visit but could not be saved on this device.', 'error')
     }
   }
 
   const openStudyPlan = () => {
+    setFrontPanel('goal')
     setStudyPlanOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
   const openSessionSettings = () => {
+    setFrontPanel('session')
     setSessionSettingsOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
@@ -1768,19 +1715,20 @@ function App() {
   }, [])
 
   const studyPlanSummary = `Goal: ${studyPlan.targetLevel} · ${goalEstimate.daysRemaining} days · ${intensitySettings.label} · up to ${intensitySettings.newCardsPerDay} new cards/day`
-  const saveLearningCard = (id: string) => {
+  const saveLearningCard = (id: string, notify = true) => {
     if (!canSave) return
     const at = new Date()
     const updatedCards = cards.map((card) => card.id === id
       ? saveForLearning(card, at)
       : card)
     setCards(updatedCards)
-    saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')
+    const saved = saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')
+    if (notify && !saved) showToast('Word saved for this visit only.', 'error')
   }
   const startLearningReview = (id: string, mode: ReviewMode, beyondLimit: boolean) => {
     const card = cards.find((item) => item.id === id && item.status === 'active' && item.lastReviewedAt === null)
     if (!card) return
-    if (!card.learning?.saved) saveLearningCard(id)
+    if (!card.learning?.saved) saveLearningCard(id, false)
     if (beyondLimit) setNewCardLimitOverrideDay(getLocalDayKey(new Date()))
     setPracticeLoopIds(null)
     setPracticeLoopIndex(0)
@@ -1807,8 +1755,7 @@ function App() {
     />
   )
 
-  if (!activeCard && !learnOpen) {
-    return (
+  const appContent = !activeCard && !learnOpen ? (
       <main className="app-shell empty-state-shell">
         <header className="app-header">
           <a className="wordmark" href="/" aria-label="Deutsch Deck home">
@@ -1816,11 +1763,12 @@ function App() {
             <span>deutsch deck</span>
           </a>
           <div className="header-actions">
-            <button type="button" className="add-card-button" onClick={() => setAddCardOpen(true)}>
+            <button ref={addCardButton} type="button" className="add-card-button" aria-haspopup="dialog" aria-expanded={addCardOpen} onClick={() => { setFrontPanel('add'); setAddCardOpen(true) }}>
               <span aria-hidden="true">+</span> Add a word
             </button>
             <AccountMenu
               onUserChange={handleAccountUserChange}
+              onNotify={showToast}
               onOpenChange={setAccountMenuOpen}
               open={accountMenuOpen}
               syncStatus={accountSyncMessage}
@@ -1941,43 +1889,11 @@ function App() {
             </button>
           )}
         </div>
-        {notice && <p className="action-notice" role="status">{notice}</p>}
         <p className="privacy-note">
           {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
         </p>
-        {addCardOpen && (
-          <AddCardDialog
-            defaultTag={studyTag}
-            onClose={() => setAddCardOpen(false)}
-            onSave={handleAddCard}
-          />
-        )}
-        {studyPlanOpen && (
-          <StudyPlanDialog
-            initialPlan={studyPlan}
-            now={new Date(now)}
-            onClose={() => setStudyPlanOpen(false)}
-            onSave={handleSaveStudyPlan}
-          />
-        )}
-        {sessionSettingsOpen && (
-          <SessionSettingsDialog
-            cards={cards}
-            tag={studyTag}
-            goalSummary={studyPlanSummary}
-            onChange={handleStudyTagChange}
-            onAdjustGoal={() => {
-              setSessionSettingsOpen(false)
-              setStudyPlanOpen(true)
-            }}
-            onClose={() => setSessionSettingsOpen(false)}
-          />
-        )}
       </main>
-    )
-  }
-
-  return (
+  ) : (
     <main className="app-shell">
       <header className="app-header">
         <a className="wordmark" href="/" aria-label="Deutsch Deck home">
@@ -1985,11 +1901,12 @@ function App() {
           <span>deutsch deck</span>
         </a>
         <div className="header-actions">
-          <button type="button" className="add-card-button" onClick={() => setAddCardOpen(true)}>
+          <button ref={addCardButton} type="button" className="add-card-button" aria-haspopup="dialog" aria-expanded={addCardOpen} onClick={() => { setFrontPanel('add'); setAddCardOpen(true) }}>
             <span aria-hidden="true">+</span> Add a word
           </button>
           <AccountMenu
             onUserChange={handleAccountUserChange}
+            onNotify={showToast}
             onOpenChange={setAccountMenuOpen}
             open={accountMenuOpen}
             syncStatus={accountSyncMessage}
@@ -2068,7 +1985,6 @@ function App() {
           Choose
         </button>
       </div>
-      {notice && <p className="action-notice" role="status">{notice}</p>}
       {learnOpen ? learnContent : activeCard && (
         <>
 
@@ -2363,19 +2279,19 @@ function App() {
       <p className="privacy-note">
         {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
       </p>
+    </main>
+  )
+
+  return (
+    <>
+      {appContent}
       {addCardOpen && (
         <AddCardDialog
           defaultTag={studyTag}
-          onClose={() => setAddCardOpen(false)}
+          onClose={closeAddCard}
           onSave={handleAddCard}
-        />
-      )}
-      {studyPlanOpen && (
-        <StudyPlanDialog
-          initialPlan={studyPlan}
-          now={new Date(now)}
-          onClose={() => setStudyPlanOpen(false)}
-          onSave={handleSaveStudyPlan}
+          isFront={frontPanel === 'add'}
+          onActivate={() => setFrontPanel('add')}
         />
       )}
       {sessionSettingsOpen && (
@@ -2386,12 +2302,27 @@ function App() {
           onChange={handleStudyTagChange}
           onAdjustGoal={() => {
             setSessionSettingsOpen(false)
-            setStudyPlanOpen(true)
+            openStudyPlan()
           }}
-          onClose={() => setSessionSettingsOpen(false)}
+          onClose={closeSessionSettings}
+          isFront={frontPanel === 'session'}
+          onActivate={() => setFrontPanel('session')}
         />
       )}
-    </main>
+      {studyPlanOpen && (
+        <StudyPlanDialog
+          initialPlan={studyPlan}
+          now={new Date(now)}
+          onClose={closeStudyPlan}
+          onSave={handleSaveStudyPlan}
+          isFront={frontPanel === 'goal'}
+          onActivate={() => setFrontPanel('goal')}
+        />
+      )}
+      <div className="toast-region">
+        {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />)}
+      </div>
+    </>
   )
 }
 

@@ -138,6 +138,34 @@
   font-weight: 450;
 }
 
+.password-control {
+  position: relative;
+}
+
+.account-field .password-control input {
+  padding-right: 42px;
+}
+
+.password-visibility {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 7px;
+  color: #706974;
+  background: transparent;
+  cursor: pointer;
+}
+
+.password-visibility:hover {
+  background: #f1eae5;
+}
+
 .avatar-picker {
   min-width: 0;
   margin: 0;

@@ -4,6 +4,8 @@ import { getStudySetChoiceOptions } from './choiceQuiz'
 import { getStudySetTags } from './studySets'
 import type { ReviewMode } from './scheduler'
 import { getRecording } from './pronunciation'
+import { MenuSelect } from './MenuSelect'
+import { containsFloatingTarget } from './floatingTarget'
 import './LearnMode.css'
 
 type Props = {
@@ -62,7 +64,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
       }
     }
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !settingsRef.current?.contains(event.target)) onCloseSettings()
+      if (event.target instanceof Node && !containsFloatingTarget(settingsRef.current, event.target)) onCloseSettings()
     }
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('pointerdown', handlePointerDown)
@@ -155,19 +157,18 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
           ))}
           </div>
           <div className="learn-filters">
-          <label>Topic
-            <select value={topic} onChange={(event) => { setTopic(event.target.value); setSelectedId(null); resetActivity() }}>
-              <option value="">All topics</option>
-              {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-            </select>
-          </label>
-          <label>Level
-            <select value={level} onChange={(event) => { setLevel(event.target.value); setSelectedId(null); resetActivity() }}>
-              <option value="">All levels</option>
-              <option value="A1">A1</option>
-              <option value="A2">A2</option>
-            </select>
-          </label>
+            <div className="learn-filter">
+              <span>Topic</span>
+              <MenuSelect ariaLabel="Topic" value={topic}
+                options={[{ value: '', label: 'All topics' }, ...tags.map((tag) => ({ value: tag, label: tag }))]}
+                onChange={(value) => { setTopic(value); setSelectedId(null); resetActivity() }} />
+            </div>
+            <div className="learn-filter">
+              <span>Level</span>
+              <MenuSelect ariaLabel="Level" value={level}
+                options={[{ value: '', label: 'All levels' }, { value: 'A1', label: 'A1' }, { value: 'A2', label: 'A2' }]}
+                onChange={(value) => { setLevel(value); setSelectedId(null); resetActivity() }} />
+            </div>
           </div>
           {view === 'browse' && (
           <label className="learn-search">Find a word
@@ -175,11 +176,12 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
           </label>
           )}
           {view !== 'guided' && visible.length > 0 && (
-          <label className="learn-search">Select a word
-            <select value={card?.id ?? ''} onChange={(event) => { setSelectedId(event.target.value); resetActivity() }}>
-              {visible.map((item) => <option value={item.id} key={item.id}>{item.prompt} — {item.meaning}</option>)}
-            </select>
-          </label>
+            <div className="learn-search">
+              <span>Select a word</span>
+              <MenuSelect ariaLabel="Select a word" value={card?.id ?? ''}
+                options={visible.map((item) => ({ value: item.id, label: `${item.prompt} — ${item.meaning}` }))}
+                onChange={(value) => { setSelectedId(value); resetActivity() }} />
+            </div>
           )}
         </aside>
       )}

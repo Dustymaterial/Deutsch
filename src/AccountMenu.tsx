@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createAvatar, type Style } from '@dicebear/core'
+import { Eye, EyeOff } from 'lucide-react'
+import { useFormValidation } from './formValidation'
 import './AccountMenu.css'
 
 export type AccountUser = {
@@ -159,11 +161,13 @@ export function AccountMenu({
   syncStatus,
   open,
   onOpenChange,
+  onNotify,
 }: {
   onUserChange: (user: AccountUser | null) => void
   syncStatus?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onNotify: (message: string) => void
 }) {
   const [user, setUser] = useState<AccountUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -171,10 +175,11 @@ export function AccountMenu({
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [avatarSeed, setAvatarSeed] = useState(defaultAvatarSeed)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const { errors, validate, handleInput, clearErrors } = useFormValidation()
   useEffect(() => {
     let active = true
     fetch('/api/auth/me')
@@ -205,9 +210,9 @@ export function AccountMenu({
 
   const submitCredentials = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!validate(event.currentTarget)) return
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       const response = await fetch(`/api/auth/${registering ? 'register' : 'login'}`, {
         method: 'POST',
@@ -226,7 +231,8 @@ export function AccountMenu({
       setAvatarSeed(body.user.avatarSeed)
       onUserChange(body.user)
       setPassword('')
-      setNotice(registering ? 'Your account is ready.' : 'Welcome back.')
+      setShowPassword(false)
+      onNotify(registering ? 'Your account is ready.' : 'Welcome back.')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not sign in.')
     } finally {
@@ -236,9 +242,9 @@ export function AccountMenu({
 
   const saveProfile = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!validate(event.currentTarget)) return
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       const response = await fetch('/api/auth/profile', {
         method: 'PATCH',
@@ -252,7 +258,7 @@ export function AccountMenu({
       setUsername(body.user.username)
       setAvatarSeed(body.user.avatarSeed)
       onUserChange(body.user)
-      setNotice('Profile saved.')
+      onNotify('Profile saved.')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not update your profile.')
     } finally {
@@ -263,7 +269,6 @@ export function AccountMenu({
   const signOut = async () => {
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST' })
       const body = await responseBody(response)
@@ -273,7 +278,8 @@ export function AccountMenu({
       setAvatarSeed(defaultAvatarSeed)
       setEmail('')
       onUserChange(null)
-      setNotice('You are signed out.')
+      setShowPassword(false)
+      onNotify('You are signed out.')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not sign out.')
     } finally {
@@ -284,7 +290,11 @@ export function AccountMenu({
   return (
     <details
       className="account-menu has-avatar"
-      onToggle={(event) => onOpenChange(event.currentTarget.open)}
+      onToggle={(event) => {
+        const isOpen = event.currentTarget.open
+        if (!isOpen) setShowPassword(false)
+        onOpenChange(isOpen)
+      }}
       open={open}
     >
       <summary
@@ -314,17 +324,22 @@ export function AccountMenu({
                 <span>{user.email}</span>
               </div>
             </div>
-            <form onSubmit={saveProfile}>
+            <form noValidate onInput={handleInput} onSubmit={saveProfile}>
               <label className="account-field">
                 Username
                 <input
                   autoComplete="username"
+                  name="username"
+                  aria-label="Username"
+                  aria-invalid={Boolean(errors.username) || undefined}
+                  aria-describedby={errors.username ? 'account-username-error' : undefined}
                   maxLength={20}
                   minLength={3}
                   onChange={(event) => setUsername(event.target.value)}
                   required
                   value={username}
                 />
+                {errors.username && <span className="field-error" id="account-username-error">{errors.username}</span>}
               </label>
               <fieldset className="avatar-picker">
                 <legend>Pixel avatar</legend>
@@ -360,13 +375,17 @@ export function AccountMenu({
                 <span>Save your deck and progress across devices.</span>
               </div>
             </div>
-            <form onSubmit={submitCredentials}>
+            <form noValidate onInput={handleInput} onSubmit={submitCredentials}>
               {registering && (
                 <>
                   <label className="account-field">
                     Username
                     <input
                       autoComplete="username"
+                      name="username"
+                      aria-label="Username"
+                      aria-invalid={Boolean(errors.username) || undefined}
+                      aria-describedby={errors.username ? 'account-username-error' : undefined}
                       maxLength={20}
                       minLength={3}
                       onChange={(event) => setUsername(event.target.value)}
@@ -375,6 +394,7 @@ export function AccountMenu({
                       required
                       value={username}
                     />
+                    {errors.username && <span className="field-error" id="account-username-error">{errors.username}</span>}
                   </label>
                   <fieldset className="avatar-picker">
                     <legend>Choose your pixel avatar</legend>
@@ -399,24 +419,39 @@ export function AccountMenu({
                 Email
                 <input
                   autoComplete="email"
+                  name="email"
+                  aria-label="Email"
+                  aria-invalid={Boolean(errors.email) || undefined}
+                  aria-describedby={errors.email ? 'account-email-error' : undefined}
                   onChange={(event) => setEmail(event.target.value)}
                   required
                   type="email"
                   value={email}
                 />
+                {errors.email && <span className="field-error" id="account-email-error">{errors.email}</span>}
               </label>
-              <label className="account-field">
-                Password
-                <input
-                  autoComplete={registering ? 'new-password' : 'current-password'}
-                  minLength={10}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  type="password"
-                  value={password}
-                />
-                {registering && <small>Use at least 10 characters.</small>}
-              </label>
+              <div className="account-field">
+                <label htmlFor="account-password">Password</label>
+                <div className="password-control">
+                  <input
+                    id="account-password"
+                    name="password"
+                    aria-invalid={Boolean(errors.password) || undefined}
+                    aria-describedby={errors.password ? 'account-password-error' : registering ? 'account-password-hint' : undefined}
+                    autoComplete={registering ? 'new-password' : 'current-password'}
+                    minLength={10}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                  />
+                  <button type="button" className="password-visibility" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((value) => !value)}>
+                    {showPassword ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
+                  </button>
+                </div>
+                {errors.password && <span className="field-error" id="account-password-error">{errors.password}</span>}
+                {registering && !errors.password && <small id="account-password-hint">Use at least 10 characters.</small>}
+              </div>
               <button className="account-submit" disabled={busy} type="submit">
                 {busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}
               </button>
@@ -426,7 +461,8 @@ export function AccountMenu({
               onClick={() => {
                 setRegistering((value) => !value)
                 setError(null)
-                setNotice(null)
+                setShowPassword(false)
+                clearErrors()
               }}
               type="button"
             >
@@ -435,7 +471,6 @@ export function AccountMenu({
           </>
         )}
         {error && <p className="account-message account-error" role="alert">{error}</p>}
-        {notice && <p className="account-message" role="status">{notice}</p>}
       </section>
     </details>
   )
