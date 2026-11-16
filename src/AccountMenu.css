@@ -790,22 +790,23 @@
 }
 
 .companion-workspace-view {
-  --companion-canvas: #f1f2f1;
-  --companion-sidebar: #e8e9e8;
-  --companion-paper: #fbfbfa;
-  --companion-rule: #d7d9d7;
+  --companion-canvas: #f5f6f5;
+  --companion-sidebar: #e6e7e6;
+  --companion-paper: #ffffff;
+  --companion-rule: #e1e3e1;
   --companion-text: #292b2a;
   --companion-muted: #6b706d;
   --companion-blue: #3569a6;
-  --companion-blue-bg: #dceafe;
+  --companion-blue-bg: #b9d9fb;
   --companion-amber: #8b5a15;
-  --companion-amber-bg: #f8e7bf;
+  --companion-amber-bg: #ffe2a0;
   --companion-green: #356442;
-  --companion-green-bg: #dcebdc;
+  --companion-green-bg: #c6e8be;
   --companion-red: #994d43;
-  --companion-red-bg: #f5dfdb;
-  border: 1px solid var(--companion-rule);
-  border-radius: 12px;
+  --companion-red-bg: #f3c9c1;
+  border: 0;
+  border-radius: 14px;
+  overflow: hidden;
   background: var(--companion-canvas);
 }
 .companion-workspace {
@@ -815,7 +816,7 @@
 .companion-sidebar {
   gap: 10px;
   padding: 13px 10px 12px;
-  border-right: 1px solid var(--companion-rule);
+  border-right: 0;
   background: var(--companion-sidebar);
 }
 .companion-sidebar-heading {
@@ -833,7 +834,7 @@
 .companion-list-section h2 span {
   min-width: 18px;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: 999px;
   background: #daddda;
   color: #565c58;
   font: 600 0.62rem/1.2 system-ui, sans-serif;
@@ -844,8 +845,8 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
   padding: 3px;
-  border: 1px solid #cdd1ce;
-  border-radius: 7px;
+  border: 0;
+  border-radius: 999px;
   background: var(--companion-paper);
 }
 .companion-search > input {
@@ -854,7 +855,7 @@
   min-height: 30px;
   padding: 6px 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 999px;
   outline: 0;
   background: transparent;
   color: var(--companion-text);
@@ -866,8 +867,8 @@
   min-width: 39px;
   padding: 4px 7px;
   border: 0;
-  border-radius: 5px;
-  background: #e7e9e7;
+  border-radius: 999px;
+  background: #eceeec;
   color: #424744;
   font: 600 0.65rem system-ui, sans-serif;
   cursor: pointer;
@@ -877,10 +878,10 @@
 .companion-sidebar-nav {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
-  padding: 3px;
-  border-radius: 8px;
-  background: #dddfdd;
+  gap: 4px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .companion-sidebar-nav button {
   min-width: 0;
@@ -891,7 +892,7 @@
   gap: 5px;
   padding: 4px 5px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: #5c625e;
   font: 550 0.64rem system-ui, sans-serif;
@@ -921,9 +922,9 @@
   gap: 6px;
   padding: 4px 5px 3px;
   color: #747a76;
-  font: 650 0.6rem/1.25 system-ui, sans-serif;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
+  font: 650 0.66rem/1.25 system-ui, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .companion-list-section h2 span {
   min-width: 16px;
@@ -974,13 +975,12 @@
   gap: 0;
   overflow: visible;
   padding: 0 3px;
-  border: 1px solid transparent;
-  border-radius: 7px;
+  border: 0;
+  border-radius: 10px;
   background: transparent;
 }
 .companion-contact-card:hover { background: rgba(255, 255, 255, 0.42); }
 .companion-contact-card.selected {
-  border-color: #d5dad6;
   background: var(--companion-paper);
 }
 .companion-contact-open {
@@ -998,9 +998,9 @@
   width: fit-content;
   display: inline-flex;
   align-items: center;
-  padding: 3px 6px;
-  border-radius: 5px;
-  font: 620 0.55rem/1.15 system-ui, sans-serif;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font: 620 0.6rem/1.15 system-ui, sans-serif;
   white-space: nowrap;
 }
 .companion-status-tag.incoming { background: var(--companion-blue-bg); color: var(--companion-blue); }
@@ -1029,7 +1029,7 @@
   height: 25px;
   display: grid;
   place-items: center;
-  border-radius: 5px;
+  border-radius: 50%;
   color: #69706b;
   cursor: pointer;
   list-style: none;
@@ -1039,7 +1039,7 @@
 .companion-row-menu > summary:hover,
 .companion-message-menu > summary:hover,
 .companion-row-menu[open] > summary,
-.companion-message-menu[open] > summary { background: #e5e8e5; color: var(--companion-text); }
+.companion-message-menu[open] > summary { background: #f5f6f5; color: var(--companion-text); }
 .companion-row-popover {
   position: absolute;
   z-index: 20;
@@ -1049,8 +1049,8 @@
   display: grid;
   gap: 2px;
   padding: 4px;
-  border: 1px solid #d5d8d5;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 12px;
   background: #fff;
   box-shadow: 0 7px 20px rgba(35, 40, 37, 0.13);
 }
@@ -1061,7 +1061,7 @@
   align-items: center;
   padding: 5px 7px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 8px;
   background: transparent;
   color: #353a37;
   font: 500 0.65rem system-ui, sans-serif;
@@ -1079,11 +1079,13 @@
   border-top: 1px solid rgba(75, 81, 77, 0.13);
 }
 .companion-sidebar-details > summary {
-  padding: 5px 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
   color: #626864;
   font: 600 0.65rem system-ui, sans-serif;
   cursor: pointer;
 }
+.companion-sidebar-details > summary:hover { background: rgba(255, 255, 255, 0.55); }
 .companion-sidebar-details[open] { display: grid; gap: 8px; }
 .companion-blocked-card {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1092,8 +1094,8 @@
 .companion-blocked-card .companion-person > div { display: grid; gap: 3px; }
 .companion-blocked-card > button {
   padding: 4px 7px;
-  border: 1px solid #d2d6d3;
-  border-radius: 5px;
+  border: 0;
+  border-radius: 999px;
   background: #f7f8f7;
   color: #444a46;
   font: 550 0.62rem system-ui, sans-serif;
@@ -1110,9 +1112,9 @@
 .companion-share-tools .companion-field select {
   min-height: 32px;
   padding: 6px 8px;
-  border-color: #d5d8d5;
-  border-radius: 6px;
-  background: var(--companion-paper);
+  border: 0;
+  border-radius: 10px;
+  background: #f0f1f0;
   font-size: 0.66rem;
 }
 .companion-email-setting {
@@ -1123,42 +1125,41 @@
 }
 .companion-result-card {
   padding: 9px;
-  border: 1px solid #d5d8d5;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 13px;
   background: var(--companion-paper);
   box-shadow: 0 3px 9px rgba(35, 40, 37, 0.07);
 }
 .companion-result-card .companion-card-actions button,
 .companion-shared-card .companion-card-actions button {
-  min-height: 27px;
-  padding: 4px 7px;
-  border-color: #d2d6d3;
-  border-radius: 5px;
-  background: #f5f7f5;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: #eff1ef;
   color: #3e4541;
   font-size: 0.62rem;
 }
 .companion-result-card .companion-card-actions button:first-child,
 .companion-shared-card .companion-card-actions button:first-child {
-  border-color: #b7cbed;
   background: var(--companion-blue-bg);
   color: var(--companion-blue);
 }
 .companion-shared-card {
   padding: 9px;
-  border: 1px solid #d7dad7;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 13px;
   background: var(--companion-paper);
 }
 .companion-shared-card .shared-word-prompt { margin: 2px 0 0; font: 600 1rem Georgia, serif; }
 .companion-word-meaning { margin: -4px 0 0; font-size: 0.66rem; }
-.companion-shared-card .shared-word-note { padding: 6px; border-radius: 5px; background: #f0f2f0; font-size: 0.63rem; }
+.companion-shared-card .shared-word-note { padding: 6px; border-radius: 9px; background: #f0f2f0; font-size: 0.63rem; }
 .companion-alert,
 .companion-notice {
   padding: 7px 9px;
-  border: 1px solid #e8c3bd;
-  border-radius: 6px;
-  background: #f9e9e6;
+  border: 0;
+  border-radius: 10px;
+  background: #f6dcd7;
   color: #87493f;
   font-size: 0.65rem;
 }
@@ -1167,13 +1168,13 @@
 .companion-primary-button {
   min-height: 30px;
   padding: 6px 9px;
-  border: 1px solid #3569a6;
-  border-radius: 6px;
-  background: #3569a6;
-  color: white;
+  border: 0;
+  border-radius: 999px;
+  background: var(--companion-blue-bg);
+  color: var(--companion-blue);
   font-size: 0.66rem;
 }
-.companion-primary-button:hover:not(:disabled) { background: #2b578c; }
+.companion-primary-button:hover:not(:disabled) { background: #a7cff7; }
 
 .companion-chat-panel { background: var(--companion-canvas); }
 .companion-chat-toolbar { min-height: 33px; padding: 2px 13px 0; }
@@ -1181,7 +1182,7 @@
   min-height: 25px;
   gap: 4px;
   padding: 3px 5px;
-  border-radius: 5px;
+  border-radius: 999px;
   color: #626864;
   font: 500 0.62rem system-ui, sans-serif;
 }
@@ -1195,7 +1196,7 @@
 .companion-chat-header .companion-chat-identity { display: flex; align-items: center; gap: 8px; }
 .companion-chat-header h2 {
   color: var(--companion-text);
-  font: 650 0.81rem system-ui, sans-serif;
+  font: 650 0.86rem system-ui, sans-serif;
   letter-spacing: -0.01em;
 }
 .companion-chat-menu { margin-left: auto; }
@@ -1211,9 +1212,9 @@
 .companion-message-node img { width: 27px; height: 27px; border-radius: 7px; }
 .companion-message-node > span { border-color: var(--companion-canvas); background: #4a88d8; box-shadow: 0 0 0 1px #b8c5d4; }
 .companion-message-meta { gap: 8px; }
-.companion-message-meta strong { color: #343937; font: 630 0.68rem system-ui, sans-serif; }
-.companion-message-meta time { color: #858b87; font: 450 0.59rem system-ui, sans-serif; }
-.companion-message-text { margin-top: 4px; color: #383d3a; font: 400 0.72rem/1.5 system-ui, sans-serif; }
+.companion-message-meta strong { color: #343937; font: 630 0.72rem system-ui, sans-serif; }
+.companion-message-meta time { color: #858b87; font: 450 0.62rem system-ui, sans-serif; }
+.companion-message-text { margin-top: 4px; color: #383d3a; font: 400 0.78rem/1.5 system-ui, sans-serif; }
 .companion-message-tools { justify-content: flex-start; margin-top: 3px; }
 .companion-message-menu > summary { width: 23px; height: 22px; color: #7a817d; }
 .companion-report-form {
@@ -1221,49 +1222,77 @@
   gap: 8px;
   margin-top: 8px;
   padding: 9px;
-  border: 1px solid var(--companion-rule);
-  border-radius: 8px;
-  background: var(--companion-paper);
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(35, 40, 37, 0.08);
 }
 .companion-report-form .companion-field { font-size: 0.65rem; }
 .companion-report-form .companion-field select,
 .companion-report-form .companion-field textarea {
   min-height: 32px;
   padding: 6px 8px;
-  border: 1px solid var(--companion-rule);
-  border-radius: 6px;
-  background: white;
+  border: 0;
+  border-radius: 9px;
+  background: #f0f1f0;
   font-size: 0.66rem;
 }
 .companion-chat-composer {
   gap: 6px;
   padding: 10px 17px 12px;
-  border-top-color: var(--companion-rule);
+  border-top-color: transparent;
 }
 .companion-chat-composer textarea {
   min-height: 36px;
   padding: 8px 9px;
-  border: 1px solid #cfd4d0;
-  border-radius: 7px;
+  border: 0;
+  border-radius: 16px;
   background: var(--companion-paper);
   font-size: 0.72rem;
+  box-shadow: 0 1px 5px rgba(35, 40, 37, 0.06);
 }
-.companion-chat-composer textarea:focus { border-color: #78aef7; box-shadow: 0 0 0 1px #78aef7; }
+.companion-chat-composer textarea:focus { box-shadow: 0 0 0 2px #b9d9fb; outline: 0; }
 .companion-composer-footer { color: #7c827e; font-size: 0.58rem; }
 .companion-send-button {
   min-height: 27px;
   padding: 4px 8px;
-  border-radius: 6px;
-  background: #3f83d4;
-  color: white;
+  border: 0;
+  border-radius: 999px;
+  background: #b9d9fb;
+  color: #29598d;
   font: 600 0.65rem system-ui, sans-serif;
 }
-.companion-send-button:hover:not(:disabled) { background: #316db5; color: white; }
+.companion-send-button:hover:not(:disabled) { background: #a7cff7; color: #234e7e; }
 .companion-chat-empty { color: var(--companion-muted); }
 .companion-chat-empty p { color: #434a45; font: 600 0.9rem system-ui, sans-serif; }
 .companion-chat-welcome h2 { color: var(--companion-text); font: 650 1.2rem system-ui, sans-serif; }
 .companion-chat-welcome p { color: var(--companion-muted); font-size: 0.7rem; }
 .companion-chat-welcome-icon { width: 48px; height: 48px; border-radius: 10px; background: #e1e9e2; }
+.companion-confirm-card {
+  padding: 11px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 5px 16px rgba(35, 40, 37, 0.1);
+}
+.companion-card-actions button,
+.companion-delete-confirm button {
+  border: 0;
+  border-radius: 999px;
+  background: #eff1ef;
+}
+.companion-card-actions button:first-child,
+.companion-delete-confirm button:first-of-type {
+  border: 0;
+  background: var(--companion-blue-bg);
+  color: var(--companion-blue);
+}
+.companion-delete-confirm {
+  border: 0;
+  border-radius: 12px;
+  background: #fff0cf;
+}
+.companion-chat-header .companion-status-tag { font-size: 0.6rem; }
 
 @media (max-width: 760px) {
   .companion-workspace-view { border-radius: 9px; }
