@@ -120,3 +120,16 @@ test('saved cards accept production reviews while preserving old review records'
   assert.equal(isDeckCard({ ...card, reviewHistory: [productionReview] }), true)
   assert.equal(isDeckCard({ ...card, reviewHistory: [{ ...productionReview, mode: 'other' }] }), false)
 })
+
+test('shared-word attribution is validated and survives as optional card metadata', () => {
+  const card = parseDeckImport([{
+    word: 'lernen',
+    category: 'verb',
+    meaning: 'to learn',
+    example: 'Wir lernen Deutsch.',
+  }]).cards[0]
+  card.sharedFrom = { shareId: 'share-123', username: 'companion', sharedAt: '2026-03-01T00:00:00.000Z', note: 'A helpful word.' }
+  assert.equal(isDeckCard(card), true)
+  card.sharedFrom.note = 'x'.repeat(241)
+  assert.equal(isDeckCard(card), false)
+})

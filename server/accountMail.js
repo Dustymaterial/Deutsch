@@ -24,6 +24,19 @@ const content = {
   },
 }
 
+const companionNotices = {
+  share: {
+    subject: 'A German word from your companion',
+    heading: 'A word to learn together.',
+    message: 'Your companion shared a German word with you. Open Deutsch Deck to preview it and decide whether to add it to your own deck.',
+  },
+  nudge: {
+    subject: 'A gentle learning nudge',
+    heading: 'A little practice, when it suits you.',
+    message: 'Your companion is cheering you on. Open Deutsch Deck for a little German practice whenever you feel ready.',
+  },
+}
+
 export function createAccountMailer(configuration, fetchImpl = fetch) {
   const { MAILJET_API_KEY: apiKey, MAILJET_SECRET_KEY: secret, SENDER_EMAIL: sender } = configuration
   const configured = Boolean(apiKey && secret && sender)
@@ -105,6 +118,25 @@ export function createAccountMailer(configuration, fetchImpl = fetch) {
 <p style="margin:18px 0 8px;color:#625b65;font-size:14px">Hi ${escapeHtml(username)},</p>
 <h1 style="margin:0;font-size:23px;line-height:1.3">A little learning company.</h1>
 <p style="font-size:14px;line-height:1.6">${escapeHtml(senderName)} would like to be your learning companion. Open Deutsch Deck to accept or decline their request.</p>
+<p style="color:#625b65;font-size:13px;line-height:1.6">You can turn off companion emails in your companion settings.</p>
+</div><p style="color:#77717b;font-size:12px">A little practice, one word at a time.</p>
+</td></tr></table></body></html>`
+      await deliver({ email, subject, text, html, avatarPng })
+    },
+    async sendCompanionNotice({ email, username, senderName, avatarPng, kind }) {
+      if (!Object.hasOwn(companionNotices, kind)) throw new Error('Invalid companion email.')
+      if (typeof senderName !== 'string' || senderName.length > 20) throw new Error('Invalid companion email.')
+      const { subject, heading, message } = companionNotices[kind]
+      const text = `Deutsch Deck\n\nHi ${username},\n\n${senderName}: ${message}\n\nYou can turn off companion emails in your companion settings.`
+      const html = `<!doctype html>
+<html lang="en"><body style="margin:0;padding:24px 12px;background:#f5f4ee;color:#292a2d;font-family:Arial,sans-serif">
+<table role="presentation" style="width:100%;max-width:480px;margin:auto;border-collapse:collapse"><tr><td>
+<p style="font-size:16px;font-weight:700;letter-spacing:-0.4px">deutsch deck</p>
+<div style="padding:28px;background:#fffdf6;border:1px solid #e3e1da;border-radius:20px">
+<img src="cid:avatar" width="56" height="56" alt="" style="display:block;border-radius:8px;background:#f7e7bd">
+<p style="margin:18px 0 8px;color:#625b65;font-size:14px">Hi ${escapeHtml(username)},</p>
+<h1 style="margin:0;font-size:23px;line-height:1.3">${heading}</h1>
+<p style="font-size:14px;line-height:1.6"><strong>${escapeHtml(senderName)}</strong>: ${message}</p>
 <p style="color:#625b65;font-size:13px;line-height:1.6">You can turn off companion emails in your companion settings.</p>
 </div><p style="color:#77717b;font-size:12px">A little practice, one word at a time.</p>
 </td></tr></table></body></html>`

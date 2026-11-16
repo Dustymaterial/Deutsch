@@ -7,10 +7,25 @@ const usernameSchema = z.object({ username: z.string().trim().min(3).max(20).reg
 const targetSchema = z.object({ id: z.string().regex(/^[a-f\d]{24}$/) })
 const actionSchema = targetSchema.extend({ action: z.enum(['accept', 'decline', 'cancel', 'remove', 'block', 'unblock']) })
 const settingsSchema = z.object({ emailsEnabled: z.boolean() })
+const sharedCardSchema = z.object({
+  prompt: z.string().trim().min(1).max(500),
+  article: z.enum(['der', 'die', 'das']).optional(),
+  meaning: z.string().trim().min(1).max(1000),
+  plural: z.string().max(500).optional(),
+  example: z.string().trim().min(1).max(2000),
+  translation: z.string().max(2000).optional(),
+  category: z.enum(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase']),
+}).refine((card) => card.category !== 'noun' || Boolean(card.article), { message: 'Nouns require an article.' })
+const shareSchema = z.object({
+  recipientId: z.string().regex(/^[a-f\d]{24}$/),
+  card: sharedCardSchema,
+  note: z.string().trim().max(240).optional(),
+})
 const hour = 60 * 60 * 1000
 const cooldown = 24 * hour
+const shareLifetime = 30 * 24 * hour
 
-export function createCompanionRouter({ users, relationships, requireUser, mailer, renderAvatar }) {
+export function createCompanionRouter({ users, relationships, sharedWords, requireUser, mailer, renderAvatar }) {
   const router = Router()
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -30,6 +45,8 @@ export function createCompanionRouter({ users, relationships, requireUser, maile
   const changed = (res) => res.status(409).json({ error: 'This request changed. Refresh and try again.' })
   const findPair = (a, b) => relationships.findOne({ pairKey: pairKey(a, b) })
   const hidden = (pair, me) => pair?.blockedBy?.some((id) => id !== me)
+  const sentNudgeAt = (userId) => `nudges.sentAt.${userId}`
+  const readNudgeAt = (userId) => `nudges.readAt.${userId}`
 
   async function getOrCreatePair(me, them) {
     const key = pairKey(me, them)
@@ -53,6 +70,42 @@ export function createCompanionRouter({ users, relationships, requireUser, maile
     return result.modifiedCount === 1
   }
 
+  async function notifyByEmail(recipient, sender, kind) {
+    if (!mailer.configured) return
+    const now = new Date()
+    const reserved = await users.updateOne({
+      _id: recipient._id,
+      companionEmailsEnabled: { $ne: false },
+      $or: [
+        { 'companionEmailHistory.4': { $exists: false } },
+        { 'companionEmailHistory.4': { $lte: new Date(now.getTime() - hour) } },
+      ],
+    }, { $push: { companionEmailHistory: { $each: [now], $position: 0, $slice: 5 } } })
+    if (!reserved.modifiedCount) return
+    try {
+      await mailer.sendCompanionNotice({
+        email: recipient.email,
+        username: recipient.username,
+        senderName: sender.username,
+        avatarPng: await renderAvatar(sender.avatarSeed),
+        kind,
+      })
+    } catch {
+      console.error('Companion activity email could not be sent.')
+    }
+  }
+
+  async function currentConnection(me, them) {
+    let pair = await findPair(me, them)
+    if (!pair || pair.state !== 'connected' || pair.blockedBy.length) return null
+    if (!pair.connectionId) {
+      const connectionId = new ObjectId().toString()
+      if (await updatePair(pair, { connectionId, updatedAt: new Date() })) pair = { ...pair, connectionId }
+      else pair = await findPair(me, them)
+    }
+    return pair?.state === 'connected' && !pair.blockedBy.length && typeof pair.connectionId === 'string' ? pair : null
+  }
+
   router.get('/', async (req, res) => {
     const me = req.accountUser._id.toString()
     const pairs = await relationships.find({ participants: me }).toArray()
@@ -63,14 +116,41 @@ export function createCompanionRouter({ users, relationships, requireUser, maile
       const other = pair.participants.find((id) => id !== me)
       const user = await users.findOne({ _id: new ObjectId(other) }, { projection: { username: 1, avatarSeed: 1 } })
       if (!user) continue
+      const lastNudge = pair.nudges?.sentAt?.[me]
+      const receivedNudge = pair.nudges?.sentAt?.[other]
+      const readNudge = pair.nudges?.readAt?.[other]
       items.push({
         ...profile(user),
         status: pair.blockedBy.includes(me) ? 'blocked' : pair.state === 'connected' ? 'connected' : pair.requestedBy === me ? 'outgoing' : 'incoming',
+        ...(pair.state === 'connected' ? {
+          canNudge: !lastNudge || Date.now() - new Date(lastNudge).getTime() >= cooldown,
+          ...(receivedNudge && (!readNudge || new Date(receivedNudge) > new Date(readNudge))
+            ? { nudgeAt: new Date(receivedNudge).toISOString() }
+            : {}),
+        } : {}),
+      })
+    }
+    const incoming = await sharedWords.find({
+      recipientId: me,
+      state: 'pending',
+      expiresAt: { $gt: new Date() },
+    }, { sort: { createdAt: -1 }, limit: 50 }).toArray()
+    const shares = []
+    for (const share of incoming) {
+      const pair = await currentConnection(me, share.senderId)
+      if (!pair || pair.connectionId !== share.connectionId) continue
+      const sender = await users.findOne({ _id: new ObjectId(share.senderId) }, { projection: { username: 1, avatarSeed: 1 } })
+      if (sender) shares.push({
+        id: share._id.toString(),
+        card: share.card,
+        note: share.note ?? '',
+        sender: profile(sender),
+        createdAt: share.createdAt.toISOString(),
       })
     }
     const account = await users.findOne({ _id: req.accountUser._id }, { projection: { companionEmailsEnabled: 1 } })
     if (!account) return res.status(401).json({ error: 'Your session has expired. Please sign in again.' })
-    res.json({ companions: items, emailsEnabled: account.companionEmailsEnabled !== false })
+    res.json({ companions: items, sharedWords: shares, emailsEnabled: account.companionEmailsEnabled !== false })
   })
 
   router.post('/search', async (req, res) => {
@@ -134,6 +214,128 @@ export function createCompanionRouter({ users, relationships, requireUser, maile
     res.status(201).json({ ok: true })
   })
 
+  router.post('/share', async (req, res) => {
+    const result = shareSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Check the word and optional note before sharing.' })
+    const me = req.accountUser._id.toString()
+    const recipientId = result.data.recipientId
+    if (me === recipientId) return unavailable(res)
+    const pair = await currentConnection(me, recipientId)
+    if (!pair) return unavailable(res)
+    const now = new Date()
+    const throttle = await users.updateOne({
+      _id: req.accountUser._id,
+      $or: [
+        { 'companionShareHistory.9': { $exists: false } },
+        { 'companionShareHistory.9': { $lte: new Date(now.getTime() - hour) } },
+      ],
+    }, { $push: { companionShareHistory: { $each: [now], $position: 0, $slice: 10 } } })
+    if (!throttle.modifiedCount) return res.status(429).json({ error: 'You have shared several words. Please try again later.' })
+    const share = {
+      senderId: me,
+      recipientId,
+      connectionId: pair.connectionId,
+      card: result.data.card,
+      ...(result.data.note ? { note: result.data.note } : {}),
+      state: 'pending',
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + shareLifetime),
+    }
+    const inserted = await sharedWords.insertOne(share)
+    const recipient = await users.findOne({ _id: new ObjectId(recipientId) })
+    if (recipient) await notifyByEmail(recipient, req.accountUser, 'share')
+    res.status(201).json({ id: inserted.insertedId.toString(), ok: true })
+  })
+
+  router.post('/shares/:id/add', async (req, res) => {
+    if (!ObjectId.isValid(req.params.id)) return unavailable(res)
+    const share = await sharedWords.findOne({
+      _id: new ObjectId(req.params.id),
+      recipientId: req.accountUser._id.toString(),
+      state: 'pending',
+      expiresAt: { $gt: new Date() },
+    })
+    if (!share || !await currentConnection(share.recipientId, share.senderId)
+      .then((pair) => pair?.connectionId === share.connectionId)) return unavailable(res)
+    const updated = await sharedWords.updateOne({
+      _id: share._id,
+      recipientId: share.recipientId,
+      state: 'pending',
+    }, { $set: { state: 'added', resolvedAt: new Date() } })
+    if (!updated.modifiedCount) return changed(res)
+    res.json({ ok: true })
+  })
+
+  router.post('/shares/:id/dismiss', async (req, res) => {
+    if (!ObjectId.isValid(req.params.id)) return unavailable(res)
+    const share = await sharedWords.findOne({
+      _id: new ObjectId(req.params.id),
+      recipientId: req.accountUser._id.toString(),
+      state: 'pending',
+      expiresAt: { $gt: new Date() },
+    })
+    if (!share || !await currentConnection(share.recipientId, share.senderId)
+      .then((pair) => pair?.connectionId === share.connectionId)) return unavailable(res)
+    const updated = await sharedWords.updateOne({
+      _id: share._id,
+      recipientId: share.recipientId,
+      state: 'pending',
+    }, { $set: { state: 'dismissed', resolvedAt: new Date() } })
+    if (!updated.modifiedCount) return changed(res)
+    res.json({ ok: true })
+  })
+
+  router.post('/nudge', async (req, res) => {
+    const result = targetSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a companion first.' })
+    const me = req.accountUser._id.toString()
+    const recipientId = result.data.id
+    const pair = await currentConnection(me, recipientId)
+    if (!pair) return unavailable(res)
+    const now = new Date()
+    const path = sentNudgeAt(me)
+    const updated = await relationships.updateOne({
+      pairKey: pair.pairKey,
+      state: 'connected',
+      revision: pair.revision,
+      blockedBy: [],
+      $or: [
+        { [path]: { $exists: false } },
+        { [path]: { $lte: new Date(now.getTime() - cooldown) } },
+      ],
+    }, {
+      $set: { [path]: now, updatedAt: now },
+      $inc: { revision: 1 },
+    })
+    if (!updated.modifiedCount) return res.status(429).json({ error: 'You already sent this companion a nudge in the past day.' })
+    const recipient = await users.findOne({ _id: new ObjectId(recipientId) })
+    if (!recipient) return unavailable(res)
+    await notifyByEmail(recipient, req.accountUser, 'nudge')
+    res.status(201).json({ ok: true })
+  })
+
+  router.post('/nudge/read', async (req, res) => {
+    const result = targetSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a companion first.' })
+    const me = req.accountUser._id.toString()
+    const them = result.data.id
+    const pair = await currentConnection(me, them)
+    if (!pair) return unavailable(res)
+    const lastNudge = pair.nudges?.sentAt?.[them]
+    if (!lastNudge) return changed(res)
+    const updated = await relationships.updateOne({
+      pairKey: pair.pairKey,
+      state: 'connected',
+      revision: pair.revision,
+      [sentNudgeAt(them)]: lastNudge,
+    }, {
+      $set: { [readNudgeAt(them)]: lastNudge },
+      $inc: { revision: 1 },
+    })
+    if (!updated.modifiedCount) return changed(res)
+    res.json({ ok: true })
+  })
+
   router.post('/action', async (req, res) => {
     const result = actionSchema.safeParse(req.body)
     if (!result.success) return res.status(400).json({ error: 'Choose a valid companion action.' })
@@ -155,7 +357,7 @@ export function createCompanionRouter({ users, relationships, requireUser, maile
     } else {
       if (blockedBy.length) return unavailable(res)
       if (action === 'accept' && pair.state === 'pending' && pair.requestedBy === them) {
-        values = { state: 'connected' }
+        values = { state: 'connected', connectionId: new ObjectId().toString() }
       } else if ((action === 'decline' && pair.state === 'pending' && pair.requestedBy === them)
         || (action === 'cancel' && pair.state === 'pending' && pair.requestedBy === me)
         || (action === 'remove' && pair.state === 'connected')) {

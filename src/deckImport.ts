@@ -26,6 +26,7 @@ export type Card = {
   reviewResetAt?: string
   firstReviewScheduledAt?: string
   learning?: { saved: boolean; updatedAt: string }
+  sharedFrom?: { shareId: string; username: string; sharedAt: string; note?: string }
   createdAt: string
   updatedAt: string
 }
@@ -114,6 +115,13 @@ export const isDeckCard = (value: unknown): value is Card => {
         typeof card.learning.saved === 'boolean' &&
         typeof card.learning.updatedAt === 'string' &&
         Number.isFinite(Date.parse(card.learning.updatedAt)))) &&
+    (card.sharedFrom === undefined ||
+      (typeof card.sharedFrom === 'object' && card.sharedFrom !== null &&
+        typeof card.sharedFrom.shareId === 'string' &&
+        typeof card.sharedFrom.username === 'string' &&
+        typeof card.sharedFrom.sharedAt === 'string' &&
+        Number.isFinite(Date.parse(card.sharedFrom.sharedAt)) &&
+        (card.sharedFrom.note === undefined || (typeof card.sharedFrom.note === 'string' && card.sharedFrom.note.length <= 240)))) &&
     Array.isArray(card.reviewHistory) &&
     card.reviewHistory.every(isReviewEvent) &&
     (card.activity === undefined || isWordActivity(card.activity))

@@ -1678,6 +1678,14 @@
   font-size: 0.82rem;
   font-weight: 600;
 }
+
+.shared-attribution {
+  margin: 8px 0;
+  color: #536e5c;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 .pause-setting-row {
   display: grid;
   grid-template-columns: 1fr minmax(0, 150px);

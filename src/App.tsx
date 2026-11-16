@@ -34,6 +34,7 @@ import {
 } from './studyPlan'
 import { isProductionAnswerCorrect } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
+import type { SharedWordPreview } from './CompanionPanel'
 import { mergeAccountProgress, type AccountProgress } from './accountSync'
 import LearnMode from './LearnMode'
 import { MenuSelect, type MenuSelectOption } from './MenuSelect'
@@ -1866,6 +1867,45 @@ function App() {
       : `${prompt} was added for this visit but could not be saved.`, saved ? 'success' : 'error')
   }
 
+  const receiveSharedWord = (share: SharedWordPreview) => {
+    if (cards.some((card) => card.sharedFrom?.shareId === share.id)) return 'already-present' as const
+    const sharedContentKey = [share.card.category, share.card.article ?? '', share.card.prompt, share.card.meaning]
+      .join('|').trim().toLocaleLowerCase('de-DE')
+    const duplicate = cards.some((card) => cardContentKey(card) === sharedContentKey)
+    if (duplicate) {
+      return 'already-present' as const
+    }
+    if (!canSave) {
+      showToast('This word could not be saved because your deck has a storage issue.', 'error')
+      return false
+    }
+
+    const card = makeCard(
+      `shared-${share.id}`,
+      share.card.prompt,
+      share.card.meaning,
+      share.card.example,
+      share.card.translation ?? '',
+      share.card.category,
+      [...new Set([share.card.category, 'shared'])],
+      { ...(share.card.article ? { article: share.card.article } : {}), ...(share.card.plural ? { plural: share.card.plural } : {}) },
+    )
+    card.sharedFrom = {
+      shareId: share.id,
+      username: share.sender.username,
+      sharedAt: share.createdAt,
+      ...(share.note ? { note: share.note } : {}),
+    }
+    const updatedCards = [...cards, card]
+    if (!saveDeck(updatedCards, 'The shared word could not be saved to this device. Check available device storage and try again.')) {
+      showToast('The shared word could not be saved to this device.', 'error')
+      return false
+    }
+    setCards(updatedCards)
+    showToast(`${share.card.prompt} was added to your deck.`)
+    return 'added' as const
+  }
+
   const handleExportDeck = () => {
     const backup = {
       format: 'deutsch-daily-deck',
@@ -2242,6 +2282,8 @@ function App() {
               <span aria-hidden="true">+</span> Add a word
             </button>
             <AccountMenu
+              cards={cards}
+              onReceiveWord={receiveSharedWord}
               onUserChange={handleAccountUserChange}
               onNotify={showToast}
               onOpenChange={setAccountMenuOpen}
@@ -2391,6 +2433,8 @@ function App() {
             <span aria-hidden="true">+</span> Add a word
           </button>
           <AccountMenu
+            cards={cards}
+            onReceiveWord={receiveSharedWord}
             onUserChange={handleAccountUserChange}
             onNotify={showToast}
             onOpenChange={setAccountMenuOpen}
@@ -2542,6 +2586,7 @@ function App() {
                       </div>
                     )}
                     <InteractiveExample variant="recall" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
+                    {activeCard.sharedFrom && <p className="shared-attribution">Shared by {activeCard.sharedFrom.username}{activeCard.sharedFrom.note ? `: ${activeCard.sharedFrom.note}` : ''}</p>}
                   </div>
                   <button type="button" className="quiet-button recall-hide" onClick={() => setRevealed(false)}>Hide answer</button>
                 </div>
@@ -2592,6 +2637,7 @@ function App() {
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
                 )}
                 <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
+                {activeCard.sharedFrom && <p className="shared-attribution">Shared by {activeCard.sharedFrom.username}{activeCard.sharedFrom.note ? `: ${activeCard.sharedFrom.note}` : ''}</p>}
               </div>
               <p className="choice-scheduling-note">
                 {practiceLoopActive
@@ -2659,6 +2705,7 @@ function App() {
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
                 )}
                 <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
+                {activeCard.sharedFrom && <p className="shared-attribution">Shared by {activeCard.sharedFrom.username}{activeCard.sharedFrom.note ? `: ${activeCard.sharedFrom.note}` : ''}</p>}
               </div>
               <p className="choice-scheduling-note">
                 {practiceLoopActive

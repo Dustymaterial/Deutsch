@@ -33,13 +33,20 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
       throw new Error(`Unknown operator ${operator}`)
     })
   }
+  if (Array.isArray(expected)) return Array.isArray(actual) && JSON.stringify(actual) === JSON.stringify(expected)
   return Array.isArray(actual) ? actual.includes(expected) : actual === expected
 })
-const records = { users: [], progress: [], relationships: [] }
+const records = { users: [], progress: [], relationships: [], sharedWords: [] }
 const collection = (name) => ({
   async createIndex() {},
-  find(query) {
-    return { async toArray() { return records[name].filter((item) => matches(item, query)).map((item) => ({ ...item })) } }
+  find(query, options = {}) {
+    let result = records[name].filter((item) => matches(item, query)).map((item) => ({ ...item }))
+    if (options.sort) {
+      const [[field, direction]] = Object.entries(options.sort)
+      result.sort((left, right) => direction * (get(left, field) - get(right, field)))
+    }
+    if (options.limit) result = result.slice(0, options.limit)
+    return { async toArray() { return result } }
   },
   async findOne(query) {
     const record = records[name].find((item) => matches(item, query))
@@ -177,6 +184,46 @@ try {
   assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].status, 'incoming')
   assert.equal((await request('/api/companions/action', { id: learnerId, action: 'accept' }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/', null, learner.cookie)).body.companions[0].status, 'connected')
+  const shared = await request('/api/companions/share', {
+    recipientId: otherId,
+    card: { prompt: 'der Sprachkurs', article: 'der', plural: 'Sprachkurse', meaning: 'language course', example: 'Der Sprachkurs beginnt heute.', translation: 'The language course begins today.', category: 'noun' },
+    note: '<A useful word>',
+  }, learner.cookie)
+  assert.equal(shared.status, 201)
+  assert.equal(deliveries.length, 4)
+  assert.match(deliveries[3].Subject, /German word/)
+  assert.doesNotMatch(deliveries[3].TextPart, /Sprachkurs|useful word/)
+  const inbox = await request('/api/companions/', null, other.cookie)
+  assert.equal(inbox.body.sharedWords.length, 1)
+  assert.equal(inbox.body.sharedWords[0].sender.username, 'learner')
+  assert.equal(inbox.body.sharedWords[0].note, '<A useful word>')
+  assert.deepEqual(Object.keys(inbox.body.sharedWords[0].card).sort(), ['article', 'category', 'example', 'meaning', 'plural', 'prompt', 'translation'])
+  assert.equal((await request(`/api/companions/shares/${shared.body.id}/add`, {}, other.cookie)).status, 200)
+  assert.equal((await request('/api/companions/', null, other.cookie)).body.sharedWords.length, 0)
+  assert.equal((await request(`/api/companions/shares/${shared.body.id}/add`, {}, other.cookie)).status, 404)
+  assert.equal((await request('/api/companions/share', {
+    recipientId: otherId,
+    card: { prompt: 'lernen', meaning: 'to learn', example: 'Wir lernen Deutsch.', category: 'verb' },
+    note: 'x'.repeat(241),
+  }, learner.cookie)).status, 400)
+  assert.equal((await request('/api/companions/settings', { emailsEnabled: false }, other.cookie)).status, 200)
+  const quietShare = await request('/api/companions/share', {
+    recipientId: otherId,
+    card: { prompt: 'lernen', meaning: 'to learn', example: 'Wir lernen Deutsch.', category: 'verb' },
+  }, learner.cookie)
+  assert.equal(quietShare.status, 201)
+  assert.equal(deliveries.length, 4)
+  assert.equal((await request('/api/companions/', null, other.cookie)).body.sharedWords.length, 1)
+  assert.equal((await request(`/api/companions/shares/${quietShare.body.id}/dismiss`, {}, other.cookie)).status, 200)
+  assert.equal((await request('/api/companions/', null, other.cookie)).body.sharedWords.length, 0)
+  assert.equal((await request('/api/companions/settings', { emailsEnabled: true }, other.cookie)).status, 200)
+  assert.equal((await request('/api/companions/nudge', { id: otherId }, learner.cookie)).status, 201)
+  assert.equal(deliveries.length, 5)
+  assert.match(deliveries[4].TextPart, /cheering you on/)
+  assert.equal((await request('/api/companions/nudge', { id: otherId }, learner.cookie)).status, 429)
+  assert.ok((await request('/api/companions/', null, other.cookie)).body.companions[0].nudgeAt)
+  assert.equal((await request('/api/companions/nudge/read', { id: learnerId }, other.cookie)).status, 200)
+  assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].nudgeAt, undefined)
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'block' }, learner.cookie)).status, 200)
   assert.equal((await request('/api/companions/search', { username: 'learner' }, other.cookie)).status, 404)
   assert.deepEqual((await request('/api/companions/', null, other.cookie)).body.companions, [])
@@ -188,7 +235,7 @@ try {
   assert.equal((await request('/api/companions/settings', { emailsEnabled: false }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.emailsEnabled, false)
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
-  assert.equal(deliveries.length, 3)
+  assert.equal(deliveries.length, 5)
   assert.equal((await request('/api/companions/action', { id: learnerId, action: 'decline' }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 429)
   assert.deepEqual((await request('/api/companions/', null, learner.cookie)).body.companions, [])
@@ -203,7 +250,7 @@ try {
   assert.equal((await request('/api/companions/settings', { emailsEnabled: true }, other.cookie)).status, 200)
   companion.companionEmailHistory = Array.from({ length: 5 }, () => new Date())
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
-  assert.equal(deliveries.length, 3)
+  assert.equal(deliveries.length, 5)
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'cancel' }, learner.cookie)).status, 200)
   records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
   records.users.find((item) => item.email === email).companionRequestHistory = Array.from({ length: 10 }, () => new Date())
@@ -213,7 +260,7 @@ try {
   failCompanionDelivery = true
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].status, 'incoming')
-  assert.equal(deliveries.length, 3)
+  assert.equal(deliveries.length, 5)
   console.log('Account API integration passed')
 } finally {
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))

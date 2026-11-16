@@ -238,7 +238,11 @@ Use the JSON backup to move your deck manually between browser profiles or devic
 
 Verified, signed-in learners can open **Account → Learning companions** and search for an exact username (case-insensitive). Send a request, which the other learner can accept or decline; you can also cancel a sent request or remove a companion. Blocking ends the connection and prevents requests in either direction. Unblocking does not restore the connection. After a request is declined or cancelled, or a connection is removed or blocked, wait 24 hours before requesting that learner again.
 
-Companion request emails are on by default and can be turned off in the companion panel. Sending is limited to ten requests per account per hour and five notification emails per recipient per hour; delivery is not guaranteed. Requests are still visible in the app if email is disabled or fails. Companions see only usernames and avatars, not email addresses or study progress. There are no invite links, word sharing, messages, or reminders yet. Companions require a connection to the account service; individual study still works offline.
+Choose an active word in your deck to share it with a connected companion. You can add a note of up to 240 characters. The recipient sees a preview and chooses **Add to my deck** or **Not now**; shared words never enter their deck automatically. Adding creates a fresh card with no copied review history or schedule, and keeps the sender and note as source attribution. Shares expire after 30 days. Sharing is limited to ten words per account per hour.
+
+You can send a companion one gentle, manual reminder per 24 hours. It appears in their companion panel until acknowledged; it is never scheduled automatically.
+
+Companion activity emails (requests, shared-word notices, and reminders) are on by default and can be turned off in the companion panel. Sending is limited to ten requests and ten word shares per account per hour, one reminder per companion per 24 hours, and five notification emails per recipient per hour. Delivery is not guaranteed. Shared-word emails do not include the word or note. Requests and activity remain visible in the app if email is disabled or fails. Companions see only usernames, avatars, shared vocabulary and the notes attached to words they receive—not email addresses or study progress. Companions require a verified account and connection to the account service; individual study still works offline.
 
 ## Data, privacy, and recovery
 

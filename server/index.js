@@ -74,6 +74,12 @@ const cardSchema = z.object({
   reviewResetAt: isoDate.optional(),
   firstReviewScheduledAt: isoDate.optional(),
   learning: z.object({ saved: z.boolean(), updatedAt: isoDate }).optional(),
+  sharedFrom: z.object({
+    shareId: z.string().max(64),
+    username: z.string().max(20),
+    sharedAt: isoDate,
+    note: z.string().max(240).optional(),
+  }).optional(),
   createdAt: isoDate,
   updatedAt: isoDate,
 }).passthrough()
@@ -157,6 +163,7 @@ let client
 let users
 let progress
 let relationships
+let sharedWords
 let accountSecurity
 const accountMailer = createAccountMailer(configuration)
 
@@ -220,6 +227,7 @@ if (mongoConnectionString) {
   users = db.collection('users')
   progress = db.collection('progress')
   relationships = db.collection('relationships')
+  sharedWords = db.collection('sharedWords')
   accountSecurity = createAccountSecurity({
     users,
     secret: configuration.SESSION_SECRET,
@@ -232,6 +240,8 @@ if (mongoConnectionString) {
     progress.createIndex({ userId: 1 }, { unique: true }),
     relationships.createIndex({ pairKey: 1 }, { unique: true }),
     relationships.createIndex({ participants: 1 }),
+    sharedWords.createIndex({ recipientId: 1, state: 1, createdAt: -1 }),
+    sharedWords.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
   ])
 
   app.use(session({
@@ -433,7 +443,7 @@ app.patch('/api/auth/profile', requireUser, async (req, res) => {
 
 if (relationships) {
   app.use('/api/companions', createCompanionRouter({
-    users, relationships, requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
+    users, relationships, sharedWords, requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
   }))
 }
 

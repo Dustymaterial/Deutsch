@@ -3,7 +3,8 @@ import { avatarDataUri, avatarOptions, defaultAvatarSeed } from './pixelAvatar.m
 import { Eye, EyeOff } from 'lucide-react'
 import { useFormValidation } from './formValidation'
 import { AccountSecurityPanel } from './AccountSecurityPanel'
-import { CompanionPanel } from './CompanionPanel'
+import { CompanionPanel, type SharedWordPreview } from './CompanionPanel'
+import type { Card } from './deckImport'
 import './AccountMenu.css'
 
 export type AccountUser = {
@@ -35,12 +36,16 @@ export function AccountMenu({
   open,
   onOpenChange,
   onNotify,
+  cards,
+  onReceiveWord,
 }: {
   onUserChange: (user: AccountUser | null) => void
   syncStatus?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onNotify: (message: string) => void
+  cards: Card[]
+  onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
 }) {
   const [user, setUser] = useState<AccountUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -219,7 +224,7 @@ export function AccountMenu({
             onBack={() => { setSecurityMode(null); setRegistering(false); setError(null); clearErrors() }}
           />
         ) : user && showCompanions ? (
-          <CompanionPanel onBack={() => setShowCompanions(false)} />
+          <CompanionPanel cards={cards} onReceiveWord={onReceiveWord} onBack={() => setShowCompanions(false)} />
         ) : user ? (
           <>
             <div className="account-popover-heading">
