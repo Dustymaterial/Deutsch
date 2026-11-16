@@ -8,6 +8,7 @@ import { getRecording } from './pronunciation'
 import { MenuSelect } from './MenuSelect'
 import { containsFloatingTarget } from './floatingTarget'
 import { CopyText } from './CopyText'
+import { InteractiveExample } from './InteractiveExample'
 import './LearnMode.css'
 
 type Props = {
@@ -226,7 +227,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
                       {card.article && <span>Article: <strong>{card.article}</strong></span>}
                       {card.plural && <span>Plural: <strong lang="de">{card.plural}</strong></span>}
                     </div>}
-                    <div className="learn-example"><span>In a sentence</span><CopyText as="strong" text={card.example} label="Copy German example" onCopy={onCopy} />{card.translation && <p>{card.translation}</p>}</div>
+                    <InteractiveExample key={card.id} example={card.example} translation={card.translation ?? ''} onCopy={onCopy} />
                   </>
                 )}
               </div>

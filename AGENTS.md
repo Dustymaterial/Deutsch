@@ -27,6 +27,7 @@ Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a 
 - Keep the card deck as the primary, uncluttered experience. Secondary controls should remain small and purposeful.
 - Explain the app's purpose in the first-visit introduction and the About menu without implying it replaces a course or guarantees proficiency. Keep the introduction dismissible and local to the browser.
 - Make Learn words and examples, revealed Recall words and examples, and submitted quiz answers available to copy with subtle, accessible icon controls. Keep the text selectable; copying must not reveal or hide an answer, and clipboard failures must be reported.
+- Word-level example highlights are a limited, manually verified Learn prototype. Match only the exact German and English sentence pair; never guess word alignments for other examples.
 - Keep scrollbars hidden inside cards and let Learn and revealed Recall cards expand for longer content.
 - Keep Add a word, Tune session, and Goal & pace in anchored panels; outside clicks must not discard unfinished entries or goal edits. Tune session changes apply immediately.
 - Keep scheduling deterministic, testable, local, and independent from AI or network services.

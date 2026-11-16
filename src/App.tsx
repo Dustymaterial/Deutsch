@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { ArrowUpRight } from 'lucide-react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
@@ -2109,7 +2110,7 @@ function App() {
                     <p className="prompt-label">German</p>
                     <h2 lang="de">{promptWord}</h2>
                     <span className="tap-hint">
-                      {promptHint} Tap to reveal <span aria-hidden="true">↗</span>
+                      {promptHint} Tap to reveal <ArrowUpRight size={22} strokeWidth={2.75} aria-hidden="true" />
                     </span>
                   </div>
               </button> : (

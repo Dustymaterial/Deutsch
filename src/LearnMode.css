@@ -69,6 +69,44 @@
 .learn-meaning > span, .learn-example > span:not(.copy-text) { color: var(--muted); font-size: 0.75rem; }
 .learn-meaning strong { font-size: 1.1rem; }
 .learn-example p { margin: 0; color: #686962; }
+.sentence-word {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: #b7ad9d;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: background-color 180ms ease, text-decoration-color 180ms ease;
+}
+.sentence-word:hover, .sentence-word[aria-pressed="true"] {
+  background: #ffe8a6;
+  text-decoration-color: transparent;
+}
+.sentence-translation-highlight {
+  border-radius: 3px;
+  color: #44351e;
+  background: #ffe8a6;
+  animation: sentence-highlight 220ms ease both;
+}
+.sentence-word-hint { color: #77716a; font-size: 0.68rem; }
+.sentence-word-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@keyframes sentence-highlight {
+  from { background-color: transparent; }
+  to { background-color: #ffe8a6; }
+}
 .learn-facts { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; }
 .learn-quiz p, .learn-review p { font-size: 0.85rem; line-height: 1.5; }
 .learn-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

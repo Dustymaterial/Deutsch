@@ -564,8 +564,10 @@
   font-weight: 550;
 }
 
-.tap-hint span {
+.tap-hint svg {
+  display: inline-block;
   margin-left: 5px;
+  vertical-align: middle;
   color: #4c4034;
 }
 

@@ -54,6 +54,8 @@ When you feel ready, choose **Ready to review**, then Recall, Choose, or Produce
 
 Use the copy icon beside a German word or example. In Recall, these are available after revealing the answer; in Choose and Produce, the answer can be copied after submission. Noun words include their article.
 
+In Learn, one starter example offers a trial of word-by-word highlights: select an underlined German word to highlight its English match. Other examples remain unchanged until their matches are verified.
+
 **Listen** uses a human recording for a small, verified set of words (Haus, Gesundheit, Wasser, Buch, and Familie); these recordings speak the word without its article. On clicking Listen, the browser requests the recording directly from Wikimedia Commons, which can see the request. The source, author, and CC BY-SA 3.0 license are linked on each applicable card; recordings are unchanged. The app does not bundle, download for offline use, or app-cache them. For other words, or if playback fails, it uses an available German device voice. Device voice availability and connectivity requirements depend on the browser and device; if unavailable, the app says so.
 
 ### Recall
