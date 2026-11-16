@@ -15,3 +15,9 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      - key: MAILJET_API_KEY
+        sync: false
+      - key: MAILJET_SECRET_KEY
+        sync: false
+      - key: SENDER_EMAIL
+        sync: false

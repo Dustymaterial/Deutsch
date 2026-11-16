@@ -229,6 +229,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
                       {card.plural && <span>Plural: <strong lang="de">{card.plural}</strong></span>}
                     </div>}
                     <InteractiveExample key={card.id} example={card.example} translation={card.translation ?? ''} onCopy={onCopy} />
+                    {card.sharedFrom && <p className="shared-attribution">Shared by {card.sharedFrom.username}{card.sharedFrom.note ? `: ${card.sharedFrom.note}` : ''}</p>}
                   </>
                 )}
               </div>

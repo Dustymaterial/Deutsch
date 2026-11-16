@@ -78,6 +78,44 @@ button {
   font: inherit;
 }
 
+.app-checkbox {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid #89998c;
+  border-radius: 5px;
+  background: #fffefa;
+  cursor: pointer;
+}
+
+.app-checkbox:checked {
+  border-color: #52715c;
+  background: #52715c url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.2 6.5 11l6-6' fill='none' stroke='%23fffefa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
+}
+
+.app-checkbox:focus-visible {
+  outline: 2px solid #171717;
+  outline-offset: 3px;
+}
+
+.app-checkbox:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (forced-colors: active) {
+  .app-checkbox,
+  .app-checkbox:checked {
+    appearance: auto;
+    border: revert;
+    background: revert;
+  }
+}
+
 button:focus-visible,
 a:focus-visible {
   outline: 3px solid #6b8376;

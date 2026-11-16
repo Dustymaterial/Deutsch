@@ -6,7 +6,9 @@ export function inputError(input: HTMLInputElement): string | undefined {
   if (validity.typeMismatch && input.type === 'email') return 'Enter a valid email address.'
   if (validity.tooShort) return `Use at least ${input.minLength} characters.`
   if (validity.tooLong) return `Use no more than ${input.maxLength} characters.`
-  if (validity.patternMismatch) return 'Use letters, numbers, underscores, or hyphens.'
+  if (validity.patternMismatch) return input.name === 'username'
+    ? 'Username can use only letters, numbers, underscores, or hyphens; it cannot be an email address.'
+    : 'Use letters, numbers, underscores, or hyphens.'
   if (!validity.valid) return 'Please check this field.'
   return undefined
 }

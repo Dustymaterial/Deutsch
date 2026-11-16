@@ -1,10 +1,10 @@
 # Deutsch Daily Deck
 
-A calm, local-first German vocabulary companion for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
+A calm German vocabulary companion for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
 
 ![Deutsch Daily Deck showing a German vocabulary card and account setup](./public/Deck.PNG)
 
-Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not vhs-Lernportal or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Studying remains local-first; optionally create an account to sync your deck and goal across devices.
+Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not vhs-Lernportal or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Study on this device or optionally create an account to sync your deck and goal across devices.
 
 On your first visit, a brief introduction explains what Deutsch Deck is and isn't; you can revisit it under **··· → About Deutsch Deck**.
 The footer links to the GitHub project and this documentation.
@@ -13,7 +13,9 @@ The footer links to the GitHub project and this documentation.
 
 Requirements: Node.js 22.12 or newer.
 
-Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_URI` to your full MongoDB Atlas connection string, including username and password, with the database path `/deutsch`. URL-encode special characters in the credentials and put query options after a single `?`. The server explicitly uses only the `deutsch` database, where it creates `users`, `progress`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB URI is only read by the server, not sent to the browser.
+Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_URI` to your full MongoDB Atlas connection string, including username and password, with the database path `/deutsch`. URL-encode special characters in the credentials and put query options after a single `?`. The server explicitly uses only the `deutsch` database, where it creates `users`, `progress`, `relationships`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB URI is only read by the server, not sent to the browser.
+
+Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and `SENDER_EMAIL` on the server to send account codes and optional companion request notifications. Verify the sender or domain with Mailjet. Without these settings, existing accounts can still sign in, but new registrations and code requests are unavailable; companion requests remain visible in the app. Mailjet receives the recipient address and email content, including the recipient's avatar and, as applicable, the one-time code or sender's username. Never put credentials in the client or commit them.
 
 The development command starts both the Vite app and account API:
 
@@ -22,7 +24,11 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. For production, build the client and run the server with `NODE_ENV=production` and the same database/session environment variables:
+Open the local URL printed by Vite.
+
+If port 3001 is already in use, start the services separately with matching alternatives, for example `PORT=3002 node server/index.js --local` and `DEUTSCH_API_PORT=3002 npx vite`.
+
+For production, build the client and run the server with `NODE_ENV=production` and the same database/session environment variables:
 
 ```sh
 npm run build
@@ -35,7 +41,7 @@ The production service worker needs a secure context: HTTPS when hosted, or loca
 
 ## Deploy on Render
 
-The repository includes a Render Blueprint in `render.yaml`. Create a Render Blueprint instance from this repository and provide a full `MONGODB_URI` whose path names `/deutsch`. Use a rotated MongoDB user restricted to the `deutsch` database. Render generates `SESSION_SECRET` automatically. The service also sets `NODE_ENV=production` and trusts Render's HTTPS proxy for secure session cookies.
+The repository includes a Render Blueprint in `render.yaml`. Create a Render Blueprint instance from this repository and provide a full `MONGODB_URI` whose path names `/deutsch`, plus the Mailjet settings and verified sender address. Use a rotated MongoDB user restricted to the `deutsch` database. Render generates `SESSION_SECRET` automatically. The service also sets `NODE_ENV=production` and trusts Render's HTTPS proxy for secure session cookies.
 
 The Blueprint builds with `npm ci --include=dev && npm run build`, starts with `npm start`, and checks `/api/health`. Keep database credentials and secrets in Render's environment settings, never in the repository. Account creation and cloud sync require valid MongoDB settings; local study still works without them.
 
@@ -228,12 +234,23 @@ Use the JSON backup to move your deck manually between browser profiles or devic
 - Use consistent tags for course and lesson grouping (for example `vhs-Lernportal`, `Lektion 2`) plus themes such as `food` or `travel`. Open **··· → Tune session** to select a tag and limit the session; the daily new-card quota is shared across the whole deck.
 - Check imported material for accuracy. The app does not independently verify translations, grammar, sources, or CEFR levels.
 
+## Learning companions
+
+Verified, signed-in learners can open **Account → Learning companions** and search for an exact username (case-insensitive). Send a request, which the other learner can accept or decline; you can also cancel a sent request or remove a companion. Blocking ends the connection and prevents requests in either direction. Unblocking does not restore the connection. After a request is declined or cancelled, or a connection is removed or blocked, wait 24 hours before requesting that learner again.
+
+Choose an active word in your deck to share it with a connected companion. You can add a note of up to 240 characters. The recipient sees a preview and chooses **Add to my deck** or **Not now**; shared words never enter their deck automatically. Adding creates a fresh card with no copied review history or schedule, and keeps the sender and note as source attribution. Shares expire after 30 days. Sharing is limited to ten words per account per hour.
+
+You can send a companion one gentle, manual reminder per 24 hours. It appears in their companion panel until acknowledged; it is never scheduled automatically.
+
+Companion activity emails (requests, shared-word notices, and reminders) are on by default and can be turned off in the companion panel. Sending is limited to ten requests and ten word shares per account per hour, one reminder per companion per 24 hours, and five notification emails per recipient per hour. Delivery is not guaranteed. Shared-word emails do not include the word or note. Requests and activity remain visible in the app if email is disabled or fails. Companions see only usernames, avatars, shared vocabulary and the notes attached to words they receive—not email addresses or study progress. Companions require a verified account and connection to the account service; individual study still works offline.
+
 ## Data, privacy, and recovery
 
 - Cards, saved learning progress, schedule, and review history are stored in this browser's local storage for this app origin. When signed in, they are also synced to the configured MongoDB database.
 - Clearing site data, changing browser profiles, or switching devices can remove or separate progress. Download backups regularly if the deck matters to you.
 - Account data is stored in the `deutsch` MongoDB database when account sync is configured. The browser only receives an HTTP-only session cookie; the database URI remains on the server.
-- Use a unique password. Email verification and password reset are not configured, so protect access to the account email and keep a local backup.
+- New accounts require a six-digit email code before signing in. Existing accounts can continue signing in and can verify their email from the account menu. Codes expire after 10 minutes, can be used once, and have attempt and resend limits. Never share a code.
+- Use **Forgot password?** for email-code recovery, or **Change password** when signed in. A reset invalidates existing sessions; a signed-in change keeps the current session and invalidates the others. Code requests return the same response whether an account exists or not; delivery failures are logged on the server. Keep a local backup.
 - If account sync is not configured, studying, adding cards, importing, and backups continue to work locally.
 - If saved data cannot be read, the app warns and avoids overwriting it. Export/recovery tooling is intentionally kept separate from silent resets.
 
