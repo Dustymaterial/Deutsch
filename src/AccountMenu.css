@@ -1650,6 +1650,71 @@
 .companion-word-card-add { background: var(--companion-blue-bg); color: var(--companion-blue); cursor: pointer; }
 .companion-word-card-add:hover { background: #a7cff7; }
 .companion-word-card-status { background: rgba(255, 255, 255, 0.7); color: var(--companion-green); }
+.companion-correction,
+.companion-correction-form {
+  max-width: 420px;
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 10px 14px 11px;
+  border-radius: 14px;
+  background: #eef6ea;
+  color: #2f3a32;
+}
+.companion-correction-label { color: var(--companion-green); font: 600 0.6rem system-ui, sans-serif; }
+.companion-correction p { margin: 0; }
+.companion-correction-original { color: #7a857d; font: 400 0.7rem/1.45 system-ui, sans-serif; }
+.companion-correction-original s { text-decoration-color: #c9807a; }
+.companion-correction-text { font: 600 0.8rem/1.45 system-ui, sans-serif; }
+.companion-correction-note { color: #4f5d52; font: italic 400 0.66rem/1.45 system-ui, sans-serif; }
+.companion-correction-actions,
+.companion-correction-save { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; }
+.companion-correction-actions button,
+.companion-correction-save button,
+.companion-correction-form .companion-card-actions button {
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+  color: #3d4a40;
+  font: 600 0.66rem system-ui, sans-serif;
+  cursor: pointer;
+}
+.companion-correction-actions button:first-child,
+.companion-correction-save button[type="submit"],
+.companion-correction-form .companion-card-actions button[type="submit"] { background: var(--companion-blue-bg); color: var(--companion-blue); }
+.companion-correction-actions button:hover:not(:disabled),
+.companion-correction-save button:hover:not(:disabled),
+.companion-correction-form .companion-card-actions button:hover:not(:disabled) { filter: brightness(0.96); }
+.companion-correction-status {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--companion-green);
+  font: 600 0.62rem system-ui, sans-serif;
+}
+.companion-correction-save input,
+.companion-correction-form input,
+.companion-correction-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 10px;
+  outline: 0;
+  background: #fff;
+  color: var(--companion-text);
+  font: inherit;
+  font-size: 0.72rem;
+  resize: none;
+}
+.companion-correction-save input { flex: 1 1 180px; width: auto; }
+.companion-correction-form label { display: grid; gap: 3px; color: var(--companion-green); font: 600 0.6rem system-ui, sans-serif; }
+.companion-correction-form p { margin: 0; color: #5c6a5f; font-size: 0.62rem; }
+.companion-correction-form .companion-card-actions { display: flex; gap: 6px; }
 .companion-report-form {
   width: min(320px, 100%);
   gap: 8px;

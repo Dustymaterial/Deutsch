@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Reply, SmilePlus, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Reply, SmilePlus, SpellCheck, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
@@ -15,14 +15,18 @@ type Companion = Profile & {
 type Action = 'accept' | 'decline' | 'cancel' | 'remove' | 'block' | 'unblock'
 type Reaction = { emoji: string; count: number; mine: boolean }
 type ReplyPreview = { id: string; isMine: boolean; text: string }
+type Correction = { text: string; note?: string; byMe: boolean; createdAt: string; response?: 'thanks' | 'saved' }
 type ChatMessage = {
   id: string
   senderId: string
   isMine: boolean
-  kind: 'text' | 'word'
+  kind: 'text' | 'word' | 'unsent'
   text: string
   card?: SharedWordPreview['card']
   replyTo?: ReplyPreview
+  correction?: Correction
+  editedAt?: string
+  editableUntil?: string
   reactions: Reaction[]
   createdAt: string
   reported: boolean
@@ -121,8 +125,7 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   let changed = false
   incoming.map(normalizeMessage).forEach((message) => {
     const previous = messages.get(message.id)
-    if (!previous || previous.reported !== message.reported || previous.text !== message.text
-      || JSON.stringify(previous.reactions) !== JSON.stringify(message.reactions)) changed = true
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(message)) changed = true
     messages.set(message.id, message)
   })
   if (!changed) return current
@@ -181,6 +184,8 @@ export function CompanionPanel({
   const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
+  const [correcting, setCorrecting] = useState<{ messageId: string; text: string; note: string } | null>(null)
+  const [savingCorrection, setSavingCorrection] = useState<{ messageId: string; meaning: string } | null>(null)
   const [activeWord, setActiveWord] = useState<{ messageId: string; key: string } | null>(null)
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
@@ -422,6 +427,53 @@ export function CompanionPanel({
   const jumpToMessage = (id: string) => {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     document.getElementById(`companion-message-${id}`)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+  }
+
+  const replaceMessage = (message: ChatMessage) => {
+    const next = normalizeMessage(message)
+    setChatMessages((current) => current.map((item) => item.id === next.id ? next : item))
+  }
+
+  const startCorrection = (chatMessage: ChatMessage) => {
+    setCorrecting({ messageId: chatMessage.id, text: chatMessage.text, note: '' })
+    setReactionPickerFor(null)
+  }
+
+  const submitCorrection = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!correcting || !correcting.text.trim()) return
+    const { messageId, text, note } = correcting
+    void run(async () => {
+      const data = await request(`/messages/${messageId}/correction`, { text, ...(note.trim() ? { note } : {}) }) as { message: ChatMessage }
+      if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
+      replaceMessage(data.message)
+      setCorrecting(null)
+      onNotify('Correction suggested.')
+    })
+  }
+
+  const respondToCorrection = async (chatMessage: ChatMessage, response: 'thanks' | 'saved') => {
+    const data = await request(`/messages/${chatMessage.id}/correction/respond`, { response }) as { message: ChatMessage }
+    if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
+    replaceMessage(data.message)
+  }
+
+  const saveCorrection = (chatMessage: ChatMessage, meaning: string) => {
+    if (!selectedChat || !chatMessage.correction || !meaning.trim()) return
+    const { correction } = chatMessage
+    const result = onReceiveWord({
+      id: `correction-${chatMessage.id}`,
+      card: { prompt: correction.text, meaning: meaning.trim(), example: correction.text, translation: meaning.trim(), category: 'phrase' },
+      note: correction.note ?? '',
+      sender: selectedChat.companion,
+      createdAt: correction.createdAt,
+    })
+    if (!result) return
+    if (result === 'already-present') onNotify('That sentence is already in your deck.')
+    void run(async () => {
+      await respondToCorrection(chatMessage, 'saved')
+      setSavingCorrection(null)
+    })
   }
 
   const toggleReaction = async (chatMessage: ChatMessage, emoji: string) => {
@@ -848,6 +900,41 @@ export function CompanionPanel({
                           <button className="companion-word-peek-close" type="button" aria-label="Close translation" onClick={() => setActiveWord(null)}><X size={13} aria-hidden="true" /></button>
                         </div>}
                       </>}
+                    {chatMessage.kind === 'text' && correcting?.messageId === chatMessage.id && <form className="companion-correction-form" onSubmit={submitCorrection}>
+                      <label>Suggested sentence
+                        <textarea lang="de" rows={2} maxLength={2000} value={correcting.text} onChange={(event) => setCorrecting({ ...correcting, text: event.target.value })} autoFocus />
+                      </label>
+                      <label>Short note (optional)
+                        <input maxLength={200} value={correcting.note} onChange={(event) => setCorrecting({ ...correcting, note: event.target.value })} placeholder="e.g. The verb goes in second position" />
+                      </label>
+                      <p>Be kind and specific: say what to revisit and why.</p>
+                      <div className="companion-card-actions">
+                        <button type="submit" disabled={busy || !correcting.text.trim() || correcting.text.trim() === chatMessage.text}>Send suggestion</button>
+                        <button type="button" disabled={busy} onClick={() => setCorrecting(null)}>Cancel</button>
+                      </div>
+                    </form>}
+                    {chatMessage.kind === 'text' && chatMessage.correction && <div className="companion-correction">
+                      <span className="companion-correction-label">Suggested correction · {chatMessage.correction.byMe ? 'by you' : `by ${selectedChat.companion.username}`}</span>
+                      <p className="companion-correction-original"><s>{chatMessage.text}</s></p>
+                      <p className="companion-correction-text" lang="de">{chatMessage.correction.text}</p>
+                      {chatMessage.correction.note && <p className="companion-correction-note">{chatMessage.correction.note}</p>}
+                      {chatMessage.correction.byMe
+                        ? chatMessage.correction.response && <span className="companion-correction-status">{chatMessage.correction.response === 'saved' ? 'They saved it to their deck' : 'They said thanks'}</span>
+                        : chatMessage.correction.response === 'saved'
+                          ? <span className="companion-correction-status">Saved to your deck</span>
+                          : savingCorrection?.messageId === chatMessage.id
+                            ? <form className="companion-correction-save" onSubmit={(event) => { event.preventDefault(); saveCorrection(chatMessage, savingCorrection.meaning) }}>
+                              <input value={savingCorrection.meaning} maxLength={200} onChange={(event) => setSavingCorrection({ ...savingCorrection, meaning: event.target.value })} placeholder="What does it mean? (English)" aria-label="English meaning" autoFocus />
+                              <button type="submit" disabled={busy || !savingCorrection.meaning.trim()}>Save</button>
+                              <button type="button" onClick={() => setSavingCorrection(null)}>Cancel</button>
+                            </form>
+                            : <div className="companion-correction-actions">
+                              {chatMessage.correction.response === 'thanks'
+                                ? <span className="companion-correction-status">You said thanks</span>
+                                : <button type="button" disabled={busy} onClick={() => void run(() => respondToCorrection(chatMessage, 'thanks'))}>Thanks</button>}
+                              <button type="button" disabled={busy} onClick={() => setSavingCorrection({ messageId: chatMessage.id, meaning: '' })}>Add to my deck</button>
+                            </div>}
+                    </div>}
                     <div className="companion-message-tools">
                       {chatMessage.reactions.map((reaction) => <button className={`companion-reaction${reaction.mine ? ' mine' : ''}`} key={reaction.emoji} type="button" aria-pressed={reaction.mine} aria-label={`${reaction.emoji} ${reaction.count}`} onClick={() => void toggleReaction(chatMessage, reaction.emoji)}>
                         <span aria-hidden="true">{reaction.emoji}</span>{reaction.count}
@@ -858,6 +945,7 @@ export function CompanionPanel({
                         </span>
                         : <button className="companion-tool-button" type="button" aria-label="Add reaction" onClick={() => setReactionPickerFor(chatMessage.id)}><SmilePlus size={15} aria-hidden="true" /></button>}
                       <button className="companion-tool-button" type="button" aria-label={`Reply to ${chatMessage.isMine ? 'your message' : selectedChat.companion.username}`} onClick={() => startReply(chatMessage)}><Reply size={15} aria-hidden="true" /></button>
+                      {!chatMessage.isMine && chatMessage.kind === 'text' && !chatMessage.correction && <button className="companion-tool-button" type="button" aria-label={`Suggest a correction to ${selectedChat.companion.username}`} title="Suggest a correction" onClick={() => startCorrection(chatMessage)}><SpellCheck size={15} aria-hidden="true" /></button>}
                       {!chatMessage.isMine && <details className="companion-message-menu">
                         <summary aria-label={`Actions for message from ${selectedChat.companion.username}`}><Ellipsis size={15} aria-hidden="true" /></summary>
                         <div className="companion-row-popover">
