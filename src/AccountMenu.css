@@ -1423,6 +1423,8 @@
   line-height: 1;
 }
 .companion-message-tools .companion-reaction-picker button:hover { background: #fff; }
+.companion-message-menu > .companion-row-popover { right: auto; left: 0; }
+.companion-message-menu[data-placement="up"] > .companion-row-popover { top: auto; bottom: calc(100% + 3px); }
 .companion-reply-quote {
   max-width: min(100%, 420px);
   display: grid;

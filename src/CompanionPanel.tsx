@@ -114,6 +114,15 @@ function formatChatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
+// Message menus sit inside a scrolling stream, so open upward when the bottom edge is too close.
+const placePopover = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+  const menu = event.currentTarget
+  if (!menu.open) return
+  const stream = menu.closest('.companion-chat-stream')
+  if (!stream) return
+  menu.dataset.placement = stream.getBoundingClientRect().bottom - menu.getBoundingClientRect().bottom < 130 ? 'up' : 'down'
+}
+
 const normalizeMessage = (message: ChatMessage): ChatMessage => ({
   ...message,
   kind: message.kind ?? 'text',
@@ -998,14 +1007,14 @@ export function CompanionPanel({
                         : <button className="companion-tool-button" type="button" aria-label="Add reaction" onClick={() => setReactionPickerFor(chatMessage.id)}><SmilePlus size={15} aria-hidden="true" /></button>}
                       <button className="companion-tool-button" type="button" aria-label={`Reply to ${chatMessage.isMine ? 'your message' : selectedChat.companion.username}`} onClick={() => startReply(chatMessage)}><Reply size={15} aria-hidden="true" /></button>
                       {!chatMessage.isMine && chatMessage.kind === 'text' && !chatMessage.correction && <button className="companion-tool-button" type="button" aria-label={`Suggest a correction to ${selectedChat.companion.username}`} title="Suggest a correction" onClick={() => startCorrection(chatMessage)}><SpellCheck size={15} aria-hidden="true" /></button>}
-                      {canModify(chatMessage) && <details className="companion-message-menu">
+                      {canModify(chatMessage) && <details className="companion-message-menu" onToggle={placePopover}>
                         <summary aria-label="Edit or unsend this message"><Ellipsis size={15} aria-hidden="true" /></summary>
                         <div className="companion-row-popover">
                           {chatMessage.kind === 'text' && !chatMessage.correction && <button type="button" onClick={(event) => { closePopover(event); setEditing({ messageId: chatMessage.id, text: chatMessage.text }) }}>Edit message</button>}
                           <button className="danger" type="button" onClick={(event) => { closePopover(event); setConfirmUnsendId(chatMessage.id) }}>Unsend</button>
                         </div>
                       </details>}
-                      {!chatMessage.isMine && <details className="companion-message-menu">
+                      {!chatMessage.isMine && <details className="companion-message-menu" onToggle={placePopover}>
                         <summary aria-label={`Actions for message from ${selectedChat.companion.username}`}><Ellipsis size={15} aria-hidden="true" /></summary>
                         <div className="companion-row-popover">
                           {chatMessage.reported ? <span>Reported</span> : <button type="button" onClick={(event) => {
