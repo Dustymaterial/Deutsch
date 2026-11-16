@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Send } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import type { Card } from './deckImport'
@@ -692,7 +692,7 @@ export function CompanionPanel({
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
               <div className="companion-composer-input">
                 <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" disabled={busy} />
-                <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}><span>Send</span><Send size={14} aria-hidden="true" /></button>
+                <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}>Send</button>
               </div>
               <div className="companion-composer-footer">
                 <span>{messageDraft.length}/2000</span>
