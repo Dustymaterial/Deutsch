@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Reply, SmilePlus, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
-import type { Card } from './deckImport'
+import { cardContentKey, type Card } from './deckImport'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -38,6 +38,19 @@ type ReportReason = 'spam' | 'harassment' | 'inappropriate' | 'other'
 const reactionOptions = ['👍', '🎉', '💡', '❤️', '👏']
 
 const shareableCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
+
+const sharedCardPayload = (card: Card) => ({
+  prompt: card.prompt,
+  ...(card.article ? { article: card.article } : {}),
+  meaning: card.meaning,
+  ...(card.plural ? { plural: card.plural } : {}),
+  example: card.example,
+  ...(card.translation ? { translation: card.translation } : {}),
+  category: card.category,
+})
+
+const wordKey = (card: SharedWordPreview['card']) =>
+  [card.category, card.article ?? '', card.prompt, card.meaning].join('|').trim().toLocaleLowerCase('de-DE')
 
 const isShareableCard = (card: Card) =>
   shareableCategories.has(card.category) &&
@@ -133,12 +146,14 @@ export function CompanionPanel({
   const [confirmDeleteChat, setConfirmDeleteChat] = useState(false)
   const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
+  const [wordPickerQuery, setWordPickerQuery] = useState('')
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
   const messageEnd = useRef<HTMLDivElement>(null)
   const messageComposer = useRef<HTMLTextAreaElement>(null)
   const shareTools = useRef<HTMLDetailsElement>(null)
+  const wordPicker = useRef<HTMLDetailsElement>(null)
   const selectedChatId = useRef<string | null>(null)
   const chatHistoryEntry = useRef(false)
   const lastScrolledMessage = useRef<string | null>(null)
@@ -235,6 +250,15 @@ export function CompanionPanel({
   }, [])
 
   const replyingTo = reply && reply.chatId === selectedChat?.id ? reply.message : null
+
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      const picker = wordPicker.current
+      if (picker?.open && !picker.contains(event.target as Node)) picker.open = false
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => document.removeEventListener('pointerdown', closeOutside)
+  }, [])
 
   useEffect(() => {
     if (!reactionPickerFor) return
@@ -439,21 +463,43 @@ export function CompanionPanel({
     })
   }
 
+  const sendWordCard = (card: Card) => {
+    if (!selectedChat) return
+    const chatId = selectedChat.id
+    const replyToId = replyingTo?.id
+    void run(async () => {
+      const data = await request(`/chats/${chatId}/messages`, {
+        card: sharedCardPayload(card),
+        ...(replyToId ? { replyToId } : {}),
+      }) as { message: ChatMessage }
+      if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
+      setChatMessages((current) => mergeMessages(current, [data.message]))
+      setReply(null)
+      setWordPickerQuery('')
+      if (wordPicker.current) wordPicker.current.open = false
+      await load()
+    })
+  }
+
+  const addChatWord = (chatMessage: ChatMessage) => {
+    if (!selectedChat || !chatMessage.card) return
+    const result = onReceiveWord({
+      id: chatMessage.id,
+      card: chatMessage.card,
+      note: '',
+      sender: selectedChat.companion,
+      createdAt: chatMessage.createdAt,
+    })
+    if (result === 'already-present') onNotify(`You already had ${chatMessage.card.prompt} in your deck.`)
+  }
+
   const sendWord = (recipient: Profile) => {
     const card = cards.find((item) => item.id === selectedCardId && item.status === 'active' && isShareableCard(item))
     if (!card) return
     void run(async () => {
       await request('/share', {
         recipientId: recipient.id,
-        card: {
-          prompt: card.prompt,
-          ...(card.article ? { article: card.article } : {}),
-          meaning: card.meaning,
-          ...(card.plural ? { plural: card.plural } : {}),
-          example: card.example,
-          ...(card.translation ? { translation: card.translation } : {}),
-          category: card.category,
-        },
+        card: sharedCardPayload(card),
         ...(shareNote.trim() ? { note: shareNote.trim() } : {}),
       })
       setSelectedCardId('')
@@ -480,6 +526,13 @@ export function CompanionPanel({
 
   const matchingCards = cards.filter((card) => card.status === 'active' && isShareableCard(card) && (!shareQuery.trim()
     || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(shareQuery.trim().toLocaleLowerCase())))
+  const pickerQuery = wordPickerQuery.trim().toLocaleLowerCase()
+  const pickerCards = cards
+    .filter((card) => card.status === 'active' && isShareableCard(card)
+      && (!pickerQuery || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(pickerQuery)))
+    .sort((a, b) => Date.parse(b.lastReviewedAt ?? b.createdAt) - Date.parse(a.lastReviewedAt ?? a.createdAt))
+    .slice(0, 8)
+  const deckWordKeys = new Set(cards.map(cardContentKey))
   const incomingRequests = companions.filter((user) => user.status === 'incoming')
     .sort((a, b) => a.username.localeCompare(b.username))
   const outgoingRequests = companions.filter((user) => user.status === 'outgoing')
@@ -709,7 +762,19 @@ export function CompanionPanel({
                     {chatMessage.replyTo && <button className="companion-reply-quote" type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
                       <strong>{chatMessage.replyTo.isMine ? 'You' : selectedChat.companion.username}</strong><span>{chatMessage.replyTo.text}</span>
                     </button>}
-                    <p className="companion-message-text">{chatMessage.text}</p>
+                    {chatMessage.kind === 'word' && chatMessage.card
+                      ? <div className="companion-word-card">
+                        <span className="companion-word-card-label">Shared a word <em>{chatMessage.card.category}</em></span>
+                        <p className="companion-word-card-prompt" lang="de">{chatMessage.card.prompt}</p>
+                        {chatMessage.card.plural && <small>Plural: <span lang="de">{chatMessage.card.plural}</span></small>}
+                        <p className="companion-word-card-meaning">{chatMessage.card.meaning}</p>
+                        <p className="companion-word-card-example" lang="de">{chatMessage.card.example}</p>
+                        {chatMessage.card.translation && <p className="companion-word-card-translation">{chatMessage.card.translation}</p>}
+                        {!chatMessage.isMine && (deckWordKeys.has(wordKey(chatMessage.card)) || cards.some((card) => card.sharedFrom?.shareId === chatMessage.id)
+                          ? <span className="companion-word-card-status">In your deck</span>
+                          : <button className="companion-word-card-add" type="button" onClick={() => addChatWord(chatMessage)}>Add to deck</button>)}
+                      </div>
+                      : <p className="companion-message-text">{chatMessage.text}</p>}
                     <div className="companion-message-tools">
                       {chatMessage.reactions.map((reaction) => <button className={`companion-reaction${reaction.mine ? ' mine' : ''}`} key={reaction.emoji} type="button" aria-pressed={reaction.mine} aria-label={`${reaction.emoji} ${reaction.count}`} onClick={() => void toggleReaction(chatMessage, reaction.emoji)}>
                         <span aria-hidden="true">{reaction.emoji}</span>{reaction.count}
@@ -764,6 +829,18 @@ export function CompanionPanel({
                 <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}>Send</button>
               </div>
               <div className="companion-composer-footer">
+                <details className="companion-word-picker" ref={wordPicker}>
+                  <summary><BookOpen size={13} aria-hidden="true" /><span>Share a word</span></summary>
+                  <div className="companion-word-picker-panel">
+                    <input value={wordPickerQuery} onChange={(event) => setWordPickerQuery(event.target.value)} placeholder="Search your words…" aria-label="Search your words" />
+                    <div className="companion-word-picker-results" role="group" aria-label="Words to share in this chat">
+                      {pickerCards.map((card) => <button key={card.id} type="button" disabled={busy} onClick={() => sendWordCard(card)}>
+                        <strong lang="de">{card.prompt}</strong><span>{card.meaning}</span>
+                      </button>)}
+                      {!pickerCards.length && <p className="companion-empty-note">No matching shareable words.</p>}
+                    </div>
+                  </div>
+                </details>
                 <span>{messageDraft.length}/2000</span>
               </div>
             </form>
