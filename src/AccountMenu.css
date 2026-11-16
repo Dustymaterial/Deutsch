@@ -1296,23 +1296,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
 }
 .companion-loader span {
-  width: 9px;
-  height: 9px;
+  width: 28px;
+  height: 28px;
+  border: 3px solid #d9dcd9;
+  border-top-color: #f45bb8;
   border-radius: 50%;
-  background: #b9d9fb;
-  animation: companion-loader-bounce 1s ease-in-out infinite;
+  animation: companion-loader-spin 0.8s linear infinite;
 }
-.companion-loader span:nth-child(2) { background: #f45bb8; animation-delay: 0.14s; }
-.companion-loader span:nth-child(3) { background: #cfe5c4; animation-delay: 0.28s; }
-@keyframes companion-loader-bounce {
-  0%, 70%, 100% { transform: translateY(0) scale(0.85); opacity: 0.6; }
-  35% { transform: translateY(-7px) scale(1); opacity: 1; }
-}
+@keyframes companion-loader-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .companion-loader span { animation: none; }
+  .companion-loader span { animation-duration: 2.4s; }
 }
 .companion-primary-button {
   min-height: 30px;

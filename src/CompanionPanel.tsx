@@ -85,7 +85,7 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
 }
 
 function CompanionLoader({ label }: { label: string }) {
-  return <div className="companion-loader" role="status" aria-label={label}><span /><span /><span /></div>
+  return <div className="companion-loader" role="status" aria-label={label}><span /></div>
 }
 
 export function CompanionPanel({
