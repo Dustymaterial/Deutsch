@@ -40,6 +40,14 @@ const shareSchema = z.object({
   note: z.string().trim().max(240).optional(),
 })
 const hour = 60 * 60 * 1000
+const searchScanLimit = 1000
+const searchResultLimit = 30
+const foldText = (value) => value.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('de-DE')
+const searchableFields = (message) => [
+  ...(message.card ? [] : [message.text]),
+  ...(message.card ? [message.card.prompt, message.card.meaning, message.card.example, message.card.translation] : []),
+  ...(message.correction ? [message.correction.text, message.correction.note] : []),
+].filter(Boolean)
 const editWindow = 10 * 60 * 1000
 const unsentText = 'Message unsent'
 const cooldown = 24 * hour
@@ -308,6 +316,26 @@ export function createCompanionRouter({
     res.json({
       hasMore: messages.length === 50,
       messages: messages.map((message) => serializeMessage(message, me)),
+    })
+  })
+
+  router.get('/chats/:id/search', async (req, res) => {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    if (query.length < 2 || query.length > 100) return res.status(400).json({ error: 'Search for 2 to 100 characters.' })
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    const hiddenAt = active.conversation.hiddenAt?.[me]
+    const recent = await companionMessages.find({
+      conversationId: active.conversation._id.toString(),
+      ...(hiddenAt ? { createdAt: { $gt: hiddenAt } } : {}),
+    }, { sort: { createdAt: -1 }, limit: searchScanLimit }).toArray()
+    const needle = foldText(query)
+    const matching = recent.filter((message) => !message.unsentAt
+      && searchableFields(message).some((value) => foldText(value).includes(needle)))
+    res.json({
+      hasMore: matching.length > searchResultLimit,
+      messages: matching.slice(0, searchResultLimit).map((message) => serializeMessage(message, me)),
     })
   })
 
