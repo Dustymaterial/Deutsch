@@ -37,6 +37,17 @@ export const getCardsForStudySet = (cards: Card[], tag: string) =>
     (card) => card.status === 'active' && (!tag || card.tags.includes(tag)),
   )
 
+export const getReviewedWords = (cards: Card[], query: string) => {
+  const search = query.trim().toLocaleLowerCase()
+  return cards
+    .filter((card) =>
+      card.status === 'active' && card.lastReviewedAt !== null &&
+      (card.prompt.toLocaleLowerCase().includes(search) ||
+        card.meaning.toLocaleLowerCase().includes(search)),
+    )
+    .sort((left, right) => left.prompt.localeCompare(right.prompt, 'de'))
+}
+
 export const getStudySetNewCardLimit = (
   allCards: Card[],
   scopedCards: Card[],

@@ -24,6 +24,7 @@ export type ReviewState = {
   incorrectCount: number
   reviewHistory: ReviewEvent[]
   updatedAt: string
+  reviewResetAt?: string
 }
 
 export type SchedulableCard = ReviewState & {
@@ -45,6 +46,35 @@ export type WeakPattern = {
 
 export const DEFAULT_NEW_CARDS_PER_SESSION = 5
 export const MAX_REVIEWS_PER_SESSION = 30
+
+export const resetReviewProgress = <T extends SchedulableCard>(card: T, now: Date): T => ({
+  ...card,
+  dueAt: now.toISOString(),
+  intervalDays: 0,
+  repetitions: 0,
+  easeFactor: 2.5,
+  lapses: 0,
+  lastReviewedAt: null,
+  lastRating: null,
+  correctCount: 0,
+  incorrectCount: 0,
+  reviewHistory: [],
+  reviewResetAt: now.toISOString(),
+  updatedAt: now.toISOString(),
+})
+
+export const getInitialStudyMode = <T extends SchedulableCard>(
+  cards: T[],
+  now: Date,
+): 'learn' | 'recall' => {
+  const active = cards.filter((card) => card.status === 'active')
+  const hasDueReview = active.some(
+    (card) => card.lastReviewedAt !== null && new Date(card.dueAt).getTime() <= now.getTime(),
+  )
+  return !hasDueReview && active.some((card) => card.lastReviewedAt === null)
+    ? 'learn'
+    : 'recall'
+}
 
 const addDays = (date: Date, days: number) => {
   const next = new Date(date)
@@ -68,6 +98,9 @@ export const scheduleReview = <T extends SchedulableCard>(
 ): T => {
   const nextCard = { ...card }
   const previousEase = nextCard.easeFactor
+  if (nextCard.reviewResetAt && now.getTime() <= Date.parse(nextCard.reviewResetAt)) {
+    now = new Date(Date.parse(nextCard.reviewResetAt) + 1)
+  }
   const timestamp = now.toISOString()
 
   switch (rating) {

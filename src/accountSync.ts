@@ -1,5 +1,5 @@
 import type { Card } from './deckImport'
-import type { ReviewEvent } from './scheduler'
+import { resetReviewProgress, scheduleReview, type ReviewEvent } from './scheduler.ts'
 import type { StudyPlan } from './studyPlan'
 
 export type AccountProgress = {
@@ -7,13 +7,12 @@ export type AccountProgress = {
   studyPlan: StudyPlan
 }
 
-const reviewKey = (review: ReviewEvent) =>
+const reviewKey = (review: ReviewEvent, replayed: boolean) =>
   JSON.stringify([
     review.at,
     review.rating,
-    review.intervalDays,
-    review.easeFactor,
-    review.mode ?? '',
+    ...(replayed ? [] : [review.intervalDays, review.easeFactor]),
+    review.mode ?? (replayed ? 'recall' : ''),
     review.answerCorrect ?? null,
     review.struggledWith ?? [],
   ])
@@ -32,15 +31,26 @@ const mergeCard = (local: Card, remote: Card): Card => {
   const learning = !local.learning ? remote.learning : !remote.learning ? local.learning
     : Date.parse(local.learning.updatedAt) >= Date.parse(remote.learning.updatedAt)
       ? local.learning : remote.learning
+  const resetAt = [local.reviewResetAt, remote.reviewResetAt]
+    .filter((value): value is string => value !== undefined)
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0]
   const reviews = new Map<string, ReviewEvent>()
   for (const review of [...local.reviewHistory, ...remote.reviewHistory]) {
-    reviews.set(reviewKey(review), review)
+    reviews.set(reviewKey(review, Boolean(resetAt)), review)
   }
-  const reviewHistory = [...reviews.values()].sort(
+  if (resetAt && [local, remote].some((card) =>
+    card.lastReviewedAt && Date.parse(card.lastReviewedAt) > Date.parse(resetAt) &&
+    !card.reviewHistory.some((review) => review.at === card.lastReviewedAt),
+  )) {
+    throw new Error('Review progress could not be merged safely because a review is missing from its history.')
+  }
+  const reviewHistory = [...reviews.values()].filter(
+    (review) => !resetAt || Date.parse(review.at) > Date.parse(resetAt),
+  ).sort(
     (left, right) => Date.parse(left.at) - Date.parse(right.at),
   )
 
-  return {
+  const merged: Card = {
     ...latest,
     ...(learning ? { learning } : {}),
     tags: [...new Set([...local.tags, ...remote.tags])],
@@ -62,6 +72,23 @@ const mergeCard = (local: Card, remote: Card): Card => {
       reviewHistory.filter((review) => review.rating === 'again').length,
     ),
   }
+  if (!resetAt) return merged
+
+  const reset = resetReviewProgress(merged, new Date(resetAt))
+  const replayed = reviewHistory.reduce(
+    (card, review) => scheduleReview(
+      card,
+      review.rating,
+      new Date(review.at),
+      review.struggledWith,
+      review.mode,
+      review.answerCorrect,
+    ),
+    reset,
+  )
+  const updatedAt = Date.parse(local.updatedAt) >= Date.parse(remote.updatedAt)
+    ? local.updatedAt : remote.updatedAt
+  return { ...replayed, updatedAt }
 }
 
 export const mergeAccountCards = (local: Card[], remote: Card[]) => {

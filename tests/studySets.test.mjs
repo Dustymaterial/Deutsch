@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   getCardsForStudySet,
+  getReviewedWords,
   getStudySetNewCardLimit,
   getStudySetProgress,
   getStudySetTags,
@@ -36,6 +37,22 @@ test('tag filtering includes only active cards tagged for the selected study set
 
   assert.deepEqual(getCardsForStudySet(cards, 'Lektion 1').map((card) => card.id), ['one'])
   assert.equal(getCardsForStudySet(cards, '').length, 2)
+})
+
+test('reviewed-word search filters by selected set, German or meaning, and excludes unseen and archived words', () => {
+  const reviewed = { lastReviewedAt: '2026-01-01T12:00:00.000Z' }
+  const cards = [
+    makeCard('one', ['Health'], { ...reviewed, prompt: 'die Gesundheit', meaning: 'health' }),
+    makeCard('two', ['Health'], { ...reviewed, prompt: 'der Arzt', meaning: 'doctor' }),
+    makeCard('unseen', ['Health'], { prompt: 'gesund', meaning: 'healthy' }),
+    makeCard('archived', ['Health'], { ...reviewed, prompt: 'Gesundheit', meaning: 'health', status: 'archived' }),
+    makeCard('other', ['Work'], { ...reviewed, prompt: 'Gesundheit', meaning: 'health' }),
+  ]
+  const scoped = getCardsForStudySet(cards, 'Health')
+  assert.deepEqual(getReviewedWords(scoped, '').map((card) => card.id), ['two', 'one'])
+  assert.deepEqual(getReviewedWords(scoped, ' GESUND ').map((card) => card.id), ['one'])
+  assert.deepEqual(getReviewedWords(scoped, 'DOCTOR').map((card) => card.id), ['two'])
+  assert.deepEqual(getReviewedWords(scoped, 'missing'), [])
 })
 
 test('a tag study set respects the whole deck daily new-card quota', () => {

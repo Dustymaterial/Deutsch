@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { ArrowUpRight } from 'lucide-react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
+  getInitialStudyMode,
   getLocalDayKey,
   getNewCardQuotaRemaining,
   getSessionCardIds,
+  resetReviewProgress,
   scheduleReview,
   type RecallField,
   type Rating,
@@ -35,10 +38,14 @@ import { useFormValidation } from './formValidation'
 import { FloatingPopover } from './FloatingPopover'
 import { containsFloatingTarget } from './floatingTarget'
 import { Toast, type ToastMessage } from './Toast'
+import { CopyText } from './CopyText'
+import { InteractiveExample } from './InteractiveExample'
+import { WordAudio } from './WordAudio'
 import { reviewLearningCard, saveForLearning } from './learning'
 import starterPack from './data/german-starter-pack.json'
 import {
   getCardsForStudySet,
+  getReviewedWords,
   getStudySetNewCardLimit,
   getStudySetProgress,
   getStudySetTags,
@@ -79,6 +86,7 @@ const STORAGE_KEY = 'deutsch-deck-v1'
 const STUDY_PLAN_STORAGE_KEY = 'deutsch-study-plan-v1'
 const LOCAL_PROGRESS_UPDATED_AT_KEY = 'deutsch-progress-updated-at-v1'
 const LOCAL_STUDY_PLAN_UPDATED_AT_KEY = 'deutsch-study-plan-updated-at-v1'
+const INTRODUCTION_STORAGE_KEY = 'deutsch-introduction-seen-v1'
 const INITIAL_NOW = Date.now()
 const DECK_FILE_VERSION = 1
 
@@ -277,6 +285,36 @@ function usePanelDismiss(
       document.removeEventListener('pointerdown', handlePointerDown)
     }
   }, [panelRef, onClose, hasChanges])
+}
+
+function AboutContent({ onDone, introduction = false }: { onDone: () => void; introduction?: boolean }) {
+  return (
+    <div className="about-content">
+      {introduction && <h1>Welcome to Deutsch Deck</h1>}
+      <section>
+        <h2>What Deutsch Deck is</h2>
+        <p>A local-first companion for discovering and practising German vocabulary, on its own or alongside your course.</p>
+      </section>
+      <section>
+        <h2>What Deutsch Deck isn’t</h2>
+        <p>A complete German course, an official vhs-Lernportal product, or a guarantee of proficiency.</p>
+      </section>
+      <button type="button" className="primary-button" onClick={onDone}>{introduction ? 'Start learning' : 'Done'}</button>
+    </div>
+  )
+}
+
+function AboutPanel({ onClose }: { onClose: (restoreFocus?: boolean) => void }) {
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => { panelRef.current?.focus() }, [])
+  usePanelDismiss(panelRef, onClose, () => false)
+
+  return (
+    <section ref={panelRef} tabIndex={-1} className="add-dialog anchored-panel about-panel" role="dialog" aria-labelledby="about-title">
+      <h2 id="about-title">About Deutsch Deck</h2>
+      <AboutContent onDone={() => onClose(true)} />
+    </section>
+  )
 }
 
 function AddCardDialog({
@@ -890,8 +928,11 @@ function SessionSettingsDialog({
   cards,
   tag,
   goalSummary,
+  now,
   onChange,
   onAdjustGoal,
+  onReset,
+  resetAvailable,
   onClose,
   isFront,
   onActivate,
@@ -899,15 +940,32 @@ function SessionSettingsDialog({
   cards: Card[]
   tag: string
   goalSummary: string
+  now: number
   onChange: (tag: string) => void
   onAdjustGoal: () => void
+  onReset: (cardId?: string) => boolean
+  resetAvailable: boolean
   onClose: (restoreFocus?: boolean) => void
   isFront: boolean
   onActivate: () => void
 }) {
   const scopedCards = getCardsForStudySet(cards, tag)
-  const reviewedCount = scopedCards.filter((card) => card.lastReviewedAt !== null).length
+  const reviewedCards = scopedCards.filter((card) => card.lastReviewedAt !== null)
+  const reviewedCount = reviewedCards.length
+  const [confirmReset, setConfirmReset] = useState(false)
+  const [reviewedOpen, setReviewedOpen] = useState(false)
+  const [reviewedQuery, setReviewedQuery] = useState('')
+  const [reviewedLimit, setReviewedLimit] = useState(25)
+  const [confirmWordId, setConfirmWordId] = useState<string | null>(null)
   const panelRef = useRef<HTMLElement>(null)
+  const reviewedSearchRef = useRef<HTMLInputElement>(null)
+  const matchingCards = getReviewedWords(scopedCards, reviewedQuery)
+  const formatReviewDate = (value: string) => {
+    const date = new Date(value)
+    return Number.isFinite(date.getTime())
+      ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+      : 'Date unavailable'
+  }
   useEffect(() => { panelRef.current?.focus() }, [])
   usePanelDismiss(panelRef, onClose, () => false)
 
@@ -928,11 +986,101 @@ function SessionSettingsDialog({
           </div>
         </div>
         <div className="session-setting-block">
-          <StudySetSelect cards={cards} value={tag} onChange={onChange} />
+          <StudySetSelect cards={cards} value={tag} onChange={(value) => {
+            setConfirmReset(false)
+            setConfirmWordId(null)
+            setReviewedQuery('')
+            setReviewedLimit(25)
+            onChange(value)
+          }} />
           <p className="session-reviewed-count">
             <strong>{reviewedCount.toLocaleString()}</strong> of {scopedCards.length.toLocaleString()}{' '}
             {scopedCards.length === 1 ? 'word' : 'words'} reviewed
           </p>
+          <button type="button" className="quiet-button reviewed-words-toggle" aria-expanded={reviewedOpen} onClick={() => {
+            setReviewedOpen(!reviewedOpen)
+            setConfirmReset(false)
+            setConfirmWordId(null)
+          }}>{reviewedOpen ? 'Hide reviewed words' : 'View reviewed words'}</button>
+          {reviewedOpen && (
+            <section className="reviewed-words" aria-label="Reviewed words">
+              <label>
+                Find a reviewed word
+                <input ref={reviewedSearchRef} type="search" value={reviewedQuery} placeholder="German or meaning" onChange={(event) => {
+                  setReviewedQuery(event.target.value)
+                  setReviewedLimit(25)
+                  setConfirmWordId(null)
+                }} />
+              </label>
+              {matchingCards.length ? (
+                <>
+                  <ul className="reviewed-words-list">
+                    {matchingCards.slice(0, reviewedLimit).map((card) => (
+                      <li key={card.id}>
+                        <details>
+                          <summary><strong lang="de">{card.prompt}</strong><span>{card.meaning}</span></summary>
+                          <div className="reviewed-word-details">
+                            <p>Last reviewed: {formatReviewDate(card.lastReviewedAt ?? '')}</p>
+                            <p>Next review: {new Date(card.dueAt).getTime() <= now ? 'Due now' : formatReviewDate(card.dueAt)}</p>
+                            {card.reviewHistory.length > 0 && (
+                              <>
+                                <strong>Recent reviews</strong>
+                                <ul>
+                                  {card.reviewHistory.slice(-5).reverse().map((review, index) => (
+                                    <li key={index}>
+                                      {formatReviewDate(review.at)} · {review.mode === 'choice' ? 'Choose' : review.mode === 'production' ? 'Produce' : 'Recall'} · {review.mode === 'choice' || review.mode === 'production'
+                                        ? review.answerCorrect === undefined ? 'Result unavailable' : review.answerCorrect ? 'Correct' : 'Incorrect'
+                                        : review.rating.charAt(0).toUpperCase() + review.rating.slice(1)}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </>
+                            )}
+                            {confirmWordId === card.id ? (
+                              <div className="reset-review-confirmation">
+                                <p>Reset the history and schedule for {card.prompt}? It becomes new again in every set. This cannot be undone.</p>
+                                <div className="reset-review-actions">
+                                  <button type="button" className="quiet-button" onClick={() => setConfirmWordId(null)}>Cancel</button>
+                                  <button type="button" className="reset-review-button" onClick={() => {
+                                    if (onReset(card.id)) {
+                                      setConfirmWordId(null)
+                                      reviewedSearchRef.current?.focus()
+                                    }
+                                  }}>Reset this word</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button type="button" className="quiet-button reviewed-word-reset" disabled={!resetAvailable} onClick={() => setConfirmWordId(card.id)}>Reset this word</button>
+                            )}
+                          </div>
+                        </details>
+                      </li>
+                    ))}
+                  </ul>
+                  {matchingCards.length > reviewedLimit && (
+                    <button type="button" className="quiet-button reviewed-words-more" onClick={() => setReviewedLimit((limit) => limit + 25)}>Show more ({matchingCards.length - reviewedLimit} remaining)</button>
+                  )}
+                </>
+              ) : <p>{reviewedCount ? 'No reviewed words match your search.' : 'No reviewed words in this set yet.'}</p>}
+            </section>
+          )}
+          {confirmReset ? (
+            <div className="reset-review-confirmation">
+              <p>Reset review history and schedules for {reviewedCount.toLocaleString()} {reviewedCount === 1 ? 'word' : 'words'} in {tag || 'all words'}? These words become new again, including in other sets. This cannot be undone.</p>
+              <div className="reset-review-actions">
+                <button type="button" className="quiet-button" onClick={() => setConfirmReset(false)}>Cancel</button>
+                <button type="button" className="reset-review-button" onClick={() => {
+                  if (onReset()) {
+                    setConfirmReset(false)
+                    panelRef.current?.focus()
+                  }
+                }}>Reset review progress</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="quiet-button reset-review-link" disabled={!reviewedCount || !resetAvailable} onClick={() => { setConfirmWordId(null); setConfirmReset(true) }}>Reset review progress</button>
+          )}
+          {!resetAvailable && <p>Reset is unavailable until saved data and account sync are ready.</p>}
         </div>
         <StudySetProgressSummary cards={scopedCards} tag={tag} compact />
         <div className="session-goal">
@@ -954,6 +1102,17 @@ function SessionSettingsDialog({
 function App() {
   const [loaded] = useState(loadDeck)
   const [loadedStudyPlan] = useState(loadStudyPlan)
+  const [introduction] = useState(() => {
+    try {
+      return { visible: localStorage.getItem(INTRODUCTION_STORAGE_KEY) !== 'seen', warning: null }
+    } catch {
+      return { visible: true, warning: 'Your browser could not check whether you have seen this introduction.' }
+    }
+  })
+  const [showIntroduction, setShowIntroduction] = useState(introduction.visible)
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const studyAreaRef = useRef<HTMLDivElement>(null)
+  const restoreIntroductionFocus = useRef(false)
   const [cards, setCards] = useState<Card[]>(loaded.cards)
   const [studyPlan, setStudyPlan] = useState(loadedStudyPlan.plan)
   const [canSave, setCanSave] = useState(loaded.canSave)
@@ -1000,9 +1159,29 @@ function App() {
   const dismissToast = useCallback((id: number) => {
     setToasts((current) => current.filter((item) => item.id !== id))
   }, [])
+  const copyText = async (text: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(text)
+      showToast('Copied.')
+    } catch {
+      showToast('Could not copy. Check clipboard permissions and try again.', 'error')
+    }
+  }
+  const finishIntroduction = () => {
+    restoreIntroductionFocus.current = true
+    setShowIntroduction(false)
+    try {
+      localStorage.setItem(INTRODUCTION_STORAGE_KEY, 'seen')
+    } catch {
+      showToast('The introduction could not be saved and may appear again on your next visit.', 'error')
+    }
+  }
   const [struggledWith, setStruggledWith] = useState<RecallField[]>([])
   const [studyMode, setStudyMode] = useState<ReviewMode>('recall')
-  const [learnOpen, setLearnOpen] = useState(false)
+  const [learnOpen, setLearnOpen] = useState(
+    () => getInitialStudyMode(loaded.cards, new Date(INITIAL_NOW)) === 'learn',
+  )
   const [learnSettingsOpen, setLearnSettingsOpen] = useState(false)
   const [learningReviewId, setLearningReviewId] = useState<string | null>(null)
   const [studyTag, setStudyTag] = useState('')
@@ -1014,6 +1193,12 @@ function App() {
   const addCardButton = useRef<HTMLButtonElement>(null)
   const restoreAddCardFocus = useRef(false)
   const restoreSettingsFocus = useRef(false)
+  useEffect(() => {
+    if (!showIntroduction && restoreIntroductionFocus.current) {
+      studyAreaRef.current?.querySelector('button')?.focus()
+      restoreIntroductionFocus.current = false
+    }
+  }, [showIntroduction])
   const closeAddCard = useCallback((restoreFocus = false) => {
     restoreAddCardFocus.current = restoreFocus
     setAddCardOpen(false)
@@ -1064,8 +1249,8 @@ function App() {
   const saveDeck = (nextCards: Card[], failureMessage = 'Your browser could not save this review. Check available device storage.') => {
     if (!canSave) return false
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextCards))
       localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextCards))
       setSavingError(null)
       return true
     } catch {
@@ -1659,6 +1844,58 @@ function App() {
     setNow(nextNow.getTime())
   }
 
+  const handleResetStudyProgress = (cardId?: string) => {
+    if (!canSave || (accountEmail && !accountSyncReady)) return false
+    const reviewedCards = scopedCards.filter((card) =>
+      card.lastReviewedAt !== null && (cardId === undefined || card.id === cardId),
+    )
+    if (!reviewedCards.length) {
+      showToast('No reviewed words are available to reset.', 'error')
+      return false
+    }
+    const resetTime = reviewedCards.reduce((latest, card) => Math.max(
+      latest,
+      Date.parse(card.lastReviewedAt ?? '') + 1,
+      card.reviewResetAt ? Date.parse(card.reviewResetAt) + 1 : 0,
+    ), Date.now())
+    const resetAt = new Date(resetTime)
+    const ids = new Set(reviewedCards.map((card) => card.id))
+    const updatedCards = cards.map((card) => ids.has(card.id) ? resetReviewProgress(card, resetAt) : card)
+    if (!saveDeck(updatedCards, 'Review progress could not be reset. Check device storage and try again.')) {
+      showToast('Review progress could not be reset. Check device storage and try again.', 'error')
+      return false
+    }
+    setCards(updatedCards)
+    if (cardId && activeCard?.id !== cardId) {
+      setSessionIds((ids) => ids.filter((id) => id !== cardId))
+      const loopIndex = practiceLoopIds?.indexOf(cardId) ?? -1
+      if (practiceLoopIds && loopIndex !== -1) {
+        setPracticeLoopIds(practiceLoopIds.filter((id) => id !== cardId))
+        if (loopIndex < practiceLoopIndex) setPracticeLoopIndex(practiceLoopIndex - 1)
+      }
+      showToast('Review progress reset.')
+      return true
+    }
+    const nextScope = getCardsForStudySet(updatedCards, studyTag)
+    setSessionIds(getSessionCardIds(
+      nextScope,
+      resetAt,
+      getStudySetNewCardLimit(updatedCards, nextScope, resetAt, intensitySettings.newCardsPerDay),
+      intensitySettings.reviewLimit,
+    ))
+    setNewCardLimitOverrideDay(null)
+    setPracticeLoopIds(null)
+    setPracticeLoopIndex(0)
+    setPracticeLoopDay(null)
+    setLearningReviewId(null)
+    setRevealed(false)
+    continueQuiz()
+    setStruggledWith([])
+    setNow(resetAt.getTime())
+    showToast('Review progress reset.')
+    return true
+  }
+
   const handleSaveStudyPlan = (plan: StudyPlan) => {
     setStudyPlan(plan)
     closeStudyPlan(true)
@@ -1709,8 +1946,16 @@ function App() {
     setLearnSettingsOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
+  const openAbout = () => {
+    setAboutOpen(true)
+    if (deckMenu.current) deckMenu.current.open = false
+  }
   const closeLearnSettings = useCallback((restoreFocus = false) => {
     setLearnSettingsOpen(false)
+    if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
+  }, [])
+  const closeAbout = useCallback((restoreFocus = false) => {
+    setAboutOpen(false)
     if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
   }, [])
 
@@ -1752,6 +1997,7 @@ function App() {
       onCloseSettings={closeLearnSettings}
       onSave={saveLearningCard}
       onReview={startLearningReview}
+      onCopy={copyText}
     />
   )
 
@@ -1782,6 +2028,7 @@ function App() {
                 <button type="button" onClick={handleExportDeck}>Download backup</button>
                 <button type="button" onClick={openSessionSettings}>Tune session</button>
                 <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+                <button type="button" onClick={openAbout}>About Deutsch Deck</button>
                 {practiceLoopIds && (
                   <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
                 )}
@@ -1815,7 +2062,12 @@ function App() {
             )}
           </div>
         )}
-        <div className="empty-state">
+        {showIntroduction ? (
+          <div className="about-introduction">
+            <AboutContent introduction onDone={finishIntroduction} />
+            {introduction.warning && <p role="status">{introduction.warning}</p>}
+          </div>
+        ) : <div ref={studyAreaRef} className="empty-state">
           <button type="button" className="quiet-button" onClick={() => setLearnOpen(true)}>Learn new words</button>
           <span className="complete-mark" aria-hidden="true">✓</span>
           <h1>That’s a good moment to pause.</h1>
@@ -1888,7 +2140,7 @@ function App() {
               Start fresh with starter vocabulary
             </button>
           )}
-        </div>
+        </div>}
         <p className="privacy-note">
           {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
         </p>
@@ -1923,6 +2175,7 @@ function App() {
               <button type="button" onClick={handleExportDeck}>Download backup</button>
               <button type="button" onClick={openSessionSettings}>Tune session</button>
               <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+              <button type="button" onClick={openAbout}>About Deutsch Deck</button>
               {practiceLoopIds && (
                 <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
               )}
@@ -1958,7 +2211,13 @@ function App() {
         </div>
       )}
 
-      <div className="study-mode-toggle" role="group" aria-label="Study mode">
+      {showIntroduction ? (
+        <div className="about-introduction">
+          <AboutContent introduction onDone={finishIntroduction} />
+          {introduction.warning && <p role="status">{introduction.warning}</p>}
+        </div>
+      ) : <>
+      <div ref={studyAreaRef} className="study-mode-toggle" role="group" aria-label="Study mode">
         <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => setLearnOpen(true)}>Learn</button>
         <button
           type="button"
@@ -1988,7 +2247,7 @@ function App() {
       {learnOpen ? learnContent : activeCard && (
         <>
 
-      <div className="deck-shell">
+      <div className={`deck-shell${(studyMode === 'recall' && revealed) || hasQuizFeedback ? ' deck-shell-expanded' : ''}`}>
         <div className="card card-back card-back-3" aria-hidden="true" />
         <div className="card card-back card-back-2" aria-hidden="true" />
         <div
@@ -2006,24 +2265,27 @@ function App() {
 
           {studyMode === 'recall' ? (
             <>
-              <button
+              {!revealed ? <button
                 type="button"
                 className="card-face"
                 onClick={() => setRevealed((value) => !value)}
-                aria-label={revealed ? 'Hide answer' : `Reveal answer for ${promptWord}`}
-                aria-pressed={revealed}
+                aria-label={`Reveal answer for ${promptWord}`}
+                aria-pressed={false}
               >
-                {!revealed ? (
                   <div className="card-front">
                     <p className="prompt-label">German</p>
                     <h2 lang="de">{promptWord}</h2>
-                    <span className="tap-hint">
-                      {promptHint} Tap to reveal <span aria-hidden="true">↗</span>
+                    <span className="tap-hint">{promptHint}</span>
+                    <span className="reveal-cue">
+                      <span className="reveal-cue-icon"><ArrowUpRight size={23} strokeWidth={3} aria-hidden="true" /></span>
+                      <span>Tap to reveal</span>
                     </span>
                   </div>
-                ) : (
+              </button> : (
+                <div className="card-face recall-revealed">
                   <div className="card-back-content">
-                    <p className="answer-word" lang="de">{activeCard.prompt}</p>
+                    <p className="answer-word"><CopyText text={activeCard.prompt} label="Copy German word or phrase" onCopy={copyText} /></p>
+                    <WordAudio card={activeCard} />
                     <div className="answer-meaning">
                       <span className="label">Meaning</span>
                       <strong>{activeCard.meaning}</strong>
@@ -2040,16 +2302,11 @@ function App() {
                         <strong>{activeCard.plural}</strong>
                       </div>
                     )}
-                    <div className="fact-row example-row">
-                      <span className="label">In a sentence</span>
-                      <strong lang="de">{activeCard.example}</strong>
-                      {activeCard.translation && (
-                        <span className="translation">{activeCard.translation}</span>
-                      )}
-                    </div>
+                    <InteractiveExample variant="recall" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
                   </div>
-                )}
-              </button>
+                  <button type="button" className="quiet-button recall-hide" onClick={() => setRevealed(false)}>Hide answer</button>
+                </div>
+              )}
               {revealed && (
                 <details className="recall-markers">
                   <summary>What felt tricky?</summary>
@@ -2089,15 +2346,13 @@ function App() {
                 </p>
               )}
               <div className="choice-answer">
-                <strong lang="de">{activeCard.prompt}</strong>
+                <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
+                <WordAudio card={activeCard} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
                 {activeCard.plural && (
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
                 )}
-                <p className="choice-example" lang="de">{activeCard.example}</p>
-                {activeCard.translation && (
-                  <span className="choice-translation">{activeCard.translation}</span>
-                )}
+                <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
               </div>
               <p className="choice-scheduling-note">
                 {practiceLoopActive
@@ -2158,15 +2413,13 @@ function App() {
                 You typed: <span lang="de">{productionFeedback.answer}</span>
               </p>
               <div className="choice-answer">
-                <strong lang="de">{activeCard.prompt}</strong>
+                <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
+                <WordAudio card={activeCard} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
                 {activeCard.plural && (
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
                 )}
-                <p className="choice-example" lang="de">{activeCard.example}</p>
-                {activeCard.translation && (
-                  <span className="choice-translation">{activeCard.translation}</span>
-                )}
+                <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
               </div>
               <p className="choice-scheduling-note">
                 {practiceLoopActive
@@ -2276,6 +2529,7 @@ function App() {
       )}
         </>
       )}
+      </>}
       <p className="privacy-note">
         {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
       </p>
@@ -2299,7 +2553,10 @@ function App() {
           cards={cards}
           tag={studyTag}
           goalSummary={studyPlanSummary}
+          now={now}
           onChange={handleStudyTagChange}
+          onReset={handleResetStudyProgress}
+          resetAvailable={canSave && (!accountEmail || accountSyncReady)}
           onAdjustGoal={() => {
             setSessionSettingsOpen(false)
             openStudyPlan()
@@ -2319,6 +2576,7 @@ function App() {
           onActivate={() => setFrontPanel('goal')}
         />
       )}
+      {aboutOpen && <AboutPanel onClose={closeAbout} />}
       <div className="toast-region">
         {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />)}
       </div>
