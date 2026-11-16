@@ -1,9 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isDeckCard } from '../src/deckImport.ts'
-import { reviewLearningCard, saveForLearning } from '../src/learning.ts'
+import { reviewLearningCard, saveForLearning, scheduleFirstReview } from '../src/learning.ts'
 import { mergeAccountCards } from '../src/accountSync.ts'
 import { getRecording } from '../src/pronunciation.ts'
+import { getInitialStudyMode, getNewCardQuotaRemaining, getReviewDueAt, getSessionCardIds, resetReviewProgress } from '../src/scheduler.ts'
 
 const card = {
   id: 'one', prompt: 'das Haus', article: 'das', meaning: 'house', plural: 'die Häuser',
@@ -64,4 +65,40 @@ test('sync merges learning state separately from review scheduling', () => {
   const withNewerLearning = mergeAccountCards([newerSave], [reviewed])[0]
   assert.equal(withNewerLearning.learning.saved, true)
   assert.equal(withNewerLearning.lastRating, 'again')
+})
+
+test('adding a word schedules an unscored first review and consumes today’s target', () => {
+  const start = new Date('2026-01-02T12:00:00.000Z')
+  const scheduled = scheduleFirstReview(saveForLearning(card, start), start)
+  const other = { ...card, id: 'other', prompt: 'die Zeit' }
+  assert.equal(isDeckCard(scheduled), true)
+  assert.equal(scheduled.learning.saved, false)
+  assert.equal(scheduled.lastReviewedAt, null)
+  assert.deepEqual(scheduled.reviewHistory, [])
+  assert.equal(scheduled.correctCount, 0)
+  assert.equal(getReviewDueAt(scheduled), '2026-01-02T12:10:00.000Z')
+  assert.equal(getNewCardQuotaRemaining([scheduled, other], start, 1), 0)
+  assert.deepEqual(getSessionCardIds([scheduled], new Date('2026-01-02T12:09:59.999Z')), [])
+  assert.deepEqual(getSessionCardIds([scheduled, other], new Date('2026-01-02T12:10:00.000Z'), 1), ['one', 'other'])
+  assert.equal(getInitialStudyMode([scheduled, other], new Date('2026-01-02T12:10:00.000Z')), 'recall')
+  const reviewed = reviewLearningCard(scheduled, 'good', new Date('2026-01-03T12:00:00.000Z'))
+  assert.equal(getNewCardQuotaRemaining([reviewed, other], new Date('2026-01-03T12:00:00.000Z'), 1), 1)
+  assert.equal(reviewed.reviewHistory.length, 1)
+})
+
+test('scheduled reviews survive sync and stale data cannot restore a reset schedule', () => {
+  const start = new Date('2026-01-02T12:00:00.000Z')
+  const scheduled = scheduleFirstReview(card, start)
+  for (const [left, right] of [[scheduled, card], [card, scheduled]]) {
+    const merged = mergeAccountCards([left], [right])[0]
+    assert.equal(getReviewDueAt(merged), '2026-01-02T12:10:00.000Z')
+    assert.equal(merged.lastReviewedAt, null)
+  }
+  const reviewed = reviewLearningCard(scheduled, 'good', new Date('2026-01-02T12:10:00.000Z'))
+  const reset = resetReviewProgress(reviewed, new Date('2026-01-03T12:00:00.000Z'))
+  assert.equal(mergeAccountCards([scheduled], [reset])[0].firstReviewScheduledAt, undefined)
+  const rescheduled = scheduleFirstReview(reset, new Date(reset.reviewResetAt))
+  const merged = mergeAccountCards([rescheduled], [reviewed])[0]
+  assert.equal(merged.firstReviewScheduledAt, '2026-01-03T12:00:00.001Z')
+  assert.equal(merged.lastReviewedAt, null)
 })

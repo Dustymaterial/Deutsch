@@ -319,7 +319,7 @@ export function AccountMenu({
             <div className="account-popover-heading">
               <img src={avatarDataUri(avatarSeed || user.avatarSeed)} alt="" />
               <div>
-                <strong>Your account</strong>
+                <strong className="menu-panel-title">Your account</strong>
                 <span>{user.email}</span>
               </div>
             </div>
@@ -370,7 +370,7 @@ export function AccountMenu({
           <>
             <div className="account-popover-heading">
               <div>
-                <strong>{registering ? 'Create your account' : 'Welcome back'}</strong>
+                <strong className="menu-panel-title">{registering ? 'Create your account' : 'Welcome back'}</strong>
                 <span>Save your deck and progress across devices.</span>
               </div>
             </div>

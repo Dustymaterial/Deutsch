@@ -1333,6 +1333,27 @@
   line-height: 1.1;
 }
 
+.pause-screen {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 24px;
+  background: #f7f1ec;
+}
+
+.pause-card { margin: auto; }
+.pause-countdown {
+  margin: 24px 0 0;
+  color: #42604c;
+  font: 400 2.4rem/1 Georgia, serif;
+  font-variant-numeric: tabular-nums;
+}
+.pause-countdown span { font: 500 0.75rem/1.2 Inter, sans-serif; }
+.pause-card .quiet-button { margin-top: 16px; }
+
 .session-note {
   margin: 0 auto;
   color: #746d77;
@@ -1533,9 +1554,107 @@
   z-index: 9;
 }
 
+.add-dialog.app-settings-panel { z-index: 9; }
+.add-dialog.activity-panel { z-index: 9; width: min(550px, calc(100vw - 32px)); }
+.activity-panel .dialog-heading { align-items: center; margin-bottom: 12px; }
+.activity-panel .dialog-heading h2 { margin: 0; }
+.activity-panel .dialog-heading .quiet-button { margin: 0; padding: 5px; }
+.activity-intro, .activity-footnote, .activity-preview-note {
+  color: #77736f;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.activity-intro { margin: 0 0 18px; }
+.activity-total { margin: 0 0 14px; color: #686962; font-size: 0.76rem; }
+.activity-total strong { color: #465e50; font-size: 1.15rem; }
+.activity-calendar { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; scroll-padding: 5px; }
+.activity-calendar::-webkit-scrollbar { display: none; }
+.activity-calendar-inner { width: max-content; padding: 5px; }
+.activity-months {
+  display: grid;
+  grid-template-columns: repeat(var(--activity-weeks), 13px);
+  gap: 4px;
+  height: 20px;
+  color: #89847f;
+  font-size: 0.61rem;
+  text-align: left;
+}
+.activity-months span { overflow: visible; white-space: nowrap; }
+.activity-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 13px);
+  grid-auto-columns: 13px;
+  grid-auto-flow: column;
+  gap: 4px;
+}
+.activity-cell {
+  display: block;
+  width: 13px;
+  height: 13px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+}
+.activity-grid button { cursor: pointer; scroll-margin: 5px; }
+.activity-grid button:focus-visible { outline: 2px solid #536e5c; outline-offset: 2px; }
+.activity-grid button[aria-pressed="true"] { box-shadow: 0 0 0 2px #536e5c; }
+.activity-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: #89847f; font-size: 0.62rem; }
+.activity-navigation div { display: flex; gap: 5px; }
+.activity-navigation button { width: 25px; height: 25px; padding: 0; border: 0; border-radius: 8px; background: #e9eee5; color: #536e5c; font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.activity-cell.shade-0 { background: #eae8e2; }
+.activity-cell.shade-1 { background: #d7e8d8; }
+.activity-cell.shade-2 { background: #b8d7be; }
+.activity-cell.shade-3 { background: #8dbb9c; }
+.activity-cell.shade-4 { background: #61977a; }
+.activity-legend { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin: 12px 0; color: #89847f; font-size: 0.62rem; }
+.activity-legend span:first-child { margin-right: 3px; }
+.activity-legend span:last-child { margin-left: 3px; }
+.activity-detail { display: flex; flex-direction: column; gap: 4px; padding: 13px 15px; border-radius: 12px; background: #eff3eb; color: #506456; font-size: 0.73rem; }
+.activity-footnote { margin: 14px 0 0; }
+.activity-preview { margin-top: 24px; padding: 16px; border-radius: 16px; background: #f5f5ee; text-align: left; }
+.activity-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.activity-preview-heading h2 { margin: 0; color: #465e50; font-family: Georgia, "Times New Roman", serif; font-size: 1.15rem; font-weight: 400; }
+.activity-preview-heading p { margin: 4px 0 0; color: #85877c; font-size: 0.68rem; }
+.activity-preview-heading .quiet-button { flex: none; margin: 0; padding: 5px; }
+.activity-preview-note { margin: 10px 0 0; }
+.app-settings-panel h3 { margin: 0 0 12px; font-size: 0.9rem; }
+.app-settings-panel p { margin: 12px 0; color: #686962; font-size: 0.76rem; line-height: 1.5; }
+.app-settings-panel .dialog-heading { align-items: center; }
+.app-settings-panel .dialog-heading h2 { margin: 0; }
+.app-settings-panel .dialog-heading .quiet-button { margin: 0; padding: 5px; }
+.app-settings-panel .pause-setting-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  min-height: 36px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.app-settings-panel .pause-setting-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #54755d;
+}
+.pause-setting-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 150px);
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .about-panel > h2 {
   margin: 0 0 18px;
-  font-size: 0.95rem;
 }
 
 .about-introduction {
@@ -1590,7 +1709,6 @@
 
 .session-settings-dialog .dialog-heading h2 {
   margin-top: 0;
-  font-size: 1.7rem;
 }
 
 .session-settings-dialog .dialog-actions {
@@ -1610,6 +1728,17 @@
   font-size: 2rem;
   font-weight: 400;
   letter-spacing: -0.05em;
+}
+
+.dialog-heading .menu-panel-title,
+.about-panel > .menu-panel-title,
+.learn-settings-heading .menu-panel-title,
+.account-popover-heading .menu-panel-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  font-weight: 400;
+  letter-spacing: -0.05em;
+  line-height: normal;
 }
 
 .add-dialog form {

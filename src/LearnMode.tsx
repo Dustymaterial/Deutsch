@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Card } from './deckImport'
 import { getStudySetChoiceOptions } from './choiceQuiz'
 import { getStudySetTags } from './studySets'
-import type { ReviewMode } from './scheduler'
+import { ArrowRight } from 'lucide-react'
+import { isUnintroduced } from './scheduler'
 import { MenuSelect } from './MenuSelect'
 import { containsFloatingTarget } from './floatingTarget'
 import { CopyText } from './CopyText'
@@ -19,11 +20,11 @@ type Props = {
   settingsOpen: boolean
   onCloseSettings: (restoreFocus?: boolean) => void
   onSave: (id: string) => void
-  onReview: (id: string, mode: ReviewMode, beyondLimit: boolean) => void
+  onSchedule: (id: string, beyondLimit: boolean) => boolean
   onCopy: (text: string) => void
 }
 
-export default function LearnMode({ cards, initialTag, dailyLimitReached, canSave, savingError, settingsOpen, onCloseSettings, onSave, onReview, onCopy }: Props) {
+export default function LearnMode({ cards, initialTag, dailyLimitReached, canSave, savingError, settingsOpen, onCloseSettings, onSave, onSchedule, onCopy }: Props) {
   const [topic, setTopic] = useState(initialTag === 'A1' || initialTag === 'A2' ? '' : initialTag)
   const [level, setLevel] = useState(initialTag === 'A1' || initialTag === 'A2' ? initialTag : '')
   const [view, setView] = useState<'guided' | 'browse' | 'saved'>('guided')
@@ -37,7 +38,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
   const settingsRef = useRef<HTMLElement>(null)
   const tags = useMemo(() => getStudySetTags(cards), [cards])
   const scoped = useMemo(() => cards.filter((card) =>
-    card.status === 'active' && card.lastReviewedAt === null &&
+    card.status === 'active' && isUnintroduced(card) &&
     (!topic || card.tags.includes(topic)) && (!level || card.tags.includes(level)),
   ), [cards, topic, level])
   const visible = useMemo(() => scoped.filter((card) => {
@@ -93,7 +94,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
       {settingsOpen && (
         <aside ref={settingsRef} className="learn-settings" role="dialog" aria-labelledby="learn-settings-title">
           <div className="learn-settings-heading">
-            <h2 id="learn-settings-title">Learn settings</h2>
+            <h2 id="learn-settings-title" className="menu-panel-title">Learn settings</h2>
             <button type="button" className="quiet-button" onClick={() => onCloseSettings(true)}>Done</button>
           </div>
           <div className="learn-tabs" role="group" aria-label="Learning view">
@@ -174,15 +175,11 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
           </div>
           {showReview ? (
             <div className="learn-review">
-              <strong>Choose your first review</strong>
-              {dailyLimitReached && <p>Your daily new-word target is complete. Starting this review continues beyond today’s target.</p>}
-              <div className="learn-review-modes">
-                {([['recall', 'Recall'], ['choice', 'Choose'], ['production', 'Produce']] as const).map(([mode, label]) => (
-                  <button type="button" key={mode} disabled={mode === 'choice' && choices?.options.length !== 4}
-                    onClick={() => onReview(card.id, mode, dailyLimitReached)}>{label}</button>
-                ))}
-              </div>
-              {choices?.options.length !== 4 && <p className="learn-note">Choose needs four distinct words; Recall and Produce are available.</p>}
+              <strong>Your daily new-word target is complete.</strong>
+              <p>Adding this word continues beyond today’s target.</p>
+              <button type="button" className="rating" disabled={!canSave} onClick={() => {
+                if (onSchedule(card.id, true)) resetActivity()
+              }}>Add anyway</button>
               <button type="button" className="quiet-button" onClick={() => setShowReview(false)}>Not yet</button>
             </div>
           ) : (
@@ -190,17 +187,20 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
               <div className="learn-actions" aria-label="Learning actions">
                 <button type="button" className="rating" onClick={toggleQuiz}>{showQuiz ? 'Back to word' : 'Gentle check'}</button>
                 <button type="button" className="rating" disabled={!canSave || (card.learning?.saved && !savingError)} onClick={() => onSave(card.id)}>{card.learning?.saved && !savingError ? 'Saved' : 'Save'}</button>
-                <button type="button" className="rating learn-ready" onClick={() => setShowReview(true)}>Ready to review</button>
+                <button type="button" className="rating learn-ready" disabled={!canSave} onClick={() => {
+                  if (dailyLimitReached) setShowReview(true)
+                  else if (onSchedule(card.id, false)) resetActivity()
+                }}>Add to reviews</button>
               </div>
               <div className="learn-navigation">
                 <button type="button" className="quiet-button" onClick={() => { setSkipped((current) => [...current, card.id]); next() }}>Skip for now</button>
-                <button type="button" className="quiet-button" onClick={next}>Next word →</button>
+                <button type="button" className="quiet-button" onClick={next}>Next word <ArrowRight size={16} aria-hidden="true" /></button>
               </div>
             </>
           )}
         </>
       ) : <p className="learn-empty">{view === 'saved' ? 'No saved words in these filters yet.' : 'No new words match these filters in this session.'} Open Learn settings in the ··· menu to change your selection.</p>}
-      <p className="learn-footer">Learning here doesn’t change your review schedule. Source examples and levels may contain errors.</p>
+      <p className="learn-footer">Words added to reviews are due in 10 minutes. Source examples and levels may contain errors.</p>
     </section>
   )
 }

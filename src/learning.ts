@@ -6,6 +6,16 @@ export const saveForLearning = (card: Card, at: Date): Card => ({
   learning: { saved: true, updatedAt: at.toISOString() },
 })
 
+export const scheduleFirstReview = (card: Card, at: Date): Card => {
+  const timestamp = new Date(Math.max(at.getTime(), card.reviewResetAt ? Date.parse(card.reviewResetAt) + 1 : 0)).toISOString()
+  return {
+    ...card,
+    firstReviewScheduledAt: timestamp,
+    learning: { saved: false, updatedAt: timestamp },
+    updatedAt: timestamp,
+  }
+}
+
 export const reviewLearningCard = (
   card: Card,
   rating: Rating,

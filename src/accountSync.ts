@@ -1,6 +1,7 @@
 import type { Card } from './deckImport'
 import { resetReviewProgress, scheduleReview, type ReviewEvent } from './scheduler.ts'
 import type { StudyPlan } from './studyPlan'
+import { mergeWordActivity } from './activity.ts'
 
 export type AccountProgress = {
   cards: Card[]
@@ -34,6 +35,10 @@ const mergeCard = (local: Card, remote: Card): Card => {
   const resetAt = [local.reviewResetAt, remote.reviewResetAt]
     .filter((value): value is string => value !== undefined)
     .sort((left, right) => Date.parse(right) - Date.parse(left))[0]
+  const firstReviewScheduledAt = [local.firstReviewScheduledAt, remote.firstReviewScheduledAt]
+    .filter((value): value is string => value !== undefined &&
+      (!resetAt || Date.parse(value) > Date.parse(resetAt)))
+    .sort((left, right) => Date.parse(left) - Date.parse(right))[0]
   const reviews = new Map<string, ReviewEvent>()
   for (const review of [...local.reviewHistory, ...remote.reviewHistory]) {
     reviews.set(reviewKey(review, Boolean(resetAt)), review)
@@ -52,6 +57,8 @@ const mergeCard = (local: Card, remote: Card): Card => {
 
   const merged: Card = {
     ...latest,
+    activity: mergeWordActivity(local, remote),
+    firstReviewScheduledAt,
     ...(learning ? { learning } : {}),
     tags: [...new Set([...local.tags, ...remote.tags])],
     status: local.status === 'archived' || remote.status === 'archived' ? 'archived' : latest.status,

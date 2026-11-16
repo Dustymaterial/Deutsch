@@ -25,6 +25,7 @@ export type ReviewState = {
   reviewHistory: ReviewEvent[]
   updatedAt: string
   reviewResetAt?: string
+  firstReviewScheduledAt?: string
 }
 
 export type SchedulableCard = ReviewState & {
@@ -49,6 +50,8 @@ export const MAX_REVIEWS_PER_SESSION = 30
 
 export const resetReviewProgress = <T extends SchedulableCard>(card: T, now: Date): T => ({
   ...card,
+  firstReviewScheduledAt: card.firstReviewScheduledAt &&
+    Date.parse(card.firstReviewScheduledAt) > now.getTime() ? card.firstReviewScheduledAt : undefined,
   dueAt: now.toISOString(),
   intervalDays: 0,
   repetitions: 0,
@@ -63,15 +66,27 @@ export const resetReviewProgress = <T extends SchedulableCard>(card: T, now: Dat
   updatedAt: now.toISOString(),
 })
 
+export const isUnintroduced = (card: SchedulableCard) =>
+  card.lastReviewedAt === null && !card.firstReviewScheduledAt
+
+export const getReviewDueAt = (card: SchedulableCard): string =>
+  card.lastReviewedAt === null && card.firstReviewScheduledAt
+    ? new Date(Date.parse(card.firstReviewScheduledAt) + 10 * 60_000).toISOString()
+    : card.dueAt
+
+export const isDueForReview = (card: SchedulableCard, now: Date) =>
+  (card.lastReviewedAt !== null || Boolean(card.firstReviewScheduledAt)) &&
+  Date.parse(getReviewDueAt(card)) <= now.getTime()
+
 export const getInitialStudyMode = <T extends SchedulableCard>(
   cards: T[],
   now: Date,
 ): 'learn' | 'recall' => {
   const active = cards.filter((card) => card.status === 'active')
   const hasDueReview = active.some(
-    (card) => card.lastReviewedAt !== null && new Date(card.dueAt).getTime() <= now.getTime(),
+    (card) => isDueForReview(card, now),
   )
-  return !hasDueReview && active.some((card) => card.lastReviewedAt === null)
+  return !hasDueReview && active.some(isUnintroduced)
     ? 'learn'
     : 'recall'
 }
@@ -211,11 +226,10 @@ export const getSessionCardIds = <T extends SchedulableCard>(
   const active = cards.filter((card) => card.status === 'active')
   const due = active
     .filter(
-      (card) =>
-        card.lastReviewedAt !== null && new Date(card.dueAt).getTime() <= now.getTime(),
+      (card) => isDueForReview(card, now),
     )
     .sort((a, b) => {
-      const dueDifference = new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime()
+      const dueDifference = Date.parse(getReviewDueAt(a)) - Date.parse(getReviewDueAt(b))
       if (dueDifference !== 0) return dueDifference
       if (a.lapses !== b.lapses) return b.lapses - a.lapses
       return new Date(a.lastReviewedAt ?? 0).getTime() -
@@ -224,7 +238,7 @@ export const getSessionCardIds = <T extends SchedulableCard>(
     .slice(0, reviewLimit)
   const remainingSlots = Math.max(0, reviewLimit - due.length)
   const newCards = active
-    .filter((card) => card.lastReviewedAt === null)
+    .filter(isUnintroduced)
     .sort((a, b) => {
       const aCreated = new Date(a.createdAt ?? a.dueAt).getTime()
       const bCreated = new Date(b.createdAt ?? b.dueAt).getTime()
@@ -260,11 +274,11 @@ export const getNewCardQuotaRemaining = <T extends SchedulableCard>(
   dailyLimit: number,
 ): number => {
   const introducedToday = cards.filter((card) => {
-    const firstReview = card.reviewHistory[0]
-    return firstReview && getLocalDayKey(new Date(firstReview.at)) === getLocalDayKey(now)
+    const introducedAt = card.firstReviewScheduledAt ?? card.reviewHistory[0]?.at
+    return introducedAt && getLocalDayKey(new Date(introducedAt)) === getLocalDayKey(now)
   }).length
   const unseenCount = cards.filter(
-    (card) => card.status === 'active' && card.lastReviewedAt === null,
+    (card) => card.status === 'active' && isUnintroduced(card),
   ).length
 
   return Math.min(unseenCount, Math.max(0, dailyLimit - introducedToday))

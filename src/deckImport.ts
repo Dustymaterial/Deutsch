@@ -1,4 +1,5 @@
 import type { Rating, RecallField, ReviewEvent } from './scheduler'
+import { isWordActivity, type WordActivity } from './activity.ts'
 
 export type Card = {
   id: string
@@ -21,7 +22,9 @@ export type Card = {
   correctCount: number
   incorrectCount: number
   reviewHistory: ReviewEvent[]
+  activity?: WordActivity
   reviewResetAt?: string
+  firstReviewScheduledAt?: string
   learning?: { saved: boolean; updatedAt: string }
   createdAt: string
   updatedAt: string
@@ -101,6 +104,8 @@ export const isDeckCard = (value: unknown): value is Card => {
     Number.isFinite(card.incorrectCount) &&
     (card.reviewResetAt === undefined ||
       (typeof card.reviewResetAt === 'string' && Number.isFinite(Date.parse(card.reviewResetAt)))) &&
+    (card.firstReviewScheduledAt === undefined ||
+      (typeof card.firstReviewScheduledAt === 'string' && Number.isFinite(Date.parse(card.firstReviewScheduledAt)))) &&
     (card.lastReviewedAt === null ||
       (typeof card.lastReviewedAt === 'string' && Number.isFinite(Date.parse(card.lastReviewedAt)))) &&
     (card.lastRating === null || isRating(card.lastRating)) &&
@@ -110,7 +115,8 @@ export const isDeckCard = (value: unknown): value is Card => {
         typeof card.learning.updatedAt === 'string' &&
         Number.isFinite(Date.parse(card.learning.updatedAt)))) &&
     Array.isArray(card.reviewHistory) &&
-    card.reviewHistory.every(isReviewEvent)
+    card.reviewHistory.every(isReviewEvent) &&
+    (card.activity === undefined || isWordActivity(card.activity))
   )
 }
 
