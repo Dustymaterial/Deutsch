@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles, MessageCircle, Reply, SmilePlus, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import type { Card } from './deckImport'
@@ -11,11 +11,17 @@ type Companion = Profile & {
   nudgeAt?: string
 }
 type Action = 'accept' | 'decline' | 'cancel' | 'remove' | 'block' | 'unblock'
+type Reaction = { emoji: string; count: number; mine: boolean }
+type ReplyPreview = { id: string; isMine: boolean; text: string }
 type ChatMessage = {
   id: string
   senderId: string
   isMine: boolean
+  kind: 'text' | 'word'
   text: string
+  card?: SharedWordPreview['card']
+  replyTo?: ReplyPreview
+  reactions: Reaction[]
   createdAt: string
   reported: boolean
 }
@@ -28,6 +34,8 @@ type ChatSummary = {
 }
 type SelectedChat = { id: string; companion: Profile }
 type ReportReason = 'spam' | 'harassment' | 'inappropriate' | 'other'
+
+const reactionOptions = ['👍', '🎉', '💡', '❤️', '👏']
 
 const shareableCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 
@@ -77,7 +85,8 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   let changed = false
   incoming.forEach((message) => {
     const previous = messages.get(message.id)
-    if (!previous || previous.reported !== message.reported || previous.text !== message.text) changed = true
+    if (!previous || previous.reported !== message.reported || previous.text !== message.text
+      || JSON.stringify(previous.reactions) !== JSON.stringify(message.reactions)) changed = true
     messages.set(message.id, message)
   })
   if (!changed) return current
@@ -122,6 +131,8 @@ export function CompanionPanel({
   const [reportReason, setReportReason] = useState<ReportReason>('other')
   const [reportDetails, setReportDetails] = useState('')
   const [confirmDeleteChat, setConfirmDeleteChat] = useState(false)
+  const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
@@ -222,6 +233,15 @@ export function CompanionPanel({
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
+
+  const replyingTo = reply && reply.chatId === selectedChat?.id ? reply.message : null
+
+  useEffect(() => {
+    if (!reactionPickerFor) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setReactionPickerFor(null) }
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [reactionPickerFor])
 
   const newestMessageId = chatMessages.at(-1)?.id ?? null
   useEffect(() => {
@@ -328,16 +348,43 @@ export function CompanionPanel({
     onBack()
   }
 
+  const startReply = (chatMessage: ChatMessage) => {
+    if (!selectedChat) return
+    setReply({ chatId: selectedChat.id, message: chatMessage })
+    setReactionPickerFor(null)
+    messageComposer.current?.focus()
+  }
+
+  const jumpToMessage = (id: string) => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById(`companion-message-${id}`)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+  }
+
+  const toggleReaction = async (chatMessage: ChatMessage, emoji: string) => {
+    const mine = chatMessage.reactions.find((reaction) => reaction.mine)?.emoji
+    setReactionPickerFor(null)
+    try {
+      const data = await request(`/messages/${chatMessage.id}/reaction`, { emoji: mine === emoji ? null : emoji }) as { reactions: Reaction[] }
+      if (!Array.isArray(data.reactions)) throw new Error('The chat service returned an incomplete response.')
+      setChatMessages((current) => current.map((item) => item.id === chatMessage.id ? { ...item, reactions: data.reactions } : item))
+      setChatError(null)
+    } catch (failure) {
+      setChatError(failure instanceof Error ? failure.message : 'Could not update your reaction.')
+    }
+  }
+
   const sendMessage = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!selectedChat || !messageDraft.trim()) return
     const text = messageDraft.trim()
     const chatId = selectedChat.id
+    const replyToId = replyingTo?.id
     void run(async () => {
-      const data = await request(`/chats/${chatId}/messages`, { text }) as { message: ChatMessage }
+      const data = await request(`/chats/${chatId}/messages`, { text, ...(replyToId ? { replyToId } : {}) }) as { message: ChatMessage }
       if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
       setChatMessages((current) => mergeMessages(current, [data.message]))
       setMessageDraft('')
+      setReply(null)
       setChatError(null)
       await load()
     })
@@ -653,15 +700,27 @@ export function CompanionPanel({
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
-                : chatMessages.map((chatMessage) => <article className="companion-message-row" key={chatMessage.id}>
+                : chatMessages.map((chatMessage) => <article className="companion-message-row" id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
                   <div className="companion-message-content">
                     <div className="companion-message-meta">
                       <strong>{chatMessage.isMine ? 'You' : selectedChat.companion.username}</strong>
                       <time dateTime={chatMessage.createdAt}>{formatChatTime(chatMessage.createdAt)}</time>
                     </div>
+                    {chatMessage.replyTo && <button className="companion-reply-quote" type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
+                      <strong>{chatMessage.replyTo.isMine ? 'You' : selectedChat.companion.username}</strong><span>{chatMessage.replyTo.text}</span>
+                    </button>}
                     <p className="companion-message-text">{chatMessage.text}</p>
-                    {!chatMessage.isMine && <div className="companion-message-tools">
-                      <details className="companion-message-menu">
+                    <div className="companion-message-tools">
+                      {chatMessage.reactions.map((reaction) => <button className={`companion-reaction${reaction.mine ? ' mine' : ''}`} key={reaction.emoji} type="button" aria-pressed={reaction.mine} aria-label={`${reaction.emoji} ${reaction.count}`} onClick={() => void toggleReaction(chatMessage, reaction.emoji)}>
+                        <span aria-hidden="true">{reaction.emoji}</span>{reaction.count}
+                      </button>)}
+                      {reactionPickerFor === chatMessage.id
+                        ? <span className="companion-reaction-picker" role="group" aria-label="Choose a reaction">
+                          {reactionOptions.map((emoji) => <button key={emoji} type="button" aria-label={`React with ${emoji}`} onClick={() => void toggleReaction(chatMessage, emoji)}>{emoji}</button>)}
+                        </span>
+                        : <button className="companion-tool-button" type="button" aria-label="Add reaction" onClick={() => setReactionPickerFor(chatMessage.id)}><SmilePlus size={15} aria-hidden="true" /></button>}
+                      <button className="companion-tool-button" type="button" aria-label={`Reply to ${chatMessage.isMine ? 'your message' : selectedChat.companion.username}`} onClick={() => startReply(chatMessage)}><Reply size={15} aria-hidden="true" /></button>
+                      {!chatMessage.isMine && <details className="companion-message-menu">
                         <summary aria-label={`Actions for message from ${selectedChat.companion.username}`}><Ellipsis size={15} aria-hidden="true" /></summary>
                         <div className="companion-row-popover">
                           {chatMessage.reported ? <span>Reported</span> : <button type="button" onClick={(event) => {
@@ -671,8 +730,8 @@ export function CompanionPanel({
                             setReportReason('other')
                           }}>Report message</button>}
                         </div>
-                      </details>
-                    </div>}
+                      </details>}
+                    </div>
                   {reportingMessageId === chatMessage.id && <form className="companion-report-form" onSubmit={(event) => { event.preventDefault(); reportMessage(chatMessage) }}>
                     <label className="companion-field">Report reason
                       <select value={reportReason} onChange={(event) => setReportReason(event.target.value as ReportReason)}>
@@ -696,6 +755,10 @@ export function CompanionPanel({
             </div>
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
+              {replyingTo && <div className="companion-reply-bar">
+                <span>Replying to <strong>{replyingTo.isMine ? 'yourself' : selectedChat.companion.username}</strong><em>{replyingTo.text}</em></span>
+                <button type="button" aria-label="Cancel reply" onClick={() => setReply(null)}><X size={14} aria-hidden="true" /></button>
+              </div>}
               <div className="companion-composer-input">
                 <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" disabled={busy} />
                 <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}>Send</button>
