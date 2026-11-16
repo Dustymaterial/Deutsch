@@ -58,55 +58,15 @@
 .learn-card-content { flex: 1; min-height: 0; overflow-wrap: anywhere; padding: 12px 2px 0; }
 .learn-word { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .learn-word > div { min-width: 0; }
-.learn-word h2 { margin: 7px 0 0; font: 500 clamp(1.8rem, 7vw, 2.8rem)/1.1 Georgia, serif; letter-spacing: -0.04em; overflow-wrap: anywhere; }
-.learn-word .copy-text-button { margin-top: 0; }
-.learn-word .learn-audio { justify-self: start; margin: 0; padding: 7px; font-size: 0.75rem; }
-.learn-credit, .learn-note, .learn-footer, .learn-empty, .learn-scope { color: #686962; line-height: 1.45; font-size: 0.75rem; }
-.learn-credit { margin: 8px 0 0; font-size: 0.67rem; }
-.learn-credit a { color: inherit; }
+.learn-word .copy-text { align-items: center; margin-top: 7px; }
+.learn-word h2 { margin: 0; font: 500 clamp(1.8rem, 7vw, 2.8rem)/1.1 Georgia, serif; letter-spacing: -0.04em; overflow-wrap: anywhere; }
+.learn-word .copy-text-button { margin: 0; }
+.learn-note, .learn-footer, .learn-empty, .learn-scope { color: #686962; line-height: 1.45; font-size: 0.75rem; }
 .learn-scope { margin: -7px 0 8px; text-align: center; }
 .learn-meaning, .learn-example { display: grid; gap: 5px; margin: 17px 0; }
 .learn-meaning > span, .learn-example > span:not(.copy-text) { color: var(--muted); font-size: 0.75rem; }
 .learn-meaning strong { font-size: 1.1rem; }
 .learn-example p { margin: 0; color: #686962; }
-.sentence-word {
-  display: inline;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  text-decoration: underline;
-  text-decoration-color: #b7ad9d;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  transition: background-color 180ms ease, text-decoration-color 180ms ease;
-}
-.sentence-word:hover, .sentence-word[aria-pressed="true"] {
-  background: #ffe8a6;
-  text-decoration-color: transparent;
-}
-.sentence-translation-highlight {
-  border-radius: 3px;
-  color: #44351e;
-  background: #ffe8a6;
-  animation: sentence-highlight 220ms ease both;
-}
-.sentence-word-hint { color: #77716a; font-size: 0.68rem; }
-.sentence-word-announcement {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-@keyframes sentence-highlight {
-  from { background-color: transparent; }
-  to { background-color: #ffe8a6; }
-}
 .learn-facts { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; }
 .learn-quiz p, .learn-review p { font-size: 0.85rem; line-height: 1.5; }
 .learn-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

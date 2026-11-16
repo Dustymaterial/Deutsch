@@ -588,7 +588,7 @@
   width: 44px;
   height: 44px;
   place-items: center;
-  margin: 0;
+  margin: -10px 0;
   padding: 0;
   border: 0;
   border-radius: 10px;
@@ -604,6 +604,50 @@
 
 .copy-text-button:focus-visible {
   outline-offset: -3px;
+}
+
+.pronunciation { display: grid; justify-items: start; }
+.pronunciation .pronunciation-button { margin: 0; padding: 7px; font-size: 0.75rem; }
+.pronunciation-credit, .pronunciation-message { margin: 4px 0 0; color: #686962; font-size: 0.67rem; line-height: 1.45; }
+.pronunciation-credit a { color: inherit; }
+.answer-word + .pronunciation { margin-top: -7px; }
+.sentence-word {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: #b7ad9d;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: background-color 180ms ease, text-decoration-color 180ms ease;
+}
+.sentence-word:hover, .sentence-word[aria-pressed="true"] {
+  background: #ffe8a6;
+  text-decoration-color: transparent;
+}
+.sentence-translation-highlight {
+  border-radius: 3px;
+  color: #44351e;
+  background: #ffe8a6;
+  animation: sentence-highlight 220ms ease both;
+}
+.sentence-word-hint { color: #77716a; font-size: 0.68rem; }
+.sentence-word-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@keyframes sentence-highlight {
+  from { background-color: transparent; }
+  to { background-color: #ffe8a6; }
 }
 
 .card-header {
@@ -941,6 +985,11 @@
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.98rem;
   line-height: 1.4;
+}
+
+.answer-example {
+  display: grid;
+  gap: 3px;
 }
 
 .choice-answer .choice-translation {

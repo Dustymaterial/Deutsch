@@ -17,7 +17,7 @@ Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a 
 - Present study-time ranges as broad estimates with a reputable source and clear caveats. Never convert a card quota or streak into a claim of language proficiency.
 - Prefer trustworthy, curated content. Imported or generated material must be validated before it becomes study content; label limitations rather than claiming unverified CEFR accuracy.
 - Keep third-party vocabulary data separate from app code and preserve its source attribution, license, and any share-alike requirements when filtering or adapting it.
-- Prefer verified, attributed external human pronunciation recordings when available, with a German device-voice fallback and a clear unavailable state. Playback must be initiated by the learner; disclose the external request, show the recording's author, source, license, and modification status, and never bundle or app-cache audio. Coverage is currently limited to five verified nouns; do not imply otherwise.
+- Prefer verified, attributed external human pronunciation recordings when available, with a German device-voice fallback and a clear unavailable state. Offer playback in Learn and only after revealing or submitting an answer in review modes. Playback must be initiated by the learner; disclose the external request, show the recording's author, source, license, and modification status, and never bundle or app-cache audio. Coverage is currently limited to five verified nouns; do not imply otherwise.
 - Let learners organize their own course vocabulary by source, unit, and theme. Do not scrape, reproduce, or claim affiliation with third-party course content; support manual entry and user-prepared imports.
 - Respect attention and learner wellbeing: calm interface, short focused sessions, no shame, streak pressure, manipulative rewards, or unsupported claims about learning speed.
 
@@ -27,7 +27,7 @@ Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a 
 - Keep the card deck as the primary, uncluttered experience. Secondary controls should remain small and purposeful.
 - Explain the app's purpose in the first-visit introduction and the About menu without implying it replaces a course or guarantees proficiency. Keep the introduction dismissible and local to the browser.
 - Make Learn words and examples, revealed Recall words and examples, and submitted quiz answers available to copy with subtle, accessible icon controls. Keep the text selectable; copying must not reveal or hide an answer, and clipboard failures must be reported.
-- Word-level example highlights are a limited, manually verified Learn prototype. Match only the exact German and English sentence pair; never guess word alignments for other examples.
+- Word-level example highlights are a limited, manually verified prototype in Learn and revealed or submitted answers. Match only the exact German and English sentence pair; never guess word alignments for other examples.
 - Keep scrollbars hidden inside cards and let Learn and revealed Recall cards expand for longer content.
 - Keep Add a word, Tune session, and Goal & pace in anchored panels; outside clicks must not discard unfinished entries or goal edits. Tune session changes apply immediately.
 - Keep scheduling deterministic, testable, local, and independent from AI or network services.

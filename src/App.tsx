@@ -39,6 +39,8 @@ import { FloatingPopover } from './FloatingPopover'
 import { containsFloatingTarget } from './floatingTarget'
 import { Toast, type ToastMessage } from './Toast'
 import { CopyText } from './CopyText'
+import { InteractiveExample } from './InteractiveExample'
+import { WordAudio } from './WordAudio'
 import { reviewLearningCard, saveForLearning } from './learning'
 import starterPack from './data/german-starter-pack.json'
 import {
@@ -2245,7 +2247,7 @@ function App() {
       {learnOpen ? learnContent : activeCard && (
         <>
 
-      <div className={`deck-shell${studyMode === 'recall' && revealed ? ' deck-shell-expanded' : ''}`}>
+      <div className={`deck-shell${(studyMode === 'recall' && revealed) || hasQuizFeedback ? ' deck-shell-expanded' : ''}`}>
         <div className="card card-back card-back-3" aria-hidden="true" />
         <div className="card card-back card-back-2" aria-hidden="true" />
         <div
@@ -2283,6 +2285,7 @@ function App() {
                 <div className="card-face recall-revealed">
                   <div className="card-back-content">
                     <p className="answer-word"><CopyText text={activeCard.prompt} label="Copy German word or phrase" onCopy={copyText} /></p>
+                    <WordAudio card={activeCard} />
                     <div className="answer-meaning">
                       <span className="label">Meaning</span>
                       <strong>{activeCard.meaning}</strong>
@@ -2299,13 +2302,7 @@ function App() {
                         <strong>{activeCard.plural}</strong>
                       </div>
                     )}
-                    <div className="fact-row example-row">
-                      <span className="label">In a sentence</span>
-                      <CopyText as="strong" text={activeCard.example} label="Copy German example" onCopy={copyText} />
-                      {activeCard.translation && (
-                        <span className="translation">{activeCard.translation}</span>
-                      )}
-                    </div>
+                    <InteractiveExample variant="recall" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
                   </div>
                   <button type="button" className="quiet-button recall-hide" onClick={() => setRevealed(false)}>Hide answer</button>
                 </div>
@@ -2350,14 +2347,12 @@ function App() {
               )}
               <div className="choice-answer">
                 <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
+                <WordAudio card={activeCard} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
                 {activeCard.plural && (
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
                 )}
-                <p className="choice-example" lang="de">{activeCard.example}</p>
-                {activeCard.translation && (
-                  <span className="choice-translation">{activeCard.translation}</span>
-                )}
+                <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
               </div>
               <p className="choice-scheduling-note">
                 {practiceLoopActive
@@ -2419,14 +2414,12 @@ function App() {
               </p>
               <div className="choice-answer">
                 <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
+                <WordAudio card={activeCard} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
                 {activeCard.plural && (
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
                 )}
-                <p className="choice-example" lang="de">{activeCard.example}</p>
-                {activeCard.translation && (
-                  <span className="choice-translation">{activeCard.translation}</span>
-                )}
+                <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
               </div>
               <p className="choice-scheduling-note">
                 {practiceLoopActive

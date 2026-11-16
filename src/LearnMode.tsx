@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AudioLines } from 'lucide-react'
 import type { Card } from './deckImport'
 import { getStudySetChoiceOptions } from './choiceQuiz'
 import { getStudySetTags } from './studySets'
 import type { ReviewMode } from './scheduler'
-import { getRecording } from './pronunciation'
 import { MenuSelect } from './MenuSelect'
 import { containsFloatingTarget } from './floatingTarget'
 import { CopyText } from './CopyText'
 import { InteractiveExample } from './InteractiveExample'
+import { WordAudio } from './WordAudio'
 import './LearnMode.css'
 
 type Props = {
@@ -34,8 +33,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
   const [choice, setChoice] = useState<string | null>(null)
   const [showQuiz, setShowQuiz] = useState(false)
   const [showReview, setShowReview] = useState(false)
-  const [audioMessage, setAudioMessage] = useState<string | null>(null)
-  const recordingRef = useRef<HTMLAudioElement | null>(null)
+  const [audioVersion, setAudioVersion] = useState(0)
   const settingsRef = useRef<HTMLElement>(null)
   const tags = useMemo(() => getStudySetTags(cards), [cards])
   const scoped = useMemo(() => cards.filter((card) =>
@@ -49,14 +47,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
     return !text || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(text)
   }), [scoped, view, skipped, query])
   const card = visible.find((item) => item.id === selectedId) ?? visible[0]
-  const recording = card ? getRecording(card) : undefined
   const choices = card ? getStudySetChoiceOptions(card, scoped, cards, 0) : null
-
-  useEffect(() => () => {
-    recordingRef.current?.pause()
-    recordingRef.current = null
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-  }, [])
 
   useEffect(() => {
     if (!settingsOpen) return
@@ -78,49 +69,6 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
     }
   }, [settingsOpen, onCloseSettings])
 
-  const speak = (fallback = false) => {
-    if (!card) return
-    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-      setAudioMessage(fallback ? 'The recording could not play and device speech is unavailable.' : 'Pronunciation is unavailable on this device.')
-      return
-    }
-    const voice = window.speechSynthesis.getVoices().find((item) => /^de(?:-|$)/i.test(item.lang))
-    if (!voice) {
-      setAudioMessage(fallback ? 'The recording could not play and no German device voice is available.' : 'No German device voice is available. Check your device language and speech settings.')
-      return
-    }
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(card.prompt)
-    utterance.lang = voice.lang
-    utterance.voice = voice
-    utterance.onerror = (event) => {
-      if (event.error !== 'interrupted' && event.error !== 'canceled') setAudioMessage('The device could not play pronunciation.')
-    }
-    setAudioMessage(fallback ? 'The recording could not play; using your device’s German voice.' : 'Using your device’s German voice.')
-    window.speechSynthesis.speak(utterance)
-  }
-
-  const playPronunciation = () => {
-    if (!recording) {
-      speak()
-      return
-    }
-    recordingRef.current?.pause()
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    const audio = new Audio(recording.url)
-    audio.preload = 'none'
-    recordingRef.current = audio
-    setAudioMessage('Playing the word-only recording from Wikimedia Commons.')
-    let failed = false
-    const fallback = () => {
-      if (recordingRef.current !== audio || failed) return
-      failed = true
-      speak(true)
-    }
-    audio.onerror = fallback
-    audio.play().catch(fallback)
-  }
-
   const next = () => {
     if (!card) return
     const index = visible.findIndex((item) => item.id === card.id)
@@ -132,19 +80,12 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
     setChoice(null)
     setShowQuiz(false)
     setShowReview(false)
-    setAudioMessage(null)
-    recordingRef.current?.pause()
-    recordingRef.current = null
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    setAudioVersion((version) => version + 1)
   }
 
   const toggleQuiz = () => {
     setShowQuiz(!showQuiz)
     setChoice(null)
-    setAudioMessage(null)
-    recordingRef.current?.pause()
-    recordingRef.current = null
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
   }
 
   return (
@@ -218,10 +159,8 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
                   <>
                     <div className="learn-word">
                       <div><p className="prompt-label">German</p><CopyText as="h2" text={card.prompt} label="Copy German word or phrase" onCopy={onCopy} /></div>
-                      <button type="button" className="quiet-button learn-audio" onClick={playPronunciation} aria-label={`Hear ${card.prompt}`}><AudioLines size={16} aria-hidden="true" /> Listen</button>
                     </div>
-                    {recording && <p className="learn-credit">External word-only audio: <a href={recording.source} target="_blank" rel="noreferrer">{recording.author} / Wikimedia Commons</a> · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a> · unchanged</p>}
-                    {audioMessage && <p className="learn-note" role="status">{audioMessage}</p>}
+                    <WordAudio key={`${card.id}-${audioVersion}`} card={card} />
                     <div className="learn-meaning"><span>Meaning</span><strong>{card.meaning}</strong></div>
                     {(card.article || card.plural) && <div className="learn-facts">
                       {card.article && <span>Article: <strong>{card.article}</strong></span>}
