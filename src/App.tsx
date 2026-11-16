@@ -2283,6 +2283,7 @@ function App() {
     <CompanionPanel
       cards={cards}
       onReceiveWord={receiveSharedWord}
+      onNotify={showToast}
       onBack={() => setCompanionWorkspaceOpen(false)}
     />
   )

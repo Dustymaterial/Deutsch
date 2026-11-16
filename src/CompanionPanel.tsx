@@ -84,13 +84,19 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   return [...messages.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 }
 
+function CompanionLoader({ label }: { label: string }) {
+  return <div className="companion-loader" role="status" aria-label={label}><span /><span /><span /></div>
+}
+
 export function CompanionPanel({
   cards,
   onReceiveWord,
+  onNotify,
   onBack,
 }: {
   cards: Card[]
   onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
+  onNotify: (message: string) => void
   onBack: () => void
 }) {
   const [companions, setCompanions] = useState<Companion[]>([])
@@ -104,7 +110,6 @@ export function CompanionPanel({
   const [username, setUsername] = useState('')
   const [found, setFound] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ user: Profile; action: 'block' | 'remove' } | null>(null)
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -240,7 +245,6 @@ export function CompanionPanel({
   const run = async (operation: () => Promise<void>) => {
     setBusy(true)
     setError(null)
-    setMessage(null)
     setChatError(null)
     try {
       await operation()
@@ -279,7 +283,7 @@ export function CompanionPanel({
       }
       setFound(null)
       setConfirm(null)
-      setMessage(choice === 'request' ? 'Request sent. It will appear in their companion panel.' : 'Companions updated.')
+      onNotify(choice === 'request' ? 'Request sent. It will appear in their companion panel.' : 'Companions updated.')
       await load()
     })
   }
@@ -354,7 +358,7 @@ export function CompanionPanel({
     void run(async () => {
       await request(`/chats/${chatId}/delete`, {})
       closeChat()
-      setMessage('Conversation hidden from your chat list.')
+      onNotify('Conversation hidden from your chat list.')
       await load()
     })
   }
@@ -369,7 +373,7 @@ export function CompanionPanel({
       setReportingMessageId(null)
       setReportDetails('')
       setReportReason('other')
-      setMessage('Thanks. Your report was recorded.')
+      onNotify('Thanks. Your report was recorded.')
     })
   }
 
@@ -384,7 +388,7 @@ export function CompanionPanel({
     void run(async () => {
       await request('/nudge', { id: user.id })
       await load()
-      setMessage(`A gentle reminder was sent to ${user.username}.`)
+      onNotify(`A gentle reminder was sent to ${user.username}.`)
     })
   }
 
@@ -409,7 +413,7 @@ export function CompanionPanel({
       setShareNote('')
       setShareQuery('')
       if (shareTools.current) shareTools.current.open = false
-      setMessage(`Word shared with ${recipient.username}.`)
+      onNotify(`Word shared with ${recipient.username}.`)
     })
   }
 
@@ -419,7 +423,7 @@ export function CompanionPanel({
       if (choice === 'add' && !receiveResult) return
       await request(`/shares/${share.id}/${choice === 'add' ? 'add' : 'dismiss'}`, {})
       setSharedWords((current) => current.filter((item) => item.id !== share.id))
-      setMessage(choice === 'add'
+      onNotify(choice === 'add'
         ? receiveResult === 'added'
           ? `${share.card.prompt} was added to your deck, shared by ${share.sender.username}.`
           : `You already had ${share.card.prompt} in your deck.`
@@ -471,8 +475,7 @@ export function CompanionPanel({
             </button>
           </div>
           {error && <p className="companion-alert" role="alert">{error}</p>}
-          {message && <p className="companion-notice" role="status">{message}</p>}
-          {loading ? <p className="companion-empty-note">Loading your connections…</p> : !loaded ? (
+          {loading ? <CompanionLoader label="Loading your connections" /> : !loaded ? (
             <button className="companion-primary-button" disabled={busy} onClick={() => void run(load)} type="button">Try again</button>
           ) : <>
             <form className="companion-search" noValidate onInput={handleInput} onSubmit={search}>
@@ -648,7 +651,7 @@ export function CompanionPanel({
             {chatError && <p className="companion-alert" role="alert">{chatError}</p>}
             <div className="companion-chat-stream" role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite">
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
-              {chatLoading ? <p className="companion-empty-note">Loading conversation…</p> : chatMessages.length === 0
+              {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className="companion-message-row" key={chatMessage.id}>
                   <div className="companion-message-content">
