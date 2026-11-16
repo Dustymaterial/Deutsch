@@ -637,6 +637,9 @@ export function CompanionPanel({
                 </div>
               </details>
             </header>
+            <aside className="companion-practice-nudge" aria-label="Practice suggestion">
+              <p>Try using one word you reviewed recently in a sentence. A small practice moment counts.</p>
+            </aside>
             {confirmDeleteChat && <div className="companion-delete-confirm" role="group" aria-label="Delete conversation">
               <p>Hide this conversation from your list? Your companion keeps their copy. New messages can bring it back.</p>
               <button type="button" disabled={busy} onClick={deleteChat}>Hide conversation</button>
