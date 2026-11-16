@@ -6,6 +6,7 @@ import {
   getInitialStudyMode,
   getNewCardQuotaRemaining,
   getSessionCardIds,
+  resetReviewProgress,
   scheduleReview,
 } from '../src/scheduler.ts'
 
@@ -40,6 +41,23 @@ test('initial mode prioritizes due reviews, then unseen active cards', () => {
   assert.equal(getInitialStudyMode([unseen, future, archivedDue], now), 'learn')
   assert.equal(getInitialStudyMode([future, archivedUnseen], now), 'recall')
   assert.equal(getInitialStudyMode([], now), 'recall')
+})
+
+test('resetting review progress makes a word new without changing its content', () => {
+  const reviewed = scheduleReview(makeCard(), 'again', now)
+  const resetAt = new Date('2026-01-02T12:00:00.000Z')
+  const reset = resetReviewProgress(reviewed, resetAt)
+  assert.equal(reset.prompt, reviewed.prompt)
+  assert.equal(reset.lastReviewedAt, null)
+  assert.equal(reset.reviewHistory.length, 0)
+  assert.equal(reset.lapses, 0)
+  assert.equal(reset.correctCount, 0)
+  assert.equal(reset.incorrectCount, 0)
+  assert.equal(reset.dueAt, resetAt.toISOString())
+  assert.equal(reset.reviewResetAt, resetAt.toISOString())
+  assert.equal(reviewed.reviewHistory.length, 1)
+  const immediateReview = scheduleReview(reset, 'good', resetAt)
+  assert.ok(Date.parse(immediateReview.lastReviewedAt) > resetAt.getTime())
 })
 
 test('Again records a lapse and schedules a ten-minute retry', () => {

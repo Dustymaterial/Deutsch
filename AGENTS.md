@@ -33,6 +33,7 @@ Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a 
 - Keep scheduling deterministic, testable, local, and independent from AI or network services.
 - Store progress locally by default. Never require a backend for core study; add sync or a database only for a clear user need and with explicit privacy/security design.
 - Preserve saved Learn state through local storage, backups, and optional account sync, independently of review scheduling. A first review must supersede an older saved-learning state even when the save and review occurred on different devices.
+- Resetting review progress requires explicit confirmation, affects the selected set's shared words, and must not let older synced reviews reappear.
 - Preserve user data during migrations and imports. Backups must be understandable, validated, and non-destructive by default.
 - Maintain accessible keyboard and screen-reader interactions, responsive mobile layouts, reduced-motion support, and offline behavior.
 - Show form validation beside its field and keep floating menus aligned without shifting nearby controls. Use the top-right toast for meaningful action feedback, not Learn saves or individual review or quiz responses; do not report failed storage as a successful save, and keep error notices dismissible.

@@ -7,6 +7,7 @@ import {
   getLocalDayKey,
   getNewCardQuotaRemaining,
   getSessionCardIds,
+  resetReviewProgress,
   scheduleReview,
   type RecallField,
   type Rating,
@@ -926,6 +927,8 @@ function SessionSettingsDialog({
   goalSummary,
   onChange,
   onAdjustGoal,
+  onReset,
+  resetAvailable,
   onClose,
   isFront,
   onActivate,
@@ -935,12 +938,15 @@ function SessionSettingsDialog({
   goalSummary: string
   onChange: (tag: string) => void
   onAdjustGoal: () => void
+  onReset: () => boolean
+  resetAvailable: boolean
   onClose: (restoreFocus?: boolean) => void
   isFront: boolean
   onActivate: () => void
 }) {
   const scopedCards = getCardsForStudySet(cards, tag)
   const reviewedCount = scopedCards.filter((card) => card.lastReviewedAt !== null).length
+  const [confirmReset, setConfirmReset] = useState(false)
   const panelRef = useRef<HTMLElement>(null)
   useEffect(() => { panelRef.current?.focus() }, [])
   usePanelDismiss(panelRef, onClose, () => false)
@@ -962,11 +968,28 @@ function SessionSettingsDialog({
           </div>
         </div>
         <div className="session-setting-block">
-          <StudySetSelect cards={cards} value={tag} onChange={onChange} />
+          <StudySetSelect cards={cards} value={tag} onChange={(value) => { setConfirmReset(false); onChange(value) }} />
           <p className="session-reviewed-count">
             <strong>{reviewedCount.toLocaleString()}</strong> of {scopedCards.length.toLocaleString()}{' '}
             {scopedCards.length === 1 ? 'word' : 'words'} reviewed
           </p>
+          {confirmReset ? (
+            <div className="reset-review-confirmation">
+              <p>Reset review history and schedules for {reviewedCount.toLocaleString()} {reviewedCount === 1 ? 'word' : 'words'} in {tag || 'all words'}? These words become new again, including in other sets. This cannot be undone.</p>
+              <div className="reset-review-actions">
+                <button type="button" className="quiet-button" onClick={() => setConfirmReset(false)}>Cancel</button>
+                <button type="button" className="reset-review-button" onClick={() => {
+                  if (onReset()) {
+                    setConfirmReset(false)
+                    panelRef.current?.focus()
+                  }
+                }}>Reset review progress</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="quiet-button reset-review-link" disabled={!reviewedCount || !resetAvailable} onClick={() => setConfirmReset(true)}>Reset review progress</button>
+          )}
+          {!resetAvailable && <p>Reset is unavailable until saved data and account sync are ready.</p>}
         </div>
         <StudySetProgressSummary cards={scopedCards} tag={tag} compact />
         <div className="session-goal">
@@ -1135,8 +1158,8 @@ function App() {
   const saveDeck = (nextCards: Card[], failureMessage = 'Your browser could not save this review. Check available device storage.') => {
     if (!canSave) return false
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextCards))
       localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextCards))
       setSavingError(null)
       return true
     } catch {
@@ -1728,6 +1751,42 @@ function App() {
     setPracticeLoopDay(null)
     continueQuiz()
     setNow(nextNow.getTime())
+  }
+
+  const handleResetStudyProgress = () => {
+    if (!canSave || (accountEmail && !accountSyncReady)) return false
+    const reviewedCards = scopedCards.filter((card) => card.lastReviewedAt !== null)
+    const resetTime = reviewedCards.reduce((latest, card) => Math.max(
+      latest,
+      Date.parse(card.lastReviewedAt ?? '') + 1,
+      card.reviewResetAt ? Date.parse(card.reviewResetAt) + 1 : 0,
+    ), Date.now())
+    const resetAt = new Date(resetTime)
+    const ids = new Set(reviewedCards.map((card) => card.id))
+    const updatedCards = cards.map((card) => ids.has(card.id) ? resetReviewProgress(card, resetAt) : card)
+    if (!saveDeck(updatedCards, 'Review progress could not be reset. Check device storage and try again.')) {
+      showToast('Review progress could not be reset. Check device storage and try again.', 'error')
+      return false
+    }
+    setCards(updatedCards)
+    const nextScope = getCardsForStudySet(updatedCards, studyTag)
+    setSessionIds(getSessionCardIds(
+      nextScope,
+      resetAt,
+      getStudySetNewCardLimit(updatedCards, nextScope, resetAt, intensitySettings.newCardsPerDay),
+      intensitySettings.reviewLimit,
+    ))
+    setNewCardLimitOverrideDay(null)
+    setPracticeLoopIds(null)
+    setPracticeLoopIndex(0)
+    setPracticeLoopDay(null)
+    setLearningReviewId(null)
+    setRevealed(false)
+    continueQuiz()
+    setStruggledWith([])
+    setNow(resetAt.getTime())
+    showToast('Review progress reset.')
+    return true
   }
 
   const handleSaveStudyPlan = (plan: StudyPlan) => {
@@ -2397,6 +2456,8 @@ function App() {
           tag={studyTag}
           goalSummary={studyPlanSummary}
           onChange={handleStudyTagChange}
+          onReset={handleResetStudyProgress}
+          resetAvailable={canSave && (!accountEmail || accountSyncReady)}
           onAdjustGoal={() => {
             setSessionSettingsOpen(false)
             openStudyPlan()

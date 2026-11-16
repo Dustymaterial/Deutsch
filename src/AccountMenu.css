@@ -107,11 +107,6 @@
   font-size: 0.82rem;
 }
 
-.account-field input:focus-visible {
-  outline: 2px solid #171717;
-  outline-offset: 1px;
-}
-
 .account-field small {
   color: #625b65;
   font-size: 0.68rem;

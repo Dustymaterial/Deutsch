@@ -46,6 +46,8 @@ The application code is licensed under the MIT License; see [`LICENSE`](./LICENS
 
 On opening the app, Recall starts when locally saved reviews are due; otherwise, Learn opens if there are unseen words. If neither is available, the completion screen shows when to return. You can choose another mode at any time, and syncing or new reviews becoming due won't switch your current mode.
 
+In **··· → Tune session**, you can reset review progress for the selected study set. After confirmation, its reviewed words become new again and their review history, scores, and schedules are erased. Words shared with other sets are reset there too; vocabulary content remains. Download a backup first if you want to keep a copy of the old history.
+
 ### Learn unfamiliar words
 
 Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save keeps it in Continue learning, on this device and in optional account sync.
