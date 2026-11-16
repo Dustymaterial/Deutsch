@@ -1715,6 +1715,47 @@
 .companion-correction-form label { display: grid; gap: 3px; color: var(--companion-green); font: 600 0.6rem system-ui, sans-serif; }
 .companion-correction-form p { margin: 0; color: #5c6a5f; font-size: 0.62rem; }
 .companion-correction-form .companion-card-actions { display: flex; gap: 6px; }
+.companion-edited { color: #8a908c; font: 450 0.6rem system-ui, sans-serif; }
+.companion-message-unsent { margin: 4px 0 0; color: #8a908c; font: italic 400 0.74rem system-ui, sans-serif; }
+.companion-edit-form { max-width: 460px; display: grid; gap: 6px; margin-top: 5px; }
+.companion-edit-form textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  outline: 0;
+  background: #f0f2f0;
+  color: var(--companion-text);
+  font: inherit;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  resize: none;
+}
+.companion-edit-form .companion-card-actions,
+.companion-unsend-confirm .companion-card-actions { display: flex; gap: 6px; }
+.companion-edit-form .companion-card-actions button,
+.companion-unsend-confirm .companion-card-actions button {
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #e8ebe8;
+  color: #3d433f;
+  font: 600 0.66rem system-ui, sans-serif;
+  cursor: pointer;
+}
+.companion-edit-form .companion-card-actions button[type="submit"] { background: var(--companion-blue-bg); color: var(--companion-blue); }
+.companion-unsend-confirm .companion-card-actions button:first-child { background: var(--companion-red-bg); color: var(--companion-red); }
+.companion-unsend-confirm {
+  max-width: 420px;
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: #fff0cf;
+}
+.companion-unsend-confirm p { margin: 0; color: #65573c; font-size: 0.66rem; line-height: 1.4; }
 .companion-report-form {
   width: min(320px, 100%);
   gap: 8px;

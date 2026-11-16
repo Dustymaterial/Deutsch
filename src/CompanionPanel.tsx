@@ -184,6 +184,9 @@ export function CompanionPanel({
   const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
+  const [editing, setEditing] = useState<{ messageId: string; text: string } | null>(null)
+  const [confirmUnsendId, setConfirmUnsendId] = useState<string | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [correcting, setCorrecting] = useState<{ messageId: string; text: string; note: string } | null>(null)
   const [savingCorrection, setSavingCorrection] = useState<{ messageId: string; meaning: string } | null>(null)
   const [activeWord, setActiveWord] = useState<{ messageId: string; key: string } | null>(null)
@@ -310,6 +313,12 @@ export function CompanionPanel({
     document.addEventListener('keydown', close)
     return () => document.removeEventListener('keydown', close)
   }, [reactionPickerFor, activeWord])
+
+  useEffect(() => {
+    if (!selectedChat) return
+    const timer = window.setInterval(() => setNow(Date.now()), 15000)
+    return () => window.clearInterval(timer)
+  }, [selectedChat])
 
   const newestMessageId = chatMessages.at(-1)?.id ?? null
   useEffect(() => {
@@ -473,6 +482,35 @@ export function CompanionPanel({
     void run(async () => {
       await respondToCorrection(chatMessage, 'saved')
       setSavingCorrection(null)
+    })
+  }
+
+  const canModify = (chatMessage: ChatMessage) =>
+    chatMessage.isMine && chatMessage.kind !== 'unsent' && Boolean(chatMessage.editableUntil) && Date.parse(chatMessage.editableUntil!) > now
+
+  const submitEdit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!editing || !editing.text.trim()) return
+    const { messageId, text } = editing
+    void run(async () => {
+      const data = await request(`/messages/${messageId}/edit`, { text }) as { message: ChatMessage }
+      if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
+      replaceMessage(data.message)
+      setEditing(null)
+    })
+  }
+
+  const unsendMessage = (chatMessage: ChatMessage) => {
+    const chatId = selectedChat?.id
+    if (!chatId) return
+    void run(async () => {
+      const data = await request(`/messages/${chatMessage.id}/unsend`, {}) as { message: ChatMessage }
+      if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
+      replaceMessage(data.message)
+      setConfirmUnsendId(null)
+      setEditing(null)
+      await loadMessages(chatId, 'merge')
+      await load()
     })
   }
 
@@ -869,9 +907,12 @@ export function CompanionPanel({
                     <div className="companion-message-meta">
                       <strong>{chatMessage.isMine ? 'You' : selectedChat.companion.username}</strong>
                       <time dateTime={chatMessage.createdAt}>{formatChatTime(chatMessage.createdAt)}</time>
+                      {chatMessage.editedAt && <span className="companion-edited">edited</span>}
                       {repliedToIds.has(chatMessage.id) && <span className="companion-reply-dot" style={replyColor(chatMessage.id)} title="Has a reply" aria-hidden="true" />}
                     </div>
-                    {chatMessage.kind === 'word' && chatMessage.card
+                    {chatMessage.kind === 'unsent'
+                      ? <p className="companion-message-unsent">Message unsent</p>
+                      : chatMessage.kind === 'word' && chatMessage.card
                       ? <div className="companion-word-card">
                         <span className="companion-word-card-label">Shared a word <em>{chatMessage.card.category}</em></span>
                         <p className="companion-word-card-prompt" lang="de">{chatMessage.card.prompt}</p>
@@ -883,6 +924,17 @@ export function CompanionPanel({
                           ? <span className="companion-word-card-status">In your deck</span>
                           : <button className="companion-word-card-add" type="button" onClick={() => addChatWord(chatMessage)}>Add to deck</button>)}
                       </div>
+                      : editing?.messageId === chatMessage.id
+                      ? <form className="companion-edit-form" onSubmit={submitEdit}>
+                        <textarea rows={2} maxLength={2000} value={editing.text} autoFocus aria-label="Edit your message" onChange={(event) => setEditing({ ...editing, text: event.target.value })} onKeyDown={(event) => {
+                          if (event.key === 'Escape') { event.stopPropagation(); setEditing(null) }
+                          else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) event.currentTarget.form?.requestSubmit()
+                        }} />
+                        <div className="companion-card-actions">
+                          <button type="submit" disabled={busy || !editing.text.trim() || editing.text.trim() === chatMessage.text}>Save</button>
+                          <button type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</button>
+                        </div>
+                      </form>
                       : <>
                         <p className="companion-message-text">{splitMessage(chatMessage.text).map((part, index) => {
                           const known = part.word && findWord(part.text, deckWordIndex, starterWordIndex)
@@ -935,7 +987,7 @@ export function CompanionPanel({
                               <button type="button" disabled={busy} onClick={() => setSavingCorrection({ messageId: chatMessage.id, meaning: '' })}>Add to my deck</button>
                             </div>}
                     </div>}
-                    <div className="companion-message-tools">
+                    {chatMessage.kind !== 'unsent' && <div className="companion-message-tools">
                       {chatMessage.reactions.map((reaction) => <button className={`companion-reaction${reaction.mine ? ' mine' : ''}`} key={reaction.emoji} type="button" aria-pressed={reaction.mine} aria-label={`${reaction.emoji} ${reaction.count}`} onClick={() => void toggleReaction(chatMessage, reaction.emoji)}>
                         <span aria-hidden="true">{reaction.emoji}</span>{reaction.count}
                       </button>)}
@@ -946,6 +998,13 @@ export function CompanionPanel({
                         : <button className="companion-tool-button" type="button" aria-label="Add reaction" onClick={() => setReactionPickerFor(chatMessage.id)}><SmilePlus size={15} aria-hidden="true" /></button>}
                       <button className="companion-tool-button" type="button" aria-label={`Reply to ${chatMessage.isMine ? 'your message' : selectedChat.companion.username}`} onClick={() => startReply(chatMessage)}><Reply size={15} aria-hidden="true" /></button>
                       {!chatMessage.isMine && chatMessage.kind === 'text' && !chatMessage.correction && <button className="companion-tool-button" type="button" aria-label={`Suggest a correction to ${selectedChat.companion.username}`} title="Suggest a correction" onClick={() => startCorrection(chatMessage)}><SpellCheck size={15} aria-hidden="true" /></button>}
+                      {canModify(chatMessage) && <details className="companion-message-menu">
+                        <summary aria-label="Edit or unsend this message"><Ellipsis size={15} aria-hidden="true" /></summary>
+                        <div className="companion-row-popover">
+                          {chatMessage.kind === 'text' && !chatMessage.correction && <button type="button" onClick={(event) => { closePopover(event); setEditing({ messageId: chatMessage.id, text: chatMessage.text }) }}>Edit message</button>}
+                          <button className="danger" type="button" onClick={(event) => { closePopover(event); setConfirmUnsendId(chatMessage.id) }}>Unsend</button>
+                        </div>
+                      </details>}
                       {!chatMessage.isMine && <details className="companion-message-menu">
                         <summary aria-label={`Actions for message from ${selectedChat.companion.username}`}><Ellipsis size={15} aria-hidden="true" /></summary>
                         <div className="companion-row-popover">
@@ -957,7 +1016,14 @@ export function CompanionPanel({
                           }}>Report message</button>}
                         </div>
                       </details>}
-                    </div>
+                    </div>}
+                    {confirmUnsendId === chatMessage.id && <div className="companion-unsend-confirm" role="group" aria-label="Unsend message">
+                      <p>Unsend this message? It will be removed for both of you.</p>
+                      <div className="companion-card-actions">
+                        <button type="button" disabled={busy} onClick={() => unsendMessage(chatMessage)}>Unsend</button>
+                        <button type="button" disabled={busy} onClick={() => setConfirmUnsendId(null)}>Keep it</button>
+                      </div>
+                    </div>}
                   {reportingMessageId === chatMessage.id && <form className="companion-report-form" onSubmit={(event) => { event.preventDefault(); reportMessage(chatMessage) }}>
                     <label className="companion-field">Report reason
                       <select value={reportReason} onChange={(event) => setReportReason(event.target.value as ReportReason)}>
