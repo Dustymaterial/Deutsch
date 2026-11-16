@@ -26,6 +26,14 @@ function Calendar({ days, today, weeks, interactive, selected, onSelect }: Props
   useEffect(() => {
     if (scroller.current) scroller.current.scrollLeft = scroller.current.scrollWidth
   }, [weeks])
+  const keepVisible = (button: HTMLButtonElement) => {
+    const container = scroller.current
+    if (!container) return
+    const bounds = container.getBoundingClientRect()
+    const cell = button.getBoundingClientRect()
+    if (cell.left < bounds.left + 5) container.scrollLeft += cell.left - bounds.left - 5
+    else if (cell.right > bounds.right - 5) container.scrollLeft += cell.right - bounds.right + 5
+  }
   const move = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     const offsets: Record<string, number> = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 }
     const offset = offsets[event.key]
@@ -59,7 +67,8 @@ function Calendar({ days, today, weeks, interactive, selected, onSelect }: Props
             return interactive
               ? <button type="button" className={`activity-cell shade-${shade(count)}`} key={key}
                 data-day={key} aria-label={label} aria-pressed={selected === key} tabIndex={selected === key ? 0 : -1}
-                title={label} onClick={() => onSelect?.(key)} onKeyDown={(event) => move(event, index)} />
+                title={label} onClick={() => onSelect?.(key)} onFocus={(event) => keepVisible(event.currentTarget)}
+                onKeyDown={(event) => move(event, index)} />
               : <span className={`activity-cell shade-${shade(count)}`} key={key} />
           })}
         </div>

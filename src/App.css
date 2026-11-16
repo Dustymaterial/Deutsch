@@ -1567,9 +1567,9 @@
 .activity-intro { margin: 0 0 18px; }
 .activity-total { margin: 0 0 14px; color: #686962; font-size: 0.76rem; }
 .activity-total strong { color: #465e50; font-size: 1.15rem; }
-.activity-calendar { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; }
+.activity-calendar { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; scroll-padding: 5px; }
 .activity-calendar::-webkit-scrollbar { display: none; }
-.activity-calendar-inner { width: max-content; }
+.activity-calendar-inner { width: max-content; padding: 5px; }
 .activity-months {
   display: grid;
   grid-template-columns: repeat(var(--activity-weeks), 13px);
@@ -1597,7 +1597,7 @@
   border: 0;
   border-radius: 4px;
 }
-.activity-grid button { cursor: pointer; }
+.activity-grid button { cursor: pointer; scroll-margin: 5px; }
 .activity-grid button:focus-visible { outline: 2px solid #536e5c; outline-offset: 2px; }
 .activity-grid button[aria-pressed="true"] { box-shadow: 0 0 0 2px #536e5c; }
 .activity-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: #89847f; font-size: 0.62rem; }
