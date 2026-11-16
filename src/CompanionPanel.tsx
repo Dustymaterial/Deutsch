@@ -439,6 +439,9 @@ export function CompanionPanel({
           <div className="companion-sidebar-heading">
             <h1>Companions</h1>
             <span className="companion-sidebar-count">{connectedCompanions.length}</span>
+            <button className="companion-mobile-deck-back" type="button" onClick={onBack} aria-label="Back to deck" title="Back to deck">
+              <ChevronLeft size={17} aria-hidden="true" />
+            </button>
           </div>
           {error && <p className="companion-alert" role="alert">{error}</p>}
           {message && <p className="companion-notice" role="status">{message}</p>}
@@ -568,13 +571,15 @@ export function CompanionPanel({
                   </div>
                 </>}
               </details>
-              <label className="companion-email-setting">
-                <input className="app-checkbox" type="checkbox" checked={emailsEnabled} disabled={busy} onChange={(event) => {
-                  const value = event.target.checked
-                  void run(async () => { await request('/settings', { emailsEnabled: value }); setEmailsEnabled(value) })
-                }} />
+              <div className="companion-email-setting">
                 <span>Email notifications</span>
-              </label>
+                <button className="companion-email-toggle" type="button" role="switch" aria-label="Email notifications" aria-checked={emailsEnabled} disabled={busy} onClick={() => {
+                  const value = !emailsEnabled
+                  void run(async () => { await request('/settings', { emailsEnabled: value }); setEmailsEnabled(value) })
+                }}>
+                  <span aria-hidden="true" />
+                </button>
+              </div>
               </div>
             </details>
           </>}

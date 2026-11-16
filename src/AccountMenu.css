@@ -659,6 +659,7 @@
 .companion-chat-header h2 { font-size: 1.18rem; }
 .companion-icon-button { width: 36px; padding: 0; color: #766e77; }
 .companion-mobile-back { display: none; width: 36px; padding: 0; }
+.companion-mobile-deck-back { display: none; }
 
 .companion-chat-stream {
   position: relative;
@@ -739,18 +740,45 @@
 }
 
 @media (max-width: 760px) {
-  .companion-workspace-view { height: calc(100dvh - 112px); min-height: 420px; margin-top: 14px; }
-  .companion-workspace { grid-template-columns: minmax(0, 1fr); }
-  .companion-sidebar { padding: 15px; border-right: 0; }
+  .companion-workspace-view {
+    width: 100%;
+    height: calc(100dvh - 112px);
+    min-height: min(420px, calc(100dvh - 112px));
+    margin-top: 14px;
+  }
+  .companion-workspace { min-height: 0; grid-template-columns: minmax(0, 1fr); }
+  .companion-sidebar { min-width: 0; padding: 15px; border-right: 0; }
   .companion-chat-panel { display: none; }
   .companion-workspace.chat-active .companion-sidebar { display: none; }
   .companion-workspace.chat-active .companion-chat-panel { display: flex; }
   .companion-mobile-back { display: inline-flex; }
+  .companion-mobile-deck-back {
+    width: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: #dfe2df;
+    color: #565c58;
+    cursor: pointer;
+  }
   .companion-chat-header { min-height: 62px; gap: 8px; padding: 10px; }
+  .companion-chat-header .companion-chat-identity { min-width: 0; }
+  .companion-chat-header .companion-chat-identity h2 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .companion-chat-toolbar { min-height: 34px; padding: 0 10px; }
   .companion-chat-header > img { width: 37px; height: 37px; }
   .companion-chat-header h2 { font-size: 1.02rem; }
-  .companion-chat-stream { padding: 10px 12px 16px; }
+  .companion-chat-stream { padding: 10px 12px 16px; overflow-x: hidden; }
   .companion-chat-composer { padding: 10px 12px 12px; }
   .companion-deck-toggle { min-height: 30px; gap: 4px; padding: 5px; font-size: 0.65rem; }
   .companion-chat-header .companion-icon-button { min-width: 32px; min-height: 32px; }
@@ -864,7 +892,7 @@
   gap: 7px;
   padding: 5px 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 7px;
   background: #e2e4e2;
   color: #565c58;
   font: 550 0.66rem system-ui, sans-serif;
@@ -1067,7 +1095,7 @@
   align-items: center;
   gap: 7px;
   padding: 7px 10px;
-  border-radius: 999px;
+  border-radius: 8px;
   color: #626864;
   font: 600 0.65rem system-ui, sans-serif;
   cursor: pointer;
@@ -1099,7 +1127,7 @@
 .companion-sidebar-popover .companion-person-card { border: 0; }
 .companion-sidebar-popover .companion-share-tools,
 .companion-sidebar-popover .companion-email-setting { border-top: 0; }
-.companion-sidebar-popover .companion-share-tools { padding: 0; }
+.companion-sidebar-popover .companion-share-tools { padding: 0; border: 0; }
 .companion-sidebar-popover .companion-share-tools > summary {
   min-height: 34px;
   display: flex;
@@ -1108,7 +1136,7 @@
   gap: 8px;
   margin: 0;
   padding: 7px 12px;
-  border-radius: 999px;
+  border-radius: 9px;
   background: #eff1ef;
   color: #4e5551;
   font: 600 0.66rem/1.2 system-ui, sans-serif;
@@ -1170,7 +1198,7 @@
   min-height: 30px;
   margin: 0;
   padding: 6px 11px;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--companion-blue-bg);
   color: var(--companion-blue);
   font-size: 0.64rem;
@@ -1179,12 +1207,46 @@
   background: #a7cff7;
 }
 .companion-sidebar-popover .companion-email-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 30px;
   padding: 5px 7px;
+  border: 0;
   border-radius: 10px;
+  color: #5c625e;
+  font-size: 0.64rem;
 }
 .companion-sidebar-popover .companion-email-setting:hover { background: #f4f6f4; }
 .companion-sidebar-popover .companion-email-setting > span { font-size: 0.64rem; }
+.companion-email-toggle {
+  width: 34px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 3px;
+  border: 0;
+  border-radius: 999px;
+  background: #d8dcd8;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+.companion-email-toggle > span {
+  width: 14px;
+  height: 14px;
+  display: block;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(35, 40, 37, 0.16);
+  transition: transform 140ms ease;
+}
+.companion-email-toggle[aria-checked="true"] { background: #80ae89; }
+.companion-email-toggle[aria-checked="true"] > span { transform: translateX(14px); }
+.companion-email-toggle:focus-visible { outline: 2px solid #78aef7; outline-offset: 2px; }
+.companion-email-toggle:disabled { cursor: not-allowed; opacity: 0.55; }
 .companion-blocked-card {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1445,7 +1507,24 @@
   .companion-chat-toolbar { min-height: 31px; padding: 1px 7px 0; }
   .companion-chat-header { min-height: 52px; padding: 7px 10px; }
   .companion-chat-header .companion-chat-identity { gap: 6px; }
+  .companion-chat-menu { flex: 0 0 auto; margin-left: auto; }
   .companion-chat-header .companion-status-tag { font-size: 0.5rem; }
   .companion-chat-stream { padding: 8px 12px; }
   .companion-chat-composer { padding: 8px 10px 10px; }
+  .companion-sidebar-popover { width: min(292px, calc(100vw - 56px)); }
+}
+
+@media (max-width: 420px) {
+  .companion-workspace-view {
+    height: calc(100dvh - 100px);
+    min-height: min(360px, calc(100dvh - 100px));
+    margin-top: 10px;
+  }
+  .companion-chat-panel { padding: 0 5px 5px; }
+  .companion-chat-header { gap: 6px; padding: 7px 8px; }
+  .companion-chat-header > img { width: 32px; height: 32px; }
+  .companion-chat-header h2 { font-size: 0.9rem; }
+  .companion-chat-stream { padding: 8px 9px; }
+  .companion-chat-composer { padding: 8px 8px 9px; }
+  .companion-sidebar-popover { width: min(292px, calc(100vw - 56px)); padding: 12px; }
 }
