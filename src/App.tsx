@@ -45,6 +45,8 @@ import { CopyText } from './CopyText'
 import { InteractiveExample } from './InteractiveExample'
 import { WordAudio } from './WordAudio'
 import { reviewLearningCard, saveForLearning, scheduleFirstReview } from './learning'
+import { activityForCard, mergeWordActivity, recordWordActivity, summarizeActivity, type DayActivity } from './activity'
+import { ActivityPanel, ActivityPreview } from './ActivityCalendar'
 import {
   defaultPauseState, finishPause, isPauseState, recordPauseWord, restorePause,
   startPendingPause, updatePauseSettings, type PauseActivity, type PauseSettings, type PauseState,
@@ -378,6 +380,21 @@ function AppSettingsPanel({ settings, onChange, onClose }: {
           onChange={(value) => onChange({ ...settings, seconds: value === '30' ? 30 : value === '60' ? 60 : 120 })} />
       </div>
       <p>Changing these settings resets the current word count. Settings stay on this device.</p>
+    </section>
+  )
+}
+
+function ActivityDialog({ days, today, onClose }: { days: Map<string, DayActivity>; today: Date; onClose: (restoreFocus?: boolean) => void }) {
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => { panelRef.current?.focus() }, [])
+  usePanelDismiss(panelRef, onClose, () => false)
+  return (
+    <section ref={panelRef} tabIndex={-1} className="add-dialog anchored-panel activity-panel" role="dialog" aria-labelledby="activity-title">
+      <div className="dialog-heading">
+        <h2 id="activity-title" className="menu-panel-title">Your activity</h2>
+        <button type="button" className="quiet-button" onClick={() => onClose(true)}>Done</button>
+      </div>
+      <ActivityPanel days={days} today={today} />
     </section>
   )
 }
@@ -1254,6 +1271,8 @@ function App() {
   const pauseStateRef = useRef(loadedPause.state)
   const [pauseNow, setPauseNow] = useState(Date.now)
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
+  const activityTrigger = useRef<HTMLElement | null>(null)
   const changePause = useCallback((update: (state: PauseState) => PauseState) => {
     const next = update(pauseStateRef.current)
     if (next === pauseStateRef.current) return
@@ -1372,6 +1391,7 @@ function App() {
     [cards, studyTag],
   )
   const studyProgress = useMemo(() => getStudySetProgress(scopedCards), [scopedCards])
+  const activityDays = useMemo(() => summarizeActivity(cards), [cards])
   const accountSyncMessage =
     accountUser && accountSyncReady && (!canSave || studyPlanWarning)
       ? 'Progress sync is paused until saved data can be read.'
@@ -1680,7 +1700,7 @@ function App() {
     const reviewedAt = new Date(nowIso())
     const updatedCards = cards.map((card) =>
       card.id === activeCard.id
-        ? reviewLearningCard(card, rating, reviewedAt, struggledWith)
+        ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), rating, reviewedAt, struggledWith)
         : card,
     )
     setCards(updatedCards)
@@ -1696,13 +1716,16 @@ function App() {
     const correct = selectedId === activeCard.id
     recordCompletedWord(activeCard.id, 'choice', true)
     if (practiceLoopActive) {
+      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
+      setCards(updatedCards)
+      saveDeck(updatedCards)
       setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
       return
     }
     const reviewedAt = new Date()
     const updatedCards = cards.map((card) =>
       card.id === activeCard.id
-        ? reviewLearningCard(card, correct ? 'hard' : 'again', reviewedAt, [], 'choice', correct)
+        ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), correct ? 'hard' : 'again', reviewedAt, [], 'choice', correct)
         : card,
     )
     setCards(updatedCards)
@@ -1720,6 +1743,9 @@ function App() {
     const correct = isProductionAnswerCorrect(answer, activeCard.prompt)
     recordCompletedWord(activeCard.id, 'production', true)
     if (practiceLoopActive) {
+      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
+      setCards(updatedCards)
+      saveDeck(updatedCards)
       setProductionFeedback({ cardId: activeCard.id, answer, correct })
       setProductionAnswer('')
       return
@@ -1727,7 +1753,7 @@ function App() {
     const reviewedAt = new Date()
     const updatedCards = cards.map((card) =>
       card.id === activeCard.id
-        ? reviewLearningCard(card, correct ? 'hard' : 'again', reviewedAt, [], 'production', correct)
+        ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), correct ? 'hard' : 'again', reviewedAt, [], 'production', correct)
         : card,
     )
     setCards(updatedCards)
@@ -1750,7 +1776,12 @@ function App() {
 
   const advancePracticeLoop = () => {
     if (!practiceLoopIds?.length) return
-    if (studyMode === 'recall' && activeCard) recordCompletedWord(activeCard.id, 'recall')
+    if (studyMode === 'recall' && activeCard) {
+      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
+      setCards(updatedCards)
+      saveDeck(updatedCards)
+      recordCompletedWord(activeCard.id, 'recall')
+    }
     setPracticeLoopIndex((index) => (index + 1) % practiceLoopIds.length)
     setRevealed(false)
     continueQuiz()
@@ -1840,19 +1871,23 @@ function App() {
       knownContent.add(contentKey)
       return true
     })
-    const merged = [...cards, ...additions]
+    const incomingById = new Map(kind === 'backup' ? incoming.map((card) => [card.id, card]) : [])
+    const merged = [...cards.map((card) => {
+      const restored = incomingById.get(card.id)
+      return restored ? { ...card, activity: mergeWordActivity(card, restored) } : card
+    }), ...additions]
     setCards(merged)
     const saved = saveDeck(merged)
     const itemLabel = kind === 'vocabulary'
       ? additions.length === 1 ? 'new word' : 'new words'
       : additions.length === 1 ? 'card' : 'cards'
     showToast(
-      additions.length
-        ? saved
-          ? `Imported ${additions.length} ${itemLabel}. Existing cards were kept.`
-          : `Added ${additions.length} cards for this visit only; they could not be saved.`
-        : 'No new cards found. Existing cards were kept.',
-      additions.length && !saved ? 'error' : 'success',
+      !saved
+        ? 'Changes could not be saved to this device.'
+        : additions.length
+        ? `Imported ${additions.length} ${itemLabel}. Existing cards were kept.`
+        : kind === 'backup' ? 'Existing cards were kept and activity history was merged.' : 'No new cards found. Existing cards were kept.',
+      !saved ? 'error' : 'success',
     )
   }
 
@@ -2012,7 +2047,8 @@ function App() {
     ), Date.now())
     const resetAt = new Date(resetTime)
     const ids = new Set(reviewedCards.map((card) => card.id))
-    const updatedCards = cards.map((card) => ids.has(card.id) ? resetReviewProgress(card, resetAt) : card)
+    const updatedCards = cards.map((card) => ids.has(card.id)
+      ? resetReviewProgress({ ...card, activity: activityForCard(card) }, resetAt) : card)
     if (!saveDeck(updatedCards, 'Review progress could not be reset. Check device storage and try again.')) {
       showToast('Review progress could not be reset. Check device storage and try again.', 'error')
       return false
@@ -2105,6 +2141,17 @@ function App() {
     setAppSettingsOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
+  const openActivity = () => {
+    const focused = document.activeElement
+    activityTrigger.current = focused instanceof HTMLElement && !deckMenu.current?.contains(focused)
+      ? focused : deckMenu.current?.querySelector('summary') ?? null
+    setActivityOpen(true)
+    if (deckMenu.current) deckMenu.current.open = false
+  }
+  const closeActivity = useCallback((restoreFocus = false) => {
+    setActivityOpen(false)
+    if (restoreFocus) activityTrigger.current?.focus()
+  }, [])
   const closeLearnSettings = useCallback((restoreFocus = false) => {
     setLearnSettingsOpen(false)
     if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
@@ -2133,7 +2180,8 @@ function App() {
       showToast('Your daily new-word target is complete.', 'error')
       return false
     }
-    const updatedCards = cards.map((item) => item.id === id ? scheduleFirstReview(item, at) : item)
+    const updatedCards = cards.map((item) => item.id === id
+      ? scheduleFirstReview(recordWordActivity(item, 'added', at), at) : item)
     if (!saveDeck(updatedCards, 'The review could not be scheduled. Check device storage and try again.')) {
       showToast('The review could not be scheduled. Check device storage and try again.', 'error')
       return false
@@ -2187,6 +2235,7 @@ function App() {
                 <button type="button" onClick={handleExportDeck}>Download backup</button>
                 <button type="button" onClick={openSessionSettings}>Tune session</button>
                 <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+                <button type="button" onClick={openActivity}>Your activity</button>
                 <button type="button" onClick={openAppSettings}>App settings</button>
                 <button type="button" onClick={openAbout}>About Deutsch Deck</button>
                 {practiceLoopIds && (
@@ -2299,6 +2348,7 @@ function App() {
               )}
             </section>
           )}
+          <ActivityPreview days={activityDays} today={new Date(now)} onOpen={openActivity} />
           {storageWarning && (
             <button type="button" className="quiet-button reset-button" onClick={startWithStarterPack}>
               Start fresh with starter vocabulary
@@ -2339,6 +2389,7 @@ function App() {
               <button type="button" onClick={handleExportDeck}>Download backup</button>
               <button type="button" onClick={openSessionSettings}>Tune session</button>
               <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+              <button type="button" onClick={openActivity}>Your activity</button>
               <button type="button" onClick={openAppSettings}>App settings</button>
               <button type="button" onClick={openAbout}>About Deutsch Deck</button>
               {practiceLoopIds && (
@@ -2754,6 +2805,7 @@ function App() {
         />
       )}
       {aboutOpen && <AboutPanel onClose={closeAbout} />}
+      {activityOpen && <ActivityDialog days={activityDays} today={new Date(now)} onClose={closeActivity} />}
       {appSettingsOpen && <AppSettingsPanel settings={pauseState.settings}
         onChange={(settings) => changePause((state) => updatePauseSettings(state, settings))}
         onClose={closeAppSettings} />}

@@ -54,6 +54,12 @@ Open **··· → App settings** to turn pauses off or choose a frequency of 3, 
 
 These intervals are adjustable starting points, not scientifically established optima. To refine the behavior, change the allowed values and default in `src/studyPause.ts` and the matching App settings choices, update the tests and this explanation, and preserve the distinction between pause timing and review scheduling.
 
+### Your activity
+
+The completion screen shows the last 12 weeks; open **··· → Your activity** for 53 weeks and select a day for its breakdown. Each distinct word counts once per local calendar day when added to reviews or reviewed, including repeat practice. The added and reviewed figures can overlap. Saving, skipping, viewing, and gentle checks do not count. Activity reflects participation, not mastery.
+
+Daily activity stays with each word, survives review resets, and is included in deck backups and optional account sync. Importing a backup merges activity for matching card IDs without overwriting existing cards. Available older reviews and scheduled additions are reconstructed from saved history, but older activity may be incomplete, especially after resets or repeat practice. Previously reconstructed dates use the device's current time zone; newly recorded days keep the local day on which they occurred.
+
 In **··· → Tune session**, open **View reviewed words** to search the selected set, inspect recent reviews and the next review time, or reset an individual word. You can also reset review progress for the entire selected set. After confirmation, affected words become new again and their review history, scores, and schedules are erased. Words shared with other sets are reset there too; vocabulary content remains. Download a backup first if you want to keep a copy of the old history.
 
 ### Learn unfamiliar words

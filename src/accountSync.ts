@@ -1,6 +1,7 @@
 import type { Card } from './deckImport'
 import { resetReviewProgress, scheduleReview, type ReviewEvent } from './scheduler.ts'
 import type { StudyPlan } from './studyPlan'
+import { mergeWordActivity } from './activity.ts'
 
 export type AccountProgress = {
   cards: Card[]
@@ -56,6 +57,7 @@ const mergeCard = (local: Card, remote: Card): Card => {
 
   const merged: Card = {
     ...latest,
+    activity: mergeWordActivity(local, remote),
     firstReviewScheduledAt,
     ...(learning ? { learning } : {}),
     tags: [...new Set([...local.tags, ...remote.tags])],

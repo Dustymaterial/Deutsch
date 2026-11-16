@@ -30,6 +30,11 @@ app.use(helmet({ contentSecurityPolicy: false }))
 app.use(express.json({ limit: '20mb' }))
 
 const isoDate = z.string().refine((value) => Number.isFinite(Date.parse(value)))
+const activityDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+})
 const reviewSchema = z.object({
   at: isoDate,
   rating: z.enum(['again', 'hard', 'good', 'easy']),
@@ -61,6 +66,7 @@ const cardSchema = z.object({
   correctCount: z.number().finite(),
   incorrectCount: z.number().finite(),
   reviewHistory: z.array(reviewSchema).max(10000),
+  activity: z.object({ added: z.array(activityDay).max(10000), reviewed: z.array(activityDay).max(10000) }).optional(),
   reviewResetAt: isoDate.optional(),
   firstReviewScheduledAt: isoDate.optional(),
   learning: z.object({ saved: z.boolean(), updatedAt: isoDate }).optional(),
