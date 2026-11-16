@@ -56,16 +56,17 @@
 .learn-mode .deck-shell { height: auto; min-height: max(330px, min(55vh, 460px)); }
 .learn-mode .learn-card { position: relative; height: auto; min-height: inherit; }
 .learn-card-content { flex: 1; min-height: 0; overflow-wrap: anywhere; padding: 12px 2px 0; }
-.learn-word { align-items: flex-start; }
+.learn-word { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .learn-word > div { min-width: 0; }
 .learn-word h2 { margin: 7px 0 0; font: 500 clamp(1.8rem, 7vw, 2.8rem)/1.1 Georgia, serif; letter-spacing: -0.04em; overflow-wrap: anywhere; }
-.learn-audio { flex-shrink: 0; margin: 0; padding: 7px; font-size: 0.75rem; }
+.learn-word .copy-text-button { margin-top: 0; }
+.learn-word .learn-audio { justify-self: start; margin: 0; padding: 7px; font-size: 0.75rem; }
 .learn-credit, .learn-note, .learn-footer, .learn-empty, .learn-scope { color: #686962; line-height: 1.45; font-size: 0.75rem; }
 .learn-credit { margin: 8px 0 0; font-size: 0.67rem; }
 .learn-credit a { color: inherit; }
 .learn-scope { margin: -7px 0 8px; text-align: center; }
 .learn-meaning, .learn-example { display: grid; gap: 5px; margin: 17px 0; }
-.learn-meaning > span, .learn-example > span { color: var(--muted); font-size: 0.75rem; }
+.learn-meaning > span, .learn-example > span:not(.copy-text) { color: var(--muted); font-size: 0.75rem; }
 .learn-meaning strong { font-size: 1.1rem; }
 .learn-example p { margin: 0; color: #686962; }
 .learn-facts { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; }

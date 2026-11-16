@@ -9,6 +9,7 @@ Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a 
 - Treat active recall and spaced practice as the core learning loop. Typed production and multiple-choice recognition can supplement recall, but must not be presented as equivalent to mastery. Keep mode outcomes distinguishable; recognition and typed production currently schedule correct answers as Hard and misses as Again.
 - Teach a useful lexical unit, not an isolated translation. For nouns, preserve and practise article and plural; for every item, prefer accurate, natural example sentences and translations.
 - Increase challenge gradually and mix practice types where useful. Avoid overwhelming new-card volume, trick questions, ambiguous distractors, and penalties that discourage honest answers.
+- Start with Recall when locally saved reviews are due, otherwise Learn when unseen active words exist; retain the completion screen if neither exists. Never switch modes automatically during a visit as progress syncs or reviews become due.
 - Learn mode introduces unseen active words in the main card area through guided discovery, browsing, and saved learning; its view and filters are accessed from the top ellipsis menu. Its optional checks hide the word until answered, and checks and session-only skips do not score, schedule, or consume the daily new-word allowance. The learner explicitly selects a review mode; only a submitted first review is recorded and counts toward the shared daily target, with the existing explicit beyond-target option.
 - Give immediate, kind, specific feedback. Explain what was correct and what to revisit; let learners report which detail was difficult.
 - Adapt conservatively from repeated evidence. Show why a suggestion was made and keep it optional; do not silently rewrite the curriculum or schedule.
@@ -24,7 +25,9 @@ Deutsch Daily Deck is a local-first, mobile-friendly vocabulary companion for a 
 
 - Evaluate product and UX decisions through engineering, linguistics, and psychology perspectives.
 - Keep the card deck as the primary, uncluttered experience. Secondary controls should remain small and purposeful.
-- Keep scrollbars hidden inside cards and let Learn cards expand for longer content.
+- Explain the app's purpose in the first-visit introduction and the About menu without implying it replaces a course or guarantees proficiency. Keep the introduction dismissible and local to the browser.
+- Make Learn words and examples, revealed Recall words and examples, and submitted quiz answers available to copy with subtle, accessible icon controls. Keep the text selectable; copying must not reveal or hide an answer, and clipboard failures must be reported.
+- Keep scrollbars hidden inside cards and let Learn and revealed Recall cards expand for longer content.
 - Keep Add a word, Tune session, and Goal & pace in anchored panels; outside clicks must not discard unfinished entries or goal edits. Tune session changes apply immediately.
 - Keep scheduling deterministic, testable, local, and independent from AI or network services.
 - Store progress locally by default. Never require a backend for core study; add sync or a database only for a clear user need and with explicit privacy/security design.

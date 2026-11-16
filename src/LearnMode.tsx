@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AudioLines } from 'lucide-react'
 import type { Card } from './deckImport'
 import { getStudySetChoiceOptions } from './choiceQuiz'
 import { getStudySetTags } from './studySets'
@@ -6,6 +7,7 @@ import type { ReviewMode } from './scheduler'
 import { getRecording } from './pronunciation'
 import { MenuSelect } from './MenuSelect'
 import { containsFloatingTarget } from './floatingTarget'
+import { CopyText } from './CopyText'
 import './LearnMode.css'
 
 type Props = {
@@ -18,9 +20,10 @@ type Props = {
   onCloseSettings: (restoreFocus?: boolean) => void
   onSave: (id: string) => void
   onReview: (id: string, mode: ReviewMode, beyondLimit: boolean) => void
+  onCopy: (text: string) => void
 }
 
-export default function LearnMode({ cards, initialTag, dailyLimitReached, canSave, savingError, settingsOpen, onCloseSettings, onSave, onReview }: Props) {
+export default function LearnMode({ cards, initialTag, dailyLimitReached, canSave, savingError, settingsOpen, onCloseSettings, onSave, onReview, onCopy }: Props) {
   const [topic, setTopic] = useState(initialTag === 'A1' || initialTag === 'A2' ? '' : initialTag)
   const [level, setLevel] = useState(initialTag === 'A1' || initialTag === 'A2' ? initialTag : '')
   const [view, setView] = useState<'guided' | 'browse' | 'saved'>('guided')
@@ -213,8 +216,8 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
                 ) : (
                   <>
                     <div className="learn-word">
-                      <div><p className="prompt-label">German</p><h2 lang="de">{card.prompt}</h2></div>
-                      <button type="button" className="quiet-button learn-audio" onClick={playPronunciation} aria-label={`Hear ${card.prompt}`}>♪ Listen</button>
+                      <div><p className="prompt-label">German</p><CopyText as="h2" text={card.prompt} label="Copy German word or phrase" onCopy={onCopy} /></div>
+                      <button type="button" className="quiet-button learn-audio" onClick={playPronunciation} aria-label={`Hear ${card.prompt}`}><AudioLines size={16} aria-hidden="true" /> Listen</button>
                     </div>
                     {recording && <p className="learn-credit">External word-only audio: <a href={recording.source} target="_blank" rel="noreferrer">{recording.author} / Wikimedia Commons</a> · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a> · unchanged</p>}
                     {audioMessage && <p className="learn-note" role="status">{audioMessage}</p>}
@@ -223,7 +226,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
                       {card.article && <span>Article: <strong>{card.article}</strong></span>}
                       {card.plural && <span>Plural: <strong lang="de">{card.plural}</strong></span>}
                     </div>}
-                    <div className="learn-example"><span>In a sentence</span><strong lang="de">{card.example}</strong>{card.translation && <p>{card.translation}</p>}</div>
+                    <div className="learn-example"><span>In a sentence</span><CopyText as="strong" text={card.example} label="Copy German example" onCopy={onCopy} />{card.translation && <p>{card.translation}</p>}</div>
                   </>
                 )}
               </div>

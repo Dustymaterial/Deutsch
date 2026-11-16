@@ -290,6 +290,14 @@ export function AccountMenu({
   return (
     <details
       className="account-menu has-avatar"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && event.currentTarget.open) {
+          event.preventDefault()
+          event.currentTarget.open = false
+          onOpenChange(false)
+          event.currentTarget.querySelector('summary')?.focus()
+        }
+      }}
       onToggle={(event) => {
         const isOpen = event.currentTarget.open
         if (!isOpen) setShowPassword(false)
@@ -304,15 +312,6 @@ export function AccountMenu({
         <img src={avatarDataUri(avatarSeed)} alt="" />
       </summary>
       <section className="account-popover" aria-label="Account">
-        <button
-          className="account-back"
-          onClick={() => {
-            onOpenChange(false)
-          }}
-          type="button"
-        >
-          <span aria-hidden="true">←</span> Back to menu
-        </button>
         {loading ? (
           <p className="account-message">Checking account…</p>
         ) : user ? (

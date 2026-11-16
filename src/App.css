@@ -359,6 +359,20 @@
   perspective: 1200px;
 }
 
+.deck-shell-expanded {
+  height: auto;
+}
+
+.deck-shell-expanded .flashcard {
+  position: relative;
+  height: auto;
+  min-height: inherit;
+}
+
+.deck-shell-expanded .card-back-content {
+  overflow: visible;
+}
+
 .card-back {
   position: absolute;
   inset: 0;
@@ -429,6 +443,57 @@
 
 .card-face:active {
   transform: scale(0.995);
+}
+
+.recall-revealed {
+  cursor: default;
+}
+
+.recall-revealed:active {
+  transform: none;
+}
+
+.recall-hide.quiet-button {
+  align-self: flex-end;
+  margin: 0;
+  padding: 5px;
+  font-size: 0.72rem;
+}
+
+.copy-text {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: flex-start;
+  vertical-align: middle;
+}
+
+.copy-text > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.copy-text-button {
+  display: inline-grid;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  color: #77716a;
+  background: transparent;
+  cursor: pointer;
+}
+
+.copy-text-button:hover {
+  color: #292a2d;
+  background: rgba(47, 51, 46, 0.06);
+}
+
+.copy-text-button:focus-visible {
+  outline-offset: -3px;
 }
 
 .card-header {
@@ -1278,6 +1343,57 @@
   border-radius: 16px;
   box-shadow: 0 16px 40px rgba(67, 50, 62, 0.18);
   animation: scrim-in 150ms ease both;
+}
+
+.add-dialog.about-panel {
+  z-index: 9;
+}
+
+.about-panel > h2 {
+  margin: 0 0 18px;
+  font-size: 0.95rem;
+}
+
+.about-introduction {
+  width: min(100%, 410px);
+  margin: 40px 0 14px;
+  padding: 28px;
+  border: 1px solid rgba(47, 51, 46, 0.1);
+  border-radius: 27px;
+  background: #fffdf6;
+}
+
+.about-content {
+  display: grid;
+  gap: 20px;
+}
+
+.about-content h1 {
+  margin: 0;
+  font: 500 2rem/1.1 Georgia, serif;
+  letter-spacing: -0.04em;
+}
+
+.about-content h2 {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+}
+
+.about-content p,
+.about-introduction > p {
+  margin: 0;
+  color: #5d5954;
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+.about-content .primary-button {
+  justify-self: start;
+  margin: 0;
+}
+
+.about-introduction > p {
+  margin-top: 12px;
 }
 
 .anchored-panel .form-row {

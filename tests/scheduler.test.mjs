@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
+  getInitialStudyMode,
   getNewCardQuotaRemaining,
   getSessionCardIds,
   scheduleReview,
@@ -26,6 +27,19 @@ const makeCard = (overrides = {}) => ({
   reviewHistory: [],
   updatedAt: now.toISOString(),
   ...overrides,
+})
+
+test('initial mode prioritizes due reviews, then unseen active cards', () => {
+  const unseen = makeCard()
+  const due = makeCard({ id: 'due', lastReviewedAt: '2025-12-01T00:00:00.000Z' })
+  const future = makeCard({ id: 'future', lastReviewedAt: '2025-12-01T00:00:00.000Z', dueAt: '2026-01-02T12:00:00.000Z' })
+  const archivedDue = { ...due, status: 'archived' }
+  const archivedUnseen = { ...unseen, status: 'archived' }
+
+  assert.equal(getInitialStudyMode([unseen, due], now), 'recall')
+  assert.equal(getInitialStudyMode([unseen, future, archivedDue], now), 'learn')
+  assert.equal(getInitialStudyMode([future, archivedUnseen], now), 'recall')
+  assert.equal(getInitialStudyMode([], now), 'recall')
 })
 
 test('Again records a lapse and schedules a ten-minute retry', () => {

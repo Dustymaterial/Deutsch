@@ -46,6 +46,19 @@ export type WeakPattern = {
 export const DEFAULT_NEW_CARDS_PER_SESSION = 5
 export const MAX_REVIEWS_PER_SESSION = 30
 
+export const getInitialStudyMode = <T extends SchedulableCard>(
+  cards: T[],
+  now: Date,
+): 'learn' | 'recall' => {
+  const active = cards.filter((card) => card.status === 'active')
+  const hasDueReview = active.some(
+    (card) => card.lastReviewedAt !== null && new Date(card.dueAt).getTime() <= now.getTime(),
+  )
+  return !hasDueReview && active.some((card) => card.lastReviewedAt === null)
+    ? 'learn'
+    : 'recall'
+}
+
 const addDays = (date: Date, days: number) => {
   const next = new Date(date)
   next.setDate(next.getDate() + days)

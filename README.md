@@ -6,6 +6,8 @@ A calm, local-first German vocabulary companion for learners using a course such
 
 Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not vhs-Lernportal or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Studying remains local-first; optionally create an account to sync your deck and goal across devices.
 
+On your first visit, a brief introduction explains what Deutsch Deck is and isn't; you can revisit it under **··· → About Deutsch Deck**.
+
 ## Start the app
 
 Requirements: Node.js 22.12 or newer.
@@ -42,11 +44,15 @@ The application code is licensed under the MIT License; see [`LICENSE`](./LICENS
 
 ## How to study
 
+On opening the app, Recall starts when locally saved reviews are due; otherwise, Learn opens if there are unseen words. If neither is available, the completion screen shows when to return. You can choose another mode at any time, and syncing or new reviews becoming due won't switch your current mode.
+
 ### Learn unfamiliar words
 
 Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save keeps it in Continue learning, on this device and in optional account sync.
 
 When you feel ready, choose **Ready to review**, then Recall, Choose, or Produce. The card's first review is recorded only when you submit an answer or rating, not when you open it. First reviews count toward the shared daily new-word target; if it is reached, the review chooser offers to continue beyond it for the current visit/day.
+
+Use the copy icon beside a German word or example. In Recall, these are available after revealing the answer; in Choose and Produce, the answer can be copied after submission. Noun words include their article.
 
 **Listen** uses a human recording for a small, verified set of words (Haus, Gesundheit, Wasser, Buch, and Familie); these recordings speak the word without its article. On clicking Listen, the browser requests the recording directly from Wikimedia Commons, which can see the request. The source, author, and CC BY-SA 3.0 license are linked on each applicable card; recordings are unchanged. The app does not bundle, download for offline use, or app-cache them. For other words, or if playback fails, it uses an available German device voice. Device voice availability and connectivity requirements depend on the browser and device; if unavailable, the app says so.
 

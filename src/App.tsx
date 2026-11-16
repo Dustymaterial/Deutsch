@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
+  getInitialStudyMode,
   getLocalDayKey,
   getNewCardQuotaRemaining,
   getSessionCardIds,
@@ -35,6 +36,7 @@ import { useFormValidation } from './formValidation'
 import { FloatingPopover } from './FloatingPopover'
 import { containsFloatingTarget } from './floatingTarget'
 import { Toast, type ToastMessage } from './Toast'
+import { CopyText } from './CopyText'
 import { reviewLearningCard, saveForLearning } from './learning'
 import starterPack from './data/german-starter-pack.json'
 import {
@@ -79,6 +81,7 @@ const STORAGE_KEY = 'deutsch-deck-v1'
 const STUDY_PLAN_STORAGE_KEY = 'deutsch-study-plan-v1'
 const LOCAL_PROGRESS_UPDATED_AT_KEY = 'deutsch-progress-updated-at-v1'
 const LOCAL_STUDY_PLAN_UPDATED_AT_KEY = 'deutsch-study-plan-updated-at-v1'
+const INTRODUCTION_STORAGE_KEY = 'deutsch-introduction-seen-v1'
 const INITIAL_NOW = Date.now()
 const DECK_FILE_VERSION = 1
 
@@ -277,6 +280,36 @@ function usePanelDismiss(
       document.removeEventListener('pointerdown', handlePointerDown)
     }
   }, [panelRef, onClose, hasChanges])
+}
+
+function AboutContent({ onDone, introduction = false }: { onDone: () => void; introduction?: boolean }) {
+  return (
+    <div className="about-content">
+      {introduction && <h1>Welcome to Deutsch Deck</h1>}
+      <section>
+        <h2>What Deutsch Deck is</h2>
+        <p>A local-first companion for discovering and practising German vocabulary, on its own or alongside your course.</p>
+      </section>
+      <section>
+        <h2>What Deutsch Deck isn’t</h2>
+        <p>A complete German course, an official vhs-Lernportal product, or a guarantee of proficiency.</p>
+      </section>
+      <button type="button" className="primary-button" onClick={onDone}>{introduction ? 'Start learning' : 'Done'}</button>
+    </div>
+  )
+}
+
+function AboutPanel({ onClose }: { onClose: (restoreFocus?: boolean) => void }) {
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => { panelRef.current?.focus() }, [])
+  usePanelDismiss(panelRef, onClose, () => false)
+
+  return (
+    <section ref={panelRef} tabIndex={-1} className="add-dialog anchored-panel about-panel" role="dialog" aria-labelledby="about-title">
+      <h2 id="about-title">About Deutsch Deck</h2>
+      <AboutContent onDone={() => onClose(true)} />
+    </section>
+  )
 }
 
 function AddCardDialog({
@@ -954,6 +987,17 @@ function SessionSettingsDialog({
 function App() {
   const [loaded] = useState(loadDeck)
   const [loadedStudyPlan] = useState(loadStudyPlan)
+  const [introduction] = useState(() => {
+    try {
+      return { visible: localStorage.getItem(INTRODUCTION_STORAGE_KEY) !== 'seen', warning: null }
+    } catch {
+      return { visible: true, warning: 'Your browser could not check whether you have seen this introduction.' }
+    }
+  })
+  const [showIntroduction, setShowIntroduction] = useState(introduction.visible)
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const studyAreaRef = useRef<HTMLDivElement>(null)
+  const restoreIntroductionFocus = useRef(false)
   const [cards, setCards] = useState<Card[]>(loaded.cards)
   const [studyPlan, setStudyPlan] = useState(loadedStudyPlan.plan)
   const [canSave, setCanSave] = useState(loaded.canSave)
@@ -1000,9 +1044,29 @@ function App() {
   const dismissToast = useCallback((id: number) => {
     setToasts((current) => current.filter((item) => item.id !== id))
   }, [])
+  const copyText = async (text: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(text)
+      showToast('Copied.')
+    } catch {
+      showToast('Could not copy. Check clipboard permissions and try again.', 'error')
+    }
+  }
+  const finishIntroduction = () => {
+    restoreIntroductionFocus.current = true
+    setShowIntroduction(false)
+    try {
+      localStorage.setItem(INTRODUCTION_STORAGE_KEY, 'seen')
+    } catch {
+      showToast('The introduction could not be saved and may appear again on your next visit.', 'error')
+    }
+  }
   const [struggledWith, setStruggledWith] = useState<RecallField[]>([])
   const [studyMode, setStudyMode] = useState<ReviewMode>('recall')
-  const [learnOpen, setLearnOpen] = useState(false)
+  const [learnOpen, setLearnOpen] = useState(
+    () => getInitialStudyMode(loaded.cards, new Date(INITIAL_NOW)) === 'learn',
+  )
   const [learnSettingsOpen, setLearnSettingsOpen] = useState(false)
   const [learningReviewId, setLearningReviewId] = useState<string | null>(null)
   const [studyTag, setStudyTag] = useState('')
@@ -1014,6 +1078,12 @@ function App() {
   const addCardButton = useRef<HTMLButtonElement>(null)
   const restoreAddCardFocus = useRef(false)
   const restoreSettingsFocus = useRef(false)
+  useEffect(() => {
+    if (!showIntroduction && restoreIntroductionFocus.current) {
+      studyAreaRef.current?.querySelector('button')?.focus()
+      restoreIntroductionFocus.current = false
+    }
+  }, [showIntroduction])
   const closeAddCard = useCallback((restoreFocus = false) => {
     restoreAddCardFocus.current = restoreFocus
     setAddCardOpen(false)
@@ -1709,8 +1779,16 @@ function App() {
     setLearnSettingsOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
+  const openAbout = () => {
+    setAboutOpen(true)
+    if (deckMenu.current) deckMenu.current.open = false
+  }
   const closeLearnSettings = useCallback((restoreFocus = false) => {
     setLearnSettingsOpen(false)
+    if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
+  }, [])
+  const closeAbout = useCallback((restoreFocus = false) => {
+    setAboutOpen(false)
     if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
   }, [])
 
@@ -1752,6 +1830,7 @@ function App() {
       onCloseSettings={closeLearnSettings}
       onSave={saveLearningCard}
       onReview={startLearningReview}
+      onCopy={copyText}
     />
   )
 
@@ -1782,6 +1861,7 @@ function App() {
                 <button type="button" onClick={handleExportDeck}>Download backup</button>
                 <button type="button" onClick={openSessionSettings}>Tune session</button>
                 <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+                <button type="button" onClick={openAbout}>About Deutsch Deck</button>
                 {practiceLoopIds && (
                   <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
                 )}
@@ -1815,7 +1895,12 @@ function App() {
             )}
           </div>
         )}
-        <div className="empty-state">
+        {showIntroduction ? (
+          <div className="about-introduction">
+            <AboutContent introduction onDone={finishIntroduction} />
+            {introduction.warning && <p role="status">{introduction.warning}</p>}
+          </div>
+        ) : <div ref={studyAreaRef} className="empty-state">
           <button type="button" className="quiet-button" onClick={() => setLearnOpen(true)}>Learn new words</button>
           <span className="complete-mark" aria-hidden="true">✓</span>
           <h1>That’s a good moment to pause.</h1>
@@ -1888,7 +1973,7 @@ function App() {
               Start fresh with starter vocabulary
             </button>
           )}
-        </div>
+        </div>}
         <p className="privacy-note">
           {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
         </p>
@@ -1923,6 +2008,7 @@ function App() {
               <button type="button" onClick={handleExportDeck}>Download backup</button>
               <button type="button" onClick={openSessionSettings}>Tune session</button>
               <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+              <button type="button" onClick={openAbout}>About Deutsch Deck</button>
               {practiceLoopIds && (
                 <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
               )}
@@ -1958,7 +2044,13 @@ function App() {
         </div>
       )}
 
-      <div className="study-mode-toggle" role="group" aria-label="Study mode">
+      {showIntroduction ? (
+        <div className="about-introduction">
+          <AboutContent introduction onDone={finishIntroduction} />
+          {introduction.warning && <p role="status">{introduction.warning}</p>}
+        </div>
+      ) : <>
+      <div ref={studyAreaRef} className="study-mode-toggle" role="group" aria-label="Study mode">
         <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => setLearnOpen(true)}>Learn</button>
         <button
           type="button"
@@ -1988,7 +2080,7 @@ function App() {
       {learnOpen ? learnContent : activeCard && (
         <>
 
-      <div className="deck-shell">
+      <div className={`deck-shell${studyMode === 'recall' && revealed ? ' deck-shell-expanded' : ''}`}>
         <div className="card card-back card-back-3" aria-hidden="true" />
         <div className="card card-back card-back-2" aria-hidden="true" />
         <div
@@ -2006,14 +2098,13 @@ function App() {
 
           {studyMode === 'recall' ? (
             <>
-              <button
+              {!revealed ? <button
                 type="button"
                 className="card-face"
                 onClick={() => setRevealed((value) => !value)}
-                aria-label={revealed ? 'Hide answer' : `Reveal answer for ${promptWord}`}
-                aria-pressed={revealed}
+                aria-label={`Reveal answer for ${promptWord}`}
+                aria-pressed={false}
               >
-                {!revealed ? (
                   <div className="card-front">
                     <p className="prompt-label">German</p>
                     <h2 lang="de">{promptWord}</h2>
@@ -2021,9 +2112,10 @@ function App() {
                       {promptHint} Tap to reveal <span aria-hidden="true">↗</span>
                     </span>
                   </div>
-                ) : (
+              </button> : (
+                <div className="card-face recall-revealed">
                   <div className="card-back-content">
-                    <p className="answer-word" lang="de">{activeCard.prompt}</p>
+                    <p className="answer-word"><CopyText text={activeCard.prompt} label="Copy German word or phrase" onCopy={copyText} /></p>
                     <div className="answer-meaning">
                       <span className="label">Meaning</span>
                       <strong>{activeCard.meaning}</strong>
@@ -2042,14 +2134,15 @@ function App() {
                     )}
                     <div className="fact-row example-row">
                       <span className="label">In a sentence</span>
-                      <strong lang="de">{activeCard.example}</strong>
+                      <CopyText as="strong" text={activeCard.example} label="Copy German example" onCopy={copyText} />
                       {activeCard.translation && (
                         <span className="translation">{activeCard.translation}</span>
                       )}
                     </div>
                   </div>
-                )}
-              </button>
+                  <button type="button" className="quiet-button recall-hide" onClick={() => setRevealed(false)}>Hide answer</button>
+                </div>
+              )}
               {revealed && (
                 <details className="recall-markers">
                   <summary>What felt tricky?</summary>
@@ -2089,7 +2182,7 @@ function App() {
                 </p>
               )}
               <div className="choice-answer">
-                <strong lang="de">{activeCard.prompt}</strong>
+                <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
                 {activeCard.plural && (
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
@@ -2158,7 +2251,7 @@ function App() {
                 You typed: <span lang="de">{productionFeedback.answer}</span>
               </p>
               <div className="choice-answer">
-                <strong lang="de">{activeCard.prompt}</strong>
+                <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
                 {activeCard.plural && (
                   <span className="choice-plural">Plural: {activeCard.plural}</span>
@@ -2276,6 +2369,7 @@ function App() {
       )}
         </>
       )}
+      </>}
       <p className="privacy-note">
         {accountUser ? 'Your progress is saved on this device and synced to your account.' : 'Your progress stays on this device.'}
       </p>
@@ -2319,6 +2413,7 @@ function App() {
           onActivate={() => setFrontPanel('goal')}
         />
       )}
+      {aboutOpen && <AboutPanel onClose={closeAbout} />}
       <div className="toast-region">
         {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />)}
       </div>
