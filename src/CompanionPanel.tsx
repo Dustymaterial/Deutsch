@@ -581,6 +581,7 @@ export function CompanionPanel({
               <ArrowLeft size={15} aria-hidden="true" /> Back to deck
             </button>
           </div>
+          <div className="companion-chat-surface">
           {selectedChat ? <>
             <header className="companion-chat-header">
               <button className="companion-mobile-back" type="button" onClick={closeChat} aria-label="Back to companion list"><ArrowLeft size={18} aria-hidden="true" /></button>
@@ -603,12 +604,7 @@ export function CompanionPanel({
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <p className="companion-empty-note">Loading conversation…</p> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
-                : chatMessages.map((chatMessage) => <article className={`companion-message-row${chatMessage.isMine ? ' mine' : ''}`} key={chatMessage.id}>
-                  <span className="companion-message-node" aria-hidden="true">
-                    {chatMessage.isMine
-                      ? <span />
-                      : <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />}
-                  </span>
+                : chatMessages.map((chatMessage) => <article className="companion-message-row" key={chatMessage.id}>
                   <div className="companion-message-content">
                     <div className="companion-message-meta">
                       <strong>{chatMessage.isMine ? 'You' : selectedChat.companion.username}</strong>
@@ -664,6 +660,7 @@ export function CompanionPanel({
             <span>Only you and your companion can see your messages.</span>
             <ArrowUpRight size={20} aria-hidden="true" />
           </div>}
+          </div>
         </section>
       </div>
     </div>
