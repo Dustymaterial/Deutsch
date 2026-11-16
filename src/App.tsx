@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowRight, ArrowUpRight, Clock3, MessagesSquare } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Clock3, MessageSquareText } from 'lucide-react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
@@ -2849,7 +2849,7 @@ function App() {
       {appContent}
       {accountUser && !companionWorkspaceOpen && !learnOpen && !showIntroduction && !pauseVisible && (
         <button className="companion-launcher" type="button" onClick={openCompanionWorkspace} aria-label="Open companion community" title="Open companion community">
-          <MessagesSquare size={22} strokeWidth={1.8} aria-hidden="true" />
+          <MessageSquareText size={22} strokeWidth={1.8} aria-hidden="true" />
         </button>
       )}
       {addCardOpen && (

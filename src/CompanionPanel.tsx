@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, MessageCircle, Send } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, MessageCircle, Send } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import type { Card } from './deckImport'
@@ -699,11 +699,9 @@ export function CompanionPanel({
               </div>
             </form>
           </> : <div className="companion-chat-welcome">
-            <span className="companion-chat-welcome-icon"><MessageCircle size={28} aria-hidden="true" /></span>
             <h2>Your learning community</h2>
             <p>Choose a connected companion to start a private conversation about German, share a useful word, or cheer each other on.</p>
             <span>Only you and your companion can see your messages.</span>
-            <ArrowUpRight size={20} aria-hidden="true" />
           </div>}
           </div>
         </section>

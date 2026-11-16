@@ -37,16 +37,17 @@
   padding: 0;
   border: 0;
   border-radius: 12px;
-  background: #202220;
-  color: #fff;
+  background: #f45bb8;
+  color: #111;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
   cursor: pointer;
+  transform: rotate(-4deg);
   transition: background-color 140ms ease, transform 140ms ease;
 }
 
 .companion-launcher:hover {
-  background: #090a09;
-  transform: translateY(-2px);
+  background: #e947a8;
+  transform: rotate(0deg) translateY(-2px);
 }
 
 @media (max-width: 520px) {

@@ -723,11 +723,9 @@
 .companion-chat-empty p { margin: 0; color: #4a454e; font: 1.05rem Georgia, serif; }
 .companion-chat-empty span { max-width: 340px; font-size: 0.72rem; line-height: 1.5; }
 .companion-chat-welcome { max-width: 470px; gap: 12px; }
-.companion-chat-welcome-icon { width: 60px; height: 60px; display: grid; place-items: center; border-radius: 18px; background: #e6eee5; color: #52715c; }
 .companion-chat-welcome h2 { font-size: 1.65rem; }
 .companion-chat-welcome p { margin: 0; color: #625b65; font-size: 0.8rem; line-height: 1.55; }
-.companion-chat-welcome > span:not(.companion-chat-welcome-icon) { color: #8a837c; font-size: 0.69rem; }
-.companion-chat-welcome > svg { margin-top: 12px; color: #78927d; }
+.companion-chat-welcome > span { color: #8a837c; font-size: 0.69rem; }
 
 @media (max-width: 520px) {
   .account-popover {
@@ -1440,7 +1438,6 @@
 .companion-chat-empty p { color: #434a45; font: 600 0.9rem system-ui, sans-serif; }
 .companion-chat-welcome h2 { color: var(--companion-text); font: 650 1.2rem system-ui, sans-serif; }
 .companion-chat-welcome p { color: var(--companion-muted); font-size: 0.7rem; }
-.companion-chat-welcome-icon { width: 48px; height: 48px; border-radius: 10px; background: #e1e9e2; }
 .companion-confirm-card {
   padding: 11px;
   border: 0;
