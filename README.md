@@ -46,6 +46,14 @@ The application code is licensed under the MIT License; see [`LICENSE`](./LICENS
 
 On opening the app, Recall starts when locally saved reviews are due; otherwise, Learn opens if there are unseen words. If neither is available, the completion screen shows when to return. You can choose another mode at any time, and syncing or new reviews becoming due won't switch your current mode.
 
+### Study pauses
+
+By default, the app offers a 60-second pause after three distinct words are added to reviews in Learn or completed in Recall, Choose, or Produce, including the optional repeat loop. A word counts only once between pauses; viewing, saving, skipping, and gentle checks do not count. Quiz feedback stays visible until you continue, then the pause begins. You can skip any pause, and the same activity resumes without changing scores or review schedules.
+
+Open **··· → App settings** to turn pauses off or choose a frequency of 3, 5, or 10 words and a duration of 30 seconds, 60 seconds, or 2 minutes. Changing settings resets the current count. Settings, count, and any active pause are stored on this device, not synced or included in deck backups. The timer uses an end timestamp, so time away from the tab counts; on return or reload it resumes or finishes according to the clock. A reload during a pause restores the study mode, although the exact card and Learn filters may change. If a reload interrupts quiz feedback, the pending pause starts on reopening. Storage errors are reported.
+
+These intervals are adjustable starting points, not scientifically established optima. To refine the behavior, change the allowed values and default in `src/studyPause.ts` and the matching App settings choices, update the tests and this explanation, and preserve the distinction between pause timing and review scheduling.
+
 In **··· → Tune session**, open **View reviewed words** to search the selected set, inspect recent reviews and the next review time, or reset an individual word. You can also reset review progress for the entire selected set. After confirmation, affected words become new again and their review history, scores, and schedules are erased. Words shared with other sets are reset there too; vocabulary content remains. Download a backup first if you want to keep a copy of the old history.
 
 ### Learn unfamiliar words

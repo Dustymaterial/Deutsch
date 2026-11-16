@@ -94,7 +94,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
       {settingsOpen && (
         <aside ref={settingsRef} className="learn-settings" role="dialog" aria-labelledby="learn-settings-title">
           <div className="learn-settings-heading">
-            <h2 id="learn-settings-title">Learn settings</h2>
+            <h2 id="learn-settings-title" className="menu-panel-title">Learn settings</h2>
             <button type="button" className="quiet-button" onClick={() => onCloseSettings(true)}>Done</button>
           </div>
           <div className="learn-tabs" role="group" aria-label="Learning view">

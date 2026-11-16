@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowRight, ArrowUpRight } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Clock3 } from 'lucide-react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
@@ -45,6 +45,10 @@ import { CopyText } from './CopyText'
 import { InteractiveExample } from './InteractiveExample'
 import { WordAudio } from './WordAudio'
 import { reviewLearningCard, saveForLearning, scheduleFirstReview } from './learning'
+import {
+  defaultPauseState, finishPause, isPauseState, recordPauseWord, restorePause,
+  startPendingPause, updatePauseSettings, type PauseActivity, type PauseSettings, type PauseState,
+} from './studyPause'
 import starterPack from './data/german-starter-pack.json'
 import {
   getCardsForStudySet,
@@ -90,10 +94,30 @@ const STUDY_PLAN_STORAGE_KEY = 'deutsch-study-plan-v1'
 const LOCAL_PROGRESS_UPDATED_AT_KEY = 'deutsch-progress-updated-at-v1'
 const LOCAL_STUDY_PLAN_UPDATED_AT_KEY = 'deutsch-study-plan-updated-at-v1'
 const INTRODUCTION_STORAGE_KEY = 'deutsch-introduction-seen-v1'
+const PAUSE_STORAGE_KEY = 'deutsch-pause-v1'
 const INITIAL_NOW = Date.now()
 const DECK_FILE_VERSION = 1
 
 const nowIso = () => new Date().toISOString()
+
+const loadPauseState = (): { state: PauseState; warning: string | null; resumeActivity?: PauseActivity } => {
+  try {
+    const raw = localStorage.getItem(PAUSE_STORAGE_KEY)
+    if (!raw) return { state: defaultPauseState(), warning: null }
+    const parsed: unknown = JSON.parse(raw)
+    if (!isPauseState(parsed)) return { state: defaultPauseState(), warning: 'Pause settings could not be read; defaults are in use.' }
+    const state = restorePause(parsed, Date.now())
+    const resumeActivity = parsed.pending || parsed.until !== null ? parsed.activity : undefined
+    try {
+      if (state !== parsed) localStorage.setItem(PAUSE_STORAGE_KEY, JSON.stringify(state))
+      return { state, warning: null, resumeActivity }
+    } catch {
+      return { state, warning: 'Pause progress could not be saved on this device.', resumeActivity }
+    }
+  } catch {
+    return { state: defaultPauseState(), warning: 'Pause settings could not be read or saved; defaults are in use.' }
+  }
+}
 
 const makeCard = (
   id: string,
@@ -314,9 +338,72 @@ function AboutPanel({ onClose }: { onClose: (restoreFocus?: boolean) => void }) 
 
   return (
     <section ref={panelRef} tabIndex={-1} className="add-dialog anchored-panel about-panel" role="dialog" aria-labelledby="about-title">
-      <h2 id="about-title">About Deutsch Deck</h2>
+      <h2 id="about-title" className="menu-panel-title">About Deutsch Deck</h2>
       <AboutContent onDone={() => onClose(true)} />
     </section>
+  )
+}
+
+function AppSettingsPanel({ settings, onChange, onClose }: {
+  settings: PauseSettings
+  onChange: (settings: PauseSettings) => void
+  onClose: (restoreFocus?: boolean) => void
+}) {
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => { panelRef.current?.focus() }, [])
+  usePanelDismiss(panelRef, onClose, () => false)
+
+  return (
+    <section ref={panelRef} tabIndex={-1} className="add-dialog anchored-panel app-settings-panel" role="dialog" aria-labelledby="app-settings-title">
+      <div className="dialog-heading">
+        <h2 id="app-settings-title" className="menu-panel-title">App settings</h2>
+        <button type="button" className="quiet-button" onClick={() => onClose(true)}>Done</button>
+      </div>
+      <h3>Study pauses</h3>
+      <label className="pause-setting-toggle">
+        <input type="checkbox" checked={settings.enabled} onChange={(event) => onChange({ ...settings, enabled: event.target.checked })} />
+        <span>Suggest a short pause</span>
+      </label>
+      <p>Count distinct words added to reviews or reviewed. Pauses can always be skipped.</p>
+      <div className="pause-setting-row">
+        <span>Pause after</span>
+        <MenuSelect ariaLabel="Pause after" value={String(settings.every)}
+          options={[{ value: '3', label: '3 words' }, { value: '5', label: '5 words' }, { value: '10', label: '10 words' }]}
+          onChange={(value) => onChange({ ...settings, every: value === '3' ? 3 : value === '5' ? 5 : 10 })} />
+      </div>
+      <div className="pause-setting-row">
+        <span>Pause length</span>
+        <MenuSelect ariaLabel="Pause length" value={String(settings.seconds)}
+          options={[{ value: '30', label: '30 seconds' }, { value: '60', label: '60 seconds' }, { value: '120', label: '2 minutes' }]}
+          onChange={(value) => onChange({ ...settings, seconds: value === '30' ? 30 : value === '60' ? 60 : 120 })} />
+      </div>
+      <p>Changing these settings resets the current word count. Settings stay on this device.</p>
+    </section>
+  )
+}
+
+function PauseScreen({ seconds, onSkip }: { seconds: number; onSkip: () => void }) {
+  const skipRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    skipRef.current?.focus()
+    return () => {
+      requestAnimationFrame(() => {
+        if (previous?.isConnected && !previous.matches(':disabled')) previous.focus()
+        else document.querySelector<HTMLElement>('.app-shell button')?.focus()
+      })
+    }
+  }, [])
+  return (
+    <div className="pause-screen">
+      <section className="empty-state pause-card" role="dialog" aria-modal="true" aria-labelledby="pause-title" aria-describedby="pause-description">
+        <span className="complete-mark"><Clock3 size={21} aria-hidden="true" /></span>
+        <h1 id="pause-title">A little space to breathe.</h1>
+        <p id="pause-description" className="session-note">Take a short pause. Your place is right here.</p>
+        <p className="pause-countdown" aria-label={`${seconds} seconds remaining`}>{seconds}<span> sec</span></p>
+        <button ref={skipRef} type="button" className="quiet-button" onClick={onSkip}>Skip pause</button>
+      </section>
+    </div>
   )
 }
 
@@ -756,7 +843,7 @@ function StudyPlanDialog({
       >
         <div className="dialog-heading">
           <div>
-            <h2 id="study-plan-title">Goal &amp; study pace</h2>
+            <h2 id="study-plan-title" className="menu-panel-title">Goal &amp; study pace</h2>
           </div>
         </div>
 
@@ -985,7 +1072,7 @@ function SessionSettingsDialog({
       >
         <div className="dialog-heading">
           <div>
-            <h2 id="session-settings-title">Tune your session</h2>
+            <h2 id="session-settings-title" className="menu-panel-title">Tune your session</h2>
           </div>
         </div>
         <div className="session-setting-block">
@@ -1162,6 +1249,38 @@ function App() {
   const dismissToast = useCallback((id: number) => {
     setToasts((current) => current.filter((item) => item.id !== id))
   }, [])
+  const [loadedPause] = useState(loadPauseState)
+  const [pauseState, setPauseState] = useState(loadedPause.state)
+  const pauseStateRef = useRef(loadedPause.state)
+  const [pauseNow, setPauseNow] = useState(Date.now)
+  const [appSettingsOpen, setAppSettingsOpen] = useState(false)
+  const changePause = useCallback((update: (state: PauseState) => PauseState) => {
+    const next = update(pauseStateRef.current)
+    if (next === pauseStateRef.current) return
+    pauseStateRef.current = next
+    setPauseState(next)
+    setPauseNow(Date.now())
+    try {
+      localStorage.setItem(PAUSE_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      showToast('Pause settings or progress could not be saved on this device.', 'error')
+    }
+  }, [showToast])
+  useEffect(() => {
+    if (pauseState.until === null) return
+    const updateClock = () => {
+      const current = Date.now()
+      setPauseNow(current)
+      if (pauseState.until !== null && current >= pauseState.until) changePause(finishPause)
+    }
+    const timer = window.setInterval(updateClock, 1000)
+    document.addEventListener('visibilitychange', updateClock)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', updateClock)
+    }
+  }, [pauseState.until, changePause])
+  const pauseVisible = pauseState.until !== null
   const copyText = async (text: string) => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
@@ -1181,15 +1300,21 @@ function App() {
     }
   }
   const [struggledWith, setStruggledWith] = useState<RecallField[]>([])
-  const [studyMode, setStudyMode] = useState<ReviewMode>('recall')
+  const [studyMode, setStudyMode] = useState<ReviewMode>(
+    loadedPause.resumeActivity && loadedPause.resumeActivity !== 'learn' ? loadedPause.resumeActivity : 'recall',
+  )
   const [learnOpen, setLearnOpen] = useState(
-    () => getInitialStudyMode(loaded.cards, new Date(INITIAL_NOW)) === 'learn',
+    () => loadedPause.resumeActivity ? loadedPause.resumeActivity === 'learn'
+      : getInitialStudyMode(loaded.cards, new Date(INITIAL_NOW)) === 'learn',
   )
   const [learnSettingsOpen, setLearnSettingsOpen] = useState(false)
   const [studyTag, setStudyTag] = useState('')
   const [choiceFeedback, setChoiceFeedback] = useState<ChoiceFeedback | null>(null)
   const [productionAnswer, setProductionAnswer] = useState('')
   const [productionFeedback, setProductionFeedback] = useState<ProductionFeedback | null>(null)
+  const recordCompletedWord = (id: string, activity: PauseActivity, defer = false) => {
+    changePause((state) => recordPauseWord(state, id, Date.now(), defer, activity))
+  }
   const importInput = useRef<HTMLInputElement>(null)
   const deckMenu = useRef<HTMLDetailsElement>(null)
   const addCardButton = useRef<HTMLButtonElement>(null)
@@ -1218,6 +1343,10 @@ function App() {
   const closeStudyPlan = useCallback((restoreFocus = false) => {
     restoreSettingsFocus.current = restoreFocus
     setStudyPlanOpen(false)
+  }, [])
+  const closeAppSettings = useCallback((restoreFocus = false) => {
+    setAppSettingsOpen(false)
+    if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
   }, [])
   useEffect(() => {
     if (!sessionSettingsOpen && !studyPlanOpen && restoreSettingsFocus.current) {
@@ -1556,6 +1685,7 @@ function App() {
     )
     setCards(updatedCards)
     saveDeck(updatedCards)
+    recordCompletedWord(activeCard.id, 'recall')
     setRevealed(false)
     includeDueFirstReviews(reviewedAt)
     setStruggledWith([])
@@ -1564,6 +1694,7 @@ function App() {
   const handleChoice = (selectedId: string) => {
     if (!activeCard || choiceFeedback || choiceOptions.length !== 4) return
     const correct = selectedId === activeCard.id
+    recordCompletedWord(activeCard.id, 'choice', true)
     if (practiceLoopActive) {
       setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
       return
@@ -1587,6 +1718,7 @@ function App() {
     if (!answer) return
 
     const correct = isProductionAnswerCorrect(answer, activeCard.prompt)
+    recordCompletedWord(activeCard.id, 'production', true)
     if (practiceLoopActive) {
       setProductionFeedback({ cardId: activeCard.id, answer, correct })
       setProductionAnswer('')
@@ -1605,7 +1737,11 @@ function App() {
     setProductionAnswer('')
   }
 
-  const continueQuiz = () => {
+  const continueQuiz = (resumeActivity?: PauseActivity) => {
+    changePause((state) => {
+      const next = startPendingPause(state, Date.now())
+      return next !== state && resumeActivity ? { ...next, activity: resumeActivity } : next
+    })
     setChoiceFeedback(null)
     setProductionFeedback(null)
     setProductionAnswer('')
@@ -1614,6 +1750,7 @@ function App() {
 
   const advancePracticeLoop = () => {
     if (!practiceLoopIds?.length) return
+    if (studyMode === 'recall' && activeCard) recordCompletedWord(activeCard.id, 'recall')
     setPracticeLoopIndex((index) => (index + 1) % practiceLoopIds.length)
     setRevealed(false)
     continueQuiz()
@@ -1835,7 +1972,7 @@ function App() {
     setLearnOpen(false)
     setLearnSettingsOpen(false)
     setStudyMode(mode)
-    continueQuiz()
+    continueQuiz(mode)
     setRevealed(false)
   }
 
@@ -1964,6 +2101,10 @@ function App() {
     setAboutOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
+  const openAppSettings = () => {
+    setAppSettingsOpen(true)
+    if (deckMenu.current) deckMenu.current.open = false
+  }
   const closeLearnSettings = useCallback((restoreFocus = false) => {
     setLearnSettingsOpen(false)
     if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
@@ -2001,6 +2142,7 @@ function App() {
     setSessionIds((ids) => ids.filter((item) => item !== id))
     setNow(at.getTime())
     showToast('Added to reviews. Ready in 10 minutes.')
+    recordCompletedWord(id, 'learn')
     return true
   }
   const learnContent = learnOpen && (
@@ -2045,6 +2187,7 @@ function App() {
                 <button type="button" onClick={handleExportDeck}>Download backup</button>
                 <button type="button" onClick={openSessionSettings}>Tune session</button>
                 <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+                <button type="button" onClick={openAppSettings}>App settings</button>
                 <button type="button" onClick={openAbout}>About Deutsch Deck</button>
                 {practiceLoopIds && (
                   <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
@@ -2071,9 +2214,9 @@ function App() {
             onChange={handleImportDeck}
           />
         </header>
-        {(storageWarning || savingError || studyPlanWarning) && (
+        {(storageWarning || savingError || studyPlanWarning || loadedPause.warning) && (
           <div className="storage-warning" role="status">
-            <p>{storageWarning ?? savingError ?? studyPlanWarning}</p>
+            <p>{storageWarning ?? savingError ?? studyPlanWarning ?? loadedPause.warning}</p>
             {storageWarning && (
               <button type="button" onClick={startWithStarterPack}>Use the starter vocabulary pack</button>
             )}
@@ -2196,6 +2339,7 @@ function App() {
               <button type="button" onClick={handleExportDeck}>Download backup</button>
               <button type="button" onClick={openSessionSettings}>Tune session</button>
               <button type="button" onClick={openStudyPlan}>Adjust goal and pace</button>
+              <button type="button" onClick={openAppSettings}>App settings</button>
               <button type="button" onClick={openAbout}>About Deutsch Deck</button>
               {practiceLoopIds && (
                 <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
@@ -2223,9 +2367,9 @@ function App() {
         />
       </header>
 
-      {(storageWarning || savingError || studyPlanWarning) && (
+      {(storageWarning || savingError || studyPlanWarning || loadedPause.warning) && (
         <div className="storage-warning" role="status">
-          <p>{storageWarning ?? savingError ?? studyPlanWarning}</p>
+          <p>{storageWarning ?? savingError ?? studyPlanWarning ?? loadedPause.warning}</p>
           {storageWarning && (
             <button type="button" onClick={startWithStarterPack}>Use the starter vocabulary pack</button>
           )}
@@ -2239,7 +2383,10 @@ function App() {
         </div>
       ) : <>
       <div ref={studyAreaRef} className="study-mode-toggle" role="group" aria-label="Study mode">
-        <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => setLearnOpen(true)}>Learn</button>
+        <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => {
+          if (pauseStateRef.current.pending) continueQuiz('learn')
+          setLearnOpen(true)
+        }}>Learn</button>
         <button
           type="button"
           className={!learnOpen && studyMode === 'recall' ? 'selected' : ''}
@@ -2567,6 +2714,7 @@ function App() {
 
   return (
     <>
+      <div inert={pauseVisible || undefined} aria-hidden={pauseVisible || undefined}>
       {appContent}
       {addCardOpen && (
         <AddCardDialog
@@ -2606,9 +2754,17 @@ function App() {
         />
       )}
       {aboutOpen && <AboutPanel onClose={closeAbout} />}
+      {appSettingsOpen && <AppSettingsPanel settings={pauseState.settings}
+        onChange={(settings) => changePause((state) => updatePauseSettings(state, settings))}
+        onClose={closeAppSettings} />}
       <div className="toast-region">
         {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />)}
       </div>
+      </div>
+      {pauseVisible && pauseState.until !== null && (
+        <PauseScreen seconds={Math.max(0, Math.ceil((pauseState.until - pauseNow) / 1000))}
+          onSkip={() => changePause(finishPause)} />
+      )}
     </>
   )
 }

@@ -1333,6 +1333,27 @@
   line-height: 1.1;
 }
 
+.pause-screen {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 24px;
+  background: #f7f1ec;
+}
+
+.pause-card { margin: auto; }
+.pause-countdown {
+  margin: 24px 0 0;
+  color: #42604c;
+  font: 400 2.4rem/1 Georgia, serif;
+  font-variant-numeric: tabular-nums;
+}
+.pause-countdown span { font: 500 0.75rem/1.2 Inter, sans-serif; }
+.pause-card .quiet-button { margin-top: 16px; }
+
 .session-note {
   margin: 0 auto;
   color: #746d77;
@@ -1533,9 +1554,43 @@
   z-index: 9;
 }
 
+.add-dialog.app-settings-panel { z-index: 9; }
+.app-settings-panel h3 { margin: 0 0 12px; font-size: 0.9rem; }
+.app-settings-panel p { margin: 12px 0; color: #686962; font-size: 0.76rem; line-height: 1.5; }
+.app-settings-panel .dialog-heading { align-items: center; }
+.app-settings-panel .dialog-heading h2 { margin: 0; }
+.app-settings-panel .dialog-heading .quiet-button { margin: 0; padding: 5px; }
+.app-settings-panel .pause-setting-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  min-height: 36px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.app-settings-panel .pause-setting-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #54755d;
+}
+.pause-setting-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 150px);
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .about-panel > h2 {
   margin: 0 0 18px;
-  font-size: 0.95rem;
 }
 
 .about-introduction {
@@ -1590,7 +1645,6 @@
 
 .session-settings-dialog .dialog-heading h2 {
   margin-top: 0;
-  font-size: 1.7rem;
 }
 
 .session-settings-dialog .dialog-actions {
@@ -1610,6 +1664,17 @@
   font-size: 2rem;
   font-weight: 400;
   letter-spacing: -0.05em;
+}
+
+.dialog-heading .menu-panel-title,
+.about-panel > .menu-panel-title,
+.learn-settings-heading .menu-panel-title,
+.account-popover-heading .menu-panel-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  font-weight: 400;
+  letter-spacing: -0.05em;
+  line-height: normal;
 }
 
 .add-dialog form {

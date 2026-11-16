@@ -71,10 +71,6 @@
   gap: 3px;
 }
 
-.account-popover-heading strong {
-  font-size: 0.9rem;
-}
-
 .account-popover-heading span {
   overflow-wrap: anywhere;
   color: #625b65;
