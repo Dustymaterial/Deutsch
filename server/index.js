@@ -164,6 +164,9 @@ let users
 let progress
 let relationships
 let sharedWords
+let conversations
+let companionMessages
+let companionReports
 let accountSecurity
 const accountMailer = createAccountMailer(configuration)
 
@@ -228,6 +231,9 @@ if (mongoConnectionString) {
   progress = db.collection('progress')
   relationships = db.collection('relationships')
   sharedWords = db.collection('sharedWords')
+  conversations = db.collection('companionConversations')
+  companionMessages = db.collection('companionMessages')
+  companionReports = db.collection('companionReports')
   accountSecurity = createAccountSecurity({
     users,
     secret: configuration.SESSION_SECRET,
@@ -242,6 +248,11 @@ if (mongoConnectionString) {
     relationships.createIndex({ participants: 1 }),
     sharedWords.createIndex({ recipientId: 1, state: 1, createdAt: -1 }),
     sharedWords.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    conversations.createIndex({ pairKey: 1, connectionId: 1 }, { unique: true }),
+    conversations.createIndex({ participants: 1, updatedAt: -1 }),
+    companionMessages.createIndex({ conversationId: 1, createdAt: 1 }),
+    companionReports.createIndex({ reporterId: 1, messageId: 1 }, { unique: true }),
+    companionReports.createIndex({ createdAt: -1 }),
   ])
 
   app.use(session({
@@ -443,7 +454,8 @@ app.patch('/api/auth/profile', requireUser, async (req, res) => {
 
 if (relationships) {
   app.use('/api/companions', createCompanionRouter({
-    users, relationships, sharedWords, requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
+    users, relationships, sharedWords, conversations, companionMessages, companionReports,
+    requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
   }))
 }
 

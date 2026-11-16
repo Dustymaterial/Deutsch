@@ -26,7 +26,7 @@ npm run dev
 
 Open the local URL printed by Vite.
 
-If port 3001 is already in use, start the services separately with matching alternatives, for example `PORT=3002 node server/index.js --local` and `DEUTSCH_API_PORT=3002 npx vite`.
+If port 3001 is already in use, start the services separately with matching alternatives, for example `PORT=3002 node server/index.js --local` and `DEUTSCH_API_PORT=3002 npx vite`. Vite reads `DEUTSCH_API_PORT` (or `PORT`) from the shell or `.env` to keep its API proxy pointed at the account server.
 
 For production, build the client and run the server with `NODE_ENV=production` and the same database/session environment variables:
 
@@ -236,13 +236,15 @@ Use the JSON backup to move your deck manually between browser profiles or devic
 
 ## Learning companions
 
-Verified, signed-in learners can open **Account → Learning companions** and search for an exact username (case-insensitive). Send a request, which the other learner can accept or decline; you can also cancel a sent request or remove a companion. Blocking ends the connection and prevents requests in either direction. Unblocking does not restore the connection. After a request is declined or cancelled, or a connection is removed or blocked, wait 24 hours before requesting that learner again.
+Verified, signed-in learners can open **Account → Learning companions** to replace the study content with a companion workspace and search for an exact username (case-insensitive). Incoming and sent requests are shown separately; the other learner can accept or decline, and you can cancel a sent request or remove a companion. Blocking ends the connection and prevents requests or chat in either direction. Unblocking does not restore the connection. After a request is declined or cancelled, or a connection is removed or blocked, wait 24 hours before requesting that learner again.
+
+Connected companions can have private 1:1 text conversations. Messages are plain text, up to 2,000 characters, and refresh automatically while a conversation is open; chat messages are not emailed. Background tabs pause automatic refresh. Read-only refreshes do not count toward the general limit of 300 companion actions per account per 15 minutes; sending is separately limited to 60 messages per account per hour. Chat history is stored with account data. **Hide conversation** removes it from your list and hides its earlier messages for you; the other companion keeps their copy, and a new message can make the conversation appear again. Blocking or removing a companion stops access to the chat. You can report a received message for spam, harassment, inappropriate content, or another concern; reports retain the message and any details you provide for moderation handling.
 
 Choose an active word in your deck to share it with a connected companion. You can add a note of up to 240 characters. The recipient sees a preview and chooses **Add to my deck** or **Not now**; shared words never enter their deck automatically. Adding creates a fresh card with no copied review history or schedule, and keeps the sender and note as source attribution. Shares expire after 30 days. Sharing is limited to ten words per account per hour.
 
 You can send a companion one gentle, manual reminder per 24 hours. It appears in their companion panel until acknowledged; it is never scheduled automatically.
 
-Companion activity emails (requests, shared-word notices, and reminders) are on by default and can be turned off in the companion panel. Sending is limited to ten requests and ten word shares per account per hour, one reminder per companion per 24 hours, and five notification emails per recipient per hour. Delivery is not guaranteed. Shared-word emails do not include the word or note. Requests and activity remain visible in the app if email is disabled or fails. Companions see only usernames, avatars, shared vocabulary and the notes attached to words they receive—not email addresses or study progress. Companions require a verified account and connection to the account service; individual study still works offline.
+Companion activity emails (requests, shared-word notices, and reminders) are on by default and can be turned off in the companion workspace. Sending is limited to ten requests and ten word shares per account per hour, one reminder per companion per 24 hours, and five notification emails per recipient per hour. Delivery is not guaranteed. Shared-word emails do not include the word or note. Requests and activity remain visible in the app if email is disabled or fails. Companions see only usernames, avatars, shared vocabulary, received-word notes, and messages exchanged in their private conversation—not email addresses or study progress. Companion features require a verified account and connection to the account service; individual study still works offline.
 
 ## Data, privacy, and recovery
 

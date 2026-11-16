@@ -34,7 +34,7 @@ import {
 } from './studyPlan'
 import { isProductionAnswerCorrect } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
-import type { SharedWordPreview } from './CompanionPanel'
+import { CompanionPanel, type SharedWordPreview } from './CompanionPanel'
 import { mergeAccountProgress, type AccountProgress } from './accountSync'
 import LearnMode from './LearnMode'
 import { MenuSelect, type MenuSelectOption } from './MenuSelect'
@@ -1250,6 +1250,7 @@ function App() {
   const [studyPlanWarning, setStudyPlanWarning] = useState(loadedStudyPlan.warning)
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [companionWorkspaceOpen, setCompanionWorkspaceOpen] = useState(false)
   const accountEmail = accountUser?.email
   const [accountSyncReady, setAccountSyncReady] = useState(false)
   const [accountSyncStatus, setAccountSyncStatus] = useState<string | null>(null)
@@ -2191,6 +2192,11 @@ function App() {
     setAccountMenuOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
+  const openCompanionWorkspace = () => {
+    setAccountMenuOpen(false)
+    setCompanionWorkspaceOpen(true)
+    if (deckMenu.current) deckMenu.current.open = false
+  }
   const openLearnSettings = () => {
     setLearnSettingsOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
@@ -2270,6 +2276,14 @@ function App() {
     />
   )
 
+  const companionWorkspace = (
+    <CompanionPanel
+      cards={cards}
+      onReceiveWord={receiveSharedWord}
+      onBack={() => setCompanionWorkspaceOpen(false)}
+    />
+  )
+
   const appContent = !activeCard && !learnOpen ? (
       <main className="app-shell empty-state-shell">
         <header className="app-header">
@@ -2282,10 +2296,9 @@ function App() {
               <span aria-hidden="true">+</span> Add a word
             </button>
             <AccountMenu
-              cards={cards}
-              onReceiveWord={receiveSharedWord}
               onUserChange={handleAccountUserChange}
               onNotify={showToast}
+              onOpenCompanions={openCompanionWorkspace}
               onOpenChange={setAccountMenuOpen}
               open={accountMenuOpen}
               syncStatus={accountSyncMessage}
@@ -2335,7 +2348,7 @@ function App() {
             )}
           </div>
         )}
-        {showIntroduction ? (
+        {companionWorkspaceOpen ? companionWorkspace : showIntroduction ? (
           <div className="about-introduction">
             <AboutContent introduction onDone={finishIntroduction} />
             {introduction.warning && <p role="status">{introduction.warning}</p>}
@@ -2419,7 +2432,7 @@ function App() {
             </button>
           )}
         </div>}
-        <AppFooter signedIn={Boolean(accountUser)} />
+        {!companionWorkspaceOpen && <AppFooter signedIn={Boolean(accountUser)} />}
       </main>
   ) : (
     <main className="app-shell">
@@ -2433,10 +2446,9 @@ function App() {
             <span aria-hidden="true">+</span> Add a word
           </button>
           <AccountMenu
-            cards={cards}
-            onReceiveWord={receiveSharedWord}
             onUserChange={handleAccountUserChange}
             onNotify={showToast}
+            onOpenCompanions={openCompanionWorkspace}
             onOpenChange={setAccountMenuOpen}
             open={accountMenuOpen}
             syncStatus={accountSyncMessage}
@@ -2491,7 +2503,7 @@ function App() {
         </div>
       )}
 
-      {showIntroduction ? (
+      {companionWorkspaceOpen ? companionWorkspace : showIntroduction ? (
         <div className="about-introduction">
           <AboutContent introduction onDone={finishIntroduction} />
           {introduction.warning && <p role="status">{introduction.warning}</p>}
@@ -2824,7 +2836,7 @@ function App() {
         </>
       )}
       </>}
-      <AppFooter signedIn={Boolean(accountUser)} />
+      {!companionWorkspaceOpen && <AppFooter signedIn={Boolean(accountUser)} />}
     </main>
   )
 

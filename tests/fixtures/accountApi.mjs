@@ -36,26 +36,42 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
   if (Array.isArray(expected)) return Array.isArray(actual) && JSON.stringify(actual) === JSON.stringify(expected)
   return Array.isArray(actual) ? actual.includes(expected) : actual === expected
 })
-const records = { users: [], progress: [], relationships: [], sharedWords: [] }
+const records = {
+  users: [], progress: [], relationships: [], sharedWords: [],
+  companionConversations: [], companionMessages: [], companionReports: [],
+}
 const collection = (name) => ({
   async createIndex() {},
   find(query, options = {}) {
     let result = records[name].filter((item) => matches(item, query)).map((item) => ({ ...item }))
     if (options.sort) {
-      const [[field, direction]] = Object.entries(options.sort)
-      result.sort((left, right) => direction * (get(left, field) - get(right, field)))
+      const entries = Object.entries(options.sort)
+      result.sort((left, right) => {
+        for (const [field, direction] of entries) {
+          const difference = get(left, field) - get(right, field)
+          if (difference) return direction * difference
+        }
+        return 0
+      })
     }
     if (options.limit) result = result.slice(0, options.limit)
     return { async toArray() { return result } }
   },
-  async findOne(query) {
-    const record = records[name].find((item) => matches(item, query))
+  async findOne(query, options = {}) {
+    let matchesQuery = records[name].filter((item) => matches(item, query))
+    if (options.sort) {
+      const [[field, direction]] = Object.entries(options.sort)
+      matchesQuery = matchesQuery.sort((left, right) => direction * (get(left, field) - get(right, field)))
+    }
+    const record = matchesQuery[0]
     return record ? { ...record, otp: record.otp ? structuredClone(record.otp) : undefined } : null
   },
   async insertOne(value) {
     if (records[name].some((item) => (value.emailKey && item.emailKey === value.emailKey)
       || (value.usernameKey && item.usernameKey === value.usernameKey)
-      || (value.pairKey && item.pairKey === value.pairKey))) {
+      || (value.pairKey && item.pairKey === value.pairKey
+        && (name !== 'companionConversations' || item.connectionId === value.connectionId))
+      || (value.reporterId && item.reporterId === value.reporterId && item.messageId === value.messageId))) {
       throw Object.assign(new Error('duplicate'), { code: 11000 })
     }
     const _id = new ObjectId()
@@ -67,6 +83,10 @@ const collection = (name) => ({
     if (!record) return { matchedCount: 0, modifiedCount: 0 }
     for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
     for (const [path, value] of Object.entries(update.$inc ?? {})) set(record, path, (get(record, path) ?? 0) + value)
+    for (const [path, value] of Object.entries(update.$addToSet ?? {})) {
+      const current = get(record, path) ?? []
+      if (!current.includes(value)) set(record, path, [...current, value])
+    }
     for (const [path, value] of Object.entries(update.$push ?? {})) {
       set(record, path, [...value.$each, ...(get(record, path) ?? [])].slice(0, value.$slice))
     }
@@ -168,6 +188,9 @@ try {
   records.users.push(companion)
   const learner = await request('/api/auth/login', { email, password: 'reset-password-123' })
   const other = await request('/api/auth/login', { email: companion.email, password })
+  for (let index = 0; index < 301; index++) {
+    assert.equal((await request('/api/companions/chats', null, learner.cookie)).status, 200)
+  }
   const learnerId = records.users.find((item) => item.email === email)._id.toString()
   const otherId = companion._id.toString()
   assert.equal((await request('/api/companions/', null, null)).status, 401)
@@ -181,6 +204,7 @@ try {
   assert.match(deliveries[2].TextPart, /learner would like/)
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 409)
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'accept' }, learner.cookie)).status, 409)
+  assert.equal((await request('/api/companions/chats/open', { id: otherId }, learner.cookie)).status, 404)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].status, 'incoming')
   assert.equal((await request('/api/companions/action', { id: learnerId, action: 'accept' }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/', null, learner.cookie)).body.companions[0].status, 'connected')
@@ -224,7 +248,42 @@ try {
   assert.ok((await request('/api/companions/', null, other.cookie)).body.companions[0].nudgeAt)
   assert.equal((await request('/api/companions/nudge/read', { id: learnerId }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].nudgeAt, undefined)
+  const openedChat = await request('/api/companions/chats/open', { id: otherId }, learner.cookie)
+  assert.equal(openedChat.status, 200)
+  assert.equal((await request('/api/companions/chats/open', { id: learnerId }, other.cookie)).body.id, openedChat.body.id)
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '   ' }, learner.cookie)).status, 400)
+  const sentMessage = await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '  Viel Erfolg beim Lernen!  ' }, learner.cookie)
+  assert.equal(sentMessage.status, 201)
+  assert.equal(sentMessage.body.message.text, 'Viel Erfolg beim Lernen!')
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'x'.repeat(2001) }, learner.cookie)).status, 400)
+  records.users.find((item) => item.email === email).companionMessageHistory = Array.from({ length: 60 }, () => new Date())
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'Rate limit check.' }, learner.cookie)).status, 429)
+  records.users.find((item) => item.email === email).companionMessageHistory = []
+  const receivedMessages = await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, other.cookie)
+  assert.equal(receivedMessages.body.messages.length, 1)
+  assert.equal(receivedMessages.body.messages[0].isMine, false)
+  const unreadChat = (await request('/api/companions/chats', null, learner.cookie)).body.chats[0]
+  assert.equal(unreadChat.lastMessage.text, 'Viel Erfolg beim Lernen!')
+  assert.equal(unreadChat.unread, false)
+  const report = await request(`/api/companions/messages/${sentMessage.body.message.id}/report`, {
+    reason: 'other', details: 'This is a test report.',
+  }, other.cookie)
+  assert.equal(report.status, 201)
+  assert.equal((await request(`/api/companions/messages/${sentMessage.body.message.id}/report`, { reason: 'spam' }, other.cookie)).status, 409)
+  assert.equal((await request(`/api/companions/messages/${sentMessage.body.message.id}/report`, { reason: 'spam' }, learner.cookie)).status, 404)
+  assert.equal(records.companionReports[0].reportedUserId, learnerId)
+  const reply = await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'Danke!' }, other.cookie)
+  assert.equal(reply.status, 201)
+  assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats[0].unread, true)
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/delete`, {}, learner.cookie)).status, 200)
+  assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats.length, 0)
+  assert.equal((await request('/api/companions/chats', null, other.cookie)).body.chats.length, 1)
+  assert.deepEqual((await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, learner.cookie)).body.messages, [])
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'A new message after deletion.' }, other.cookie)).status, 201)
+  const afterDeleteMessage = await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, learner.cookie)
+  assert.deepEqual(afterDeleteMessage.body.messages.map((item) => item.text), ['A new message after deletion.'])
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'block' }, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, other.cookie)).status, 404)
   assert.equal((await request('/api/companions/search', { username: 'learner' }, other.cookie)).status, 404)
   assert.deepEqual((await request('/api/companions/', null, other.cookie)).body.companions, [])
   assert.equal((await request('/api/companions/request', { id: learnerId }, other.cookie)).status, 404)

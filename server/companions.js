@@ -7,6 +7,11 @@ const usernameSchema = z.object({ username: z.string().trim().min(3).max(20).reg
 const targetSchema = z.object({ id: z.string().regex(/^[a-f\d]{24}$/) })
 const actionSchema = targetSchema.extend({ action: z.enum(['accept', 'decline', 'cancel', 'remove', 'block', 'unblock']) })
 const settingsSchema = z.object({ emailsEnabled: z.boolean() })
+const chatMessageSchema = z.object({ text: z.string().trim().min(1).max(2000) })
+const reportSchema = z.object({
+  reason: z.enum(['spam', 'harassment', 'inappropriate', 'other']),
+  details: z.string().trim().max(500).optional(),
+})
 const sharedCardSchema = z.object({
   prompt: z.string().trim().min(1).max(500),
   article: z.enum(['der', 'die', 'das']).optional(),
@@ -25,14 +30,19 @@ const hour = 60 * 60 * 1000
 const cooldown = 24 * hour
 const shareLifetime = 30 * 24 * hour
 
-export function createCompanionRouter({ users, relationships, sharedWords, requireUser, mailer, renderAvatar }) {
+export function createCompanionRouter({
+  users, relationships, sharedWords, conversations, companionMessages, companionReports,
+  requireUser, mailer, renderAvatar,
+}) {
   const router = Router()
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 60,
+    limit: 300,
+    keyGenerator: (req) => req.accountUser._id.toString(),
+    skip: (req) => req.method === 'GET',
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    message: { error: 'Too many companion requests. Please try again later.' },
+    message: { error: 'Too many companion actions. Please try again later.' },
   })
   router.use(requireUser, (req, res, next) => {
     if (!req.accountUser.emailVerifiedAt) return res.status(403).json({ error: 'Verify your email to use companions.' })
@@ -105,6 +115,218 @@ export function createCompanionRouter({ users, relationships, sharedWords, requi
     }
     return pair?.state === 'connected' && !pair.blockedBy.length && typeof pair.connectionId === 'string' ? pair : null
   }
+
+  async function getOrCreateConversation(pair) {
+    const filter = { pairKey: pair.pairKey, connectionId: pair.connectionId }
+    const current = await conversations.findOne(filter)
+    if (current) return current
+    const conversation = {
+      ...filter,
+      participants: pair.participants,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    try {
+      const { insertedId } = await conversations.insertOne(conversation)
+      return { ...conversation, _id: insertedId }
+    } catch (error) {
+      if (error?.code !== 11000) throw error
+      return conversations.findOne(filter)
+    }
+  }
+
+  async function activeConversation(me, id) {
+    if (!ObjectId.isValid(id)) return null
+    const conversation = await conversations.findOne({
+      _id: new ObjectId(id),
+      participants: me,
+    })
+    if (!conversation) return null
+    const them = conversation.participants.find((participant) => participant !== me)
+    const pair = await currentConnection(me, them)
+    if (!pair || pair.connectionId !== conversation.connectionId) return null
+    return { conversation, pair, them }
+  }
+
+  router.get('/chats', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    const pairs = await relationships.find({
+      participants: me,
+      state: 'connected',
+      blockedBy: [],
+    }).toArray()
+    const chats = []
+    for (const pair of pairs) {
+      const them = pair.participants.find((participant) => participant !== me)
+      const connection = await currentConnection(me, them)
+      if (!connection) continue
+      const conversation = await getOrCreateConversation(connection)
+      if (!conversation) continue
+      const conversationId = conversation._id.toString()
+      const lastMessage = await companionMessages.findOne(
+        { conversationId },
+        { sort: { createdAt: -1 } },
+      )
+      const hiddenAt = conversation.hiddenAt?.[me]
+      if (hiddenAt && (!lastMessage || lastMessage.createdAt <= hiddenAt)) continue
+      const companion = await users.findOne(
+        { _id: new ObjectId(them) },
+        { projection: { username: 1, avatarSeed: 1 } },
+      )
+      if (!companion) continue
+      chats.push({
+        id: conversationId,
+        companion: profile(companion),
+        lastMessage: lastMessage ? {
+          text: lastMessage.text,
+          isMine: lastMessage.senderId === me,
+          createdAt: lastMessage.createdAt.toISOString(),
+        } : null,
+        unread: Boolean(lastMessage && lastMessage.senderId !== me
+          && (!conversation.readAt?.[me] || lastMessage.createdAt > conversation.readAt[me])),
+        updatedAt: conversation.updatedAt.toISOString(),
+      })
+    }
+    chats.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    res.json({ chats })
+  })
+
+  router.post('/chats/open', async (req, res) => {
+    const result = targetSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a connected companion first.' })
+    const me = req.accountUser._id.toString()
+    const them = result.data.id
+    const pair = await currentConnection(me, them)
+    if (!pair) return unavailable(res)
+    const conversation = await getOrCreateConversation(pair)
+    const companion = await users.findOne(
+      { _id: new ObjectId(them) },
+      { projection: { username: 1, avatarSeed: 1 } },
+    )
+    if (!conversation || !companion) return unavailable(res)
+    res.json({ id: conversation._id.toString(), companion: profile(companion) })
+  })
+
+  router.get('/chats/:id/messages', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    const conversationId = active.conversation._id.toString()
+    const hiddenAt = active.conversation.hiddenAt?.[me]
+    const before = req.query.before ? new Date(String(req.query.before)) : null
+    if (before && !Number.isFinite(before.getTime())) return res.status(400).json({ error: 'Choose a valid message time.' })
+    const createdAt = {
+      ...(hiddenAt ? { $gt: hiddenAt } : {}),
+      ...(before ? { $lt: before } : {}),
+    }
+    const filter = {
+      conversationId,
+      ...(Object.keys(createdAt).length ? { createdAt } : {}),
+    }
+    const found = await companionMessages.find(
+      filter,
+      { sort: { createdAt: -1 }, limit: 50 },
+    ).toArray()
+    if (!before && found[0]) {
+      await conversations.updateOne({ _id: active.conversation._id }, {
+        $set: { [`readAt.${me}`]: found[0].createdAt },
+      })
+    }
+    const messages = found.reverse()
+    res.json({
+      hasMore: messages.length === 50,
+      messages: messages.map((message) => ({
+        id: message._id.toString(),
+        senderId: message.senderId,
+        isMine: message.senderId === me,
+        text: message.text,
+        createdAt: message.createdAt.toISOString(),
+        reported: message.reporterIds?.includes(me) ?? false,
+      })),
+    })
+  })
+
+  router.post('/chats/:id/messages', async (req, res) => {
+    const result = chatMessageSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Write a message up to 2,000 characters.' })
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    const now = new Date()
+    const throttle = await users.updateOne({
+      _id: req.accountUser._id,
+      $or: [
+        { 'companionMessageHistory.59': { $exists: false } },
+        { 'companionMessageHistory.59': { $lte: new Date(now.getTime() - hour) } },
+      ],
+    }, { $push: { companionMessageHistory: { $each: [now], $position: 0, $slice: 60 } } })
+    if (!throttle.modifiedCount) return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
+    const message = {
+      conversationId: active.conversation._id.toString(),
+      senderId: me,
+      text: result.data.text,
+      createdAt: now,
+    }
+    const { insertedId } = await companionMessages.insertOne(message)
+    await conversations.updateOne({ _id: active.conversation._id }, {
+      $set: {
+        updatedAt: now,
+        lastMessageAt: now,
+        [`readAt.${me}`]: now,
+      },
+    })
+    res.status(201).json({
+      message: {
+        id: insertedId.toString(),
+        senderId: me,
+        isMine: true,
+        text: message.text,
+        createdAt: now.toISOString(),
+        reported: false,
+      },
+    })
+  })
+
+  router.post('/chats/:id/delete', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    await conversations.updateOne({ _id: active.conversation._id }, {
+      $set: { [`hiddenAt.${me}`]: new Date() },
+    })
+    res.json({ ok: true })
+  })
+
+  router.post('/messages/:id/report', async (req, res) => {
+    const result = reportSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a reason and keep details under 500 characters.' })
+    if (!ObjectId.isValid(req.params.id)) return unavailable(res)
+    const me = req.accountUser._id.toString()
+    const message = await companionMessages.findOne({ _id: new ObjectId(req.params.id) })
+    if (!message || message.senderId === me) return unavailable(res)
+    const conversation = await conversations.findOne({
+      _id: new ObjectId(message.conversationId),
+      participants: me,
+    })
+    if (!conversation) return unavailable(res)
+    try {
+      await companionReports.insertOne({
+        conversationId: message.conversationId,
+        messageId: message._id.toString(),
+        reporterId: me,
+        reportedUserId: message.senderId,
+        messageText: message.text,
+        reason: result.data.reason,
+        ...(result.data.details ? { details: result.data.details } : {}),
+        createdAt: new Date(),
+      })
+    } catch (error) {
+      if (error?.code !== 11000) throw error
+      return res.status(409).json({ error: 'You have already reported this message.' })
+    }
+    await companionMessages.updateOne({ _id: message._id }, { $addToSet: { reporterIds: me } })
+    res.status(201).json({ ok: true })
+  })
 
   router.get('/', async (req, res) => {
     const me = req.accountUser._id.toString()
