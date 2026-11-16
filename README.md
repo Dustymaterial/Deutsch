@@ -46,7 +46,7 @@ The application code is licensed under the MIT License; see [`LICENSE`](./LICENS
 
 On opening the app, Recall starts when locally saved reviews are due; otherwise, Learn opens if there are unseen words. If neither is available, the completion screen shows when to return. You can choose another mode at any time, and syncing or new reviews becoming due won't switch your current mode.
 
-In **··· → Tune session**, you can reset review progress for the selected study set. After confirmation, its reviewed words become new again and their review history, scores, and schedules are erased. Words shared with other sets are reset there too; vocabulary content remains. Download a backup first if you want to keep a copy of the old history.
+In **··· → Tune session**, open **View reviewed words** to search the selected set, inspect recent reviews and the next review time, or reset an individual word. You can also reset review progress for the entire selected set. After confirmation, affected words become new again and their review history, scores, and schedules are erased. Words shared with other sets are reset there too; vocabulary content remains. Download a backup first if you want to keep a copy of the old history.
 
 ### Learn unfamiliar words
 

@@ -43,6 +43,7 @@ import { reviewLearningCard, saveForLearning } from './learning'
 import starterPack from './data/german-starter-pack.json'
 import {
   getCardsForStudySet,
+  getReviewedWords,
   getStudySetNewCardLimit,
   getStudySetProgress,
   getStudySetTags,
@@ -925,6 +926,7 @@ function SessionSettingsDialog({
   cards,
   tag,
   goalSummary,
+  now,
   onChange,
   onAdjustGoal,
   onReset,
@@ -936,18 +938,32 @@ function SessionSettingsDialog({
   cards: Card[]
   tag: string
   goalSummary: string
+  now: number
   onChange: (tag: string) => void
   onAdjustGoal: () => void
-  onReset: () => boolean
+  onReset: (cardId?: string) => boolean
   resetAvailable: boolean
   onClose: (restoreFocus?: boolean) => void
   isFront: boolean
   onActivate: () => void
 }) {
   const scopedCards = getCardsForStudySet(cards, tag)
-  const reviewedCount = scopedCards.filter((card) => card.lastReviewedAt !== null).length
+  const reviewedCards = scopedCards.filter((card) => card.lastReviewedAt !== null)
+  const reviewedCount = reviewedCards.length
   const [confirmReset, setConfirmReset] = useState(false)
+  const [reviewedOpen, setReviewedOpen] = useState(false)
+  const [reviewedQuery, setReviewedQuery] = useState('')
+  const [reviewedLimit, setReviewedLimit] = useState(25)
+  const [confirmWordId, setConfirmWordId] = useState<string | null>(null)
   const panelRef = useRef<HTMLElement>(null)
+  const reviewedSearchRef = useRef<HTMLInputElement>(null)
+  const matchingCards = getReviewedWords(scopedCards, reviewedQuery)
+  const formatReviewDate = (value: string) => {
+    const date = new Date(value)
+    return Number.isFinite(date.getTime())
+      ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+      : 'Date unavailable'
+  }
   useEffect(() => { panelRef.current?.focus() }, [])
   usePanelDismiss(panelRef, onClose, () => false)
 
@@ -968,11 +984,84 @@ function SessionSettingsDialog({
           </div>
         </div>
         <div className="session-setting-block">
-          <StudySetSelect cards={cards} value={tag} onChange={(value) => { setConfirmReset(false); onChange(value) }} />
+          <StudySetSelect cards={cards} value={tag} onChange={(value) => {
+            setConfirmReset(false)
+            setConfirmWordId(null)
+            setReviewedQuery('')
+            setReviewedLimit(25)
+            onChange(value)
+          }} />
           <p className="session-reviewed-count">
             <strong>{reviewedCount.toLocaleString()}</strong> of {scopedCards.length.toLocaleString()}{' '}
             {scopedCards.length === 1 ? 'word' : 'words'} reviewed
           </p>
+          <button type="button" className="quiet-button reviewed-words-toggle" aria-expanded={reviewedOpen} onClick={() => {
+            setReviewedOpen(!reviewedOpen)
+            setConfirmReset(false)
+            setConfirmWordId(null)
+          }}>{reviewedOpen ? 'Hide reviewed words' : 'View reviewed words'}</button>
+          {reviewedOpen && (
+            <section className="reviewed-words" aria-label="Reviewed words">
+              <label>
+                Find a reviewed word
+                <input ref={reviewedSearchRef} type="search" value={reviewedQuery} placeholder="German or meaning" onChange={(event) => {
+                  setReviewedQuery(event.target.value)
+                  setReviewedLimit(25)
+                  setConfirmWordId(null)
+                }} />
+              </label>
+              {matchingCards.length ? (
+                <>
+                  <ul className="reviewed-words-list">
+                    {matchingCards.slice(0, reviewedLimit).map((card) => (
+                      <li key={card.id}>
+                        <details>
+                          <summary><strong lang="de">{card.prompt}</strong><span>{card.meaning}</span></summary>
+                          <div className="reviewed-word-details">
+                            <p>Last reviewed: {formatReviewDate(card.lastReviewedAt ?? '')}</p>
+                            <p>Next review: {new Date(card.dueAt).getTime() <= now ? 'Due now' : formatReviewDate(card.dueAt)}</p>
+                            {card.reviewHistory.length > 0 && (
+                              <>
+                                <strong>Recent reviews</strong>
+                                <ul>
+                                  {card.reviewHistory.slice(-5).reverse().map((review, index) => (
+                                    <li key={index}>
+                                      {formatReviewDate(review.at)} · {review.mode === 'choice' ? 'Choose' : review.mode === 'production' ? 'Produce' : 'Recall'} · {review.mode === 'choice' || review.mode === 'production'
+                                        ? review.answerCorrect === undefined ? 'Result unavailable' : review.answerCorrect ? 'Correct' : 'Incorrect'
+                                        : review.rating.charAt(0).toUpperCase() + review.rating.slice(1)}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </>
+                            )}
+                            {confirmWordId === card.id ? (
+                              <div className="reset-review-confirmation">
+                                <p>Reset the history and schedule for {card.prompt}? It becomes new again in every set. This cannot be undone.</p>
+                                <div className="reset-review-actions">
+                                  <button type="button" className="quiet-button" onClick={() => setConfirmWordId(null)}>Cancel</button>
+                                  <button type="button" className="reset-review-button" onClick={() => {
+                                    if (onReset(card.id)) {
+                                      setConfirmWordId(null)
+                                      reviewedSearchRef.current?.focus()
+                                    }
+                                  }}>Reset this word</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button type="button" className="quiet-button reviewed-word-reset" disabled={!resetAvailable} onClick={() => setConfirmWordId(card.id)}>Reset this word</button>
+                            )}
+                          </div>
+                        </details>
+                      </li>
+                    ))}
+                  </ul>
+                  {matchingCards.length > reviewedLimit && (
+                    <button type="button" className="quiet-button reviewed-words-more" onClick={() => setReviewedLimit((limit) => limit + 25)}>Show more ({matchingCards.length - reviewedLimit} remaining)</button>
+                  )}
+                </>
+              ) : <p>{reviewedCount ? 'No reviewed words match your search.' : 'No reviewed words in this set yet.'}</p>}
+            </section>
+          )}
           {confirmReset ? (
             <div className="reset-review-confirmation">
               <p>Reset review history and schedules for {reviewedCount.toLocaleString()} {reviewedCount === 1 ? 'word' : 'words'} in {tag || 'all words'}? These words become new again, including in other sets. This cannot be undone.</p>
@@ -987,7 +1076,7 @@ function SessionSettingsDialog({
               </div>
             </div>
           ) : (
-            <button type="button" className="quiet-button reset-review-link" disabled={!reviewedCount || !resetAvailable} onClick={() => setConfirmReset(true)}>Reset review progress</button>
+            <button type="button" className="quiet-button reset-review-link" disabled={!reviewedCount || !resetAvailable} onClick={() => { setConfirmWordId(null); setConfirmReset(true) }}>Reset review progress</button>
           )}
           {!resetAvailable && <p>Reset is unavailable until saved data and account sync are ready.</p>}
         </div>
@@ -1753,9 +1842,15 @@ function App() {
     setNow(nextNow.getTime())
   }
 
-  const handleResetStudyProgress = () => {
+  const handleResetStudyProgress = (cardId?: string) => {
     if (!canSave || (accountEmail && !accountSyncReady)) return false
-    const reviewedCards = scopedCards.filter((card) => card.lastReviewedAt !== null)
+    const reviewedCards = scopedCards.filter((card) =>
+      card.lastReviewedAt !== null && (cardId === undefined || card.id === cardId),
+    )
+    if (!reviewedCards.length) {
+      showToast('No reviewed words are available to reset.', 'error')
+      return false
+    }
     const resetTime = reviewedCards.reduce((latest, card) => Math.max(
       latest,
       Date.parse(card.lastReviewedAt ?? '') + 1,
@@ -1769,6 +1864,16 @@ function App() {
       return false
     }
     setCards(updatedCards)
+    if (cardId && activeCard?.id !== cardId) {
+      setSessionIds((ids) => ids.filter((id) => id !== cardId))
+      const loopIndex = practiceLoopIds?.indexOf(cardId) ?? -1
+      if (practiceLoopIds && loopIndex !== -1) {
+        setPracticeLoopIds(practiceLoopIds.filter((id) => id !== cardId))
+        if (loopIndex < practiceLoopIndex) setPracticeLoopIndex(practiceLoopIndex - 1)
+      }
+      showToast('Review progress reset.')
+      return true
+    }
     const nextScope = getCardsForStudySet(updatedCards, studyTag)
     setSessionIds(getSessionCardIds(
       nextScope,
@@ -2455,6 +2560,7 @@ function App() {
           cards={cards}
           tag={studyTag}
           goalSummary={studyPlanSummary}
+          now={now}
           onChange={handleStudyTagChange}
           onReset={handleResetStudyProgress}
           resetAvailable={canSave && (!accountEmail || accountSyncReady)}
