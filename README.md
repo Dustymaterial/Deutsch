@@ -44,11 +44,13 @@ The application code is licensed under the MIT License; see [`LICENSE`](./LICENS
 
 ### Learn unfamiliar words
 
-Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Learn appears in the main card area; open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Active filters and searches are indicated above the card. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save keeps it in Continue learning, on this device and in optional account sync. Next word moves on without saving or skipping it.
+Select **Learn** (or **Learn new words** when the session is complete) to explore unseen active cards before reviewing them. Open **··· → Learn settings** to choose Guided, Browse, or Continue learning and filter by topic or level. Each card shows its meaning, example, and noun details where available. The optional gentle multiple-choice check hides the word until you answer and gives feedback without scoring or scheduling. Skip excludes a word from Guided for this Learn session; Save keeps it in Continue learning, on this device and in optional account sync.
 
 When you feel ready, choose **Ready to review**, then Recall, Choose, or Produce. The card's first review is recorded only when you submit an answer or rating, not when you open it. First reviews count toward the shared daily new-word target; if it is reached, the review chooser offers to continue beyond it for the current visit/day.
 
 **Listen** uses a human recording for a small, verified set of words (Haus, Gesundheit, Wasser, Buch, and Familie); these recordings speak the word without its article. On clicking Listen, the browser requests the recording directly from Wikimedia Commons, which can see the request. The source, author, and CC BY-SA 3.0 license are linked on each applicable card; recordings are unchanged. The app does not bundle, download for offline use, or app-cache them. For other words, or if playback fails, it uses an available German device voice. Device voice availability and connectivity requirements depend on the browser and device; if unavailable, the app says so.
+
+### Recall
 
 1. **Look at the prompt before revealing it.** For nouns, the article is hidden so you can retrieve it rather than merely reread it. Try to recall the plural and meaning too.
 2. **Reveal the answer** to check the noun article, plural, meaning, and example sentence with translation. Verb cards show their meaning and an example.
@@ -97,7 +99,7 @@ The weak-pattern notice is another deterministic heuristic, not automatic adapta
 
 ## Set a goal and daily pace
 
-Open **Goal & pace** to set your current CEFR level, target level, target date, and vocabulary intensity. Changes are saved with **Save goal**; clicking outside keeps an edited goal open, while Cancel or Escape discards the edits. **Tune session** settings apply immediately. The editable default is an intensive B1 goal about 90 days away; choose your actual starting level and timeline rather than treating that example as a prediction.
+Open **Goal & pace** to set your current CEFR level, target level, target date, and vocabulary intensity. Save changes with **Save goal**. The editable default is an intensive B1 goal about 90 days away; choose your actual starting level and timeline rather than treating that example as a prediction.
 
 | Pace | New cards per day | Due reviews per set | Approximate planning time |
 | --- | ---: | ---: | ---: |
@@ -111,7 +113,7 @@ There is no universal best number of new words per day. A practical start is **5
 
 ## Add a word in the app
 
-Select **Add a word** in the top bar to open the entry panel. Clicking outside closes an unchanged form, but leaves an unfinished entry open; Cancel or Escape discards it. If a tag-based study set is selected, its tag is prefilled so new words stay with that lesson. Provide:
+Select **Add a word** in the top bar. If a tag-based study set is selected, its tag is prefilled so new words stay with that lesson. Provide:
 
 - The German word or phrase (enter a noun without its article; choose the article separately).
 - The type and A1/A2 level.
@@ -121,8 +123,6 @@ Select **Add a word** in the top bar to open the entry panel. Clicking outside c
 - Course and lesson tags separated by `|`, for example `VHL Lernportal|Lektion 2|Essen`.
 
 Prefer one clear, common meaning per card. If a word has several unrelated meanings, make separate cards with distinct examples. Keep example sentences short and grammatical. Do not label a word A1/A2 unless you have checked a reliable course or vocabulary source.
-
-Required-field and account-entry errors appear beside the relevant field. The account password field has a show/hide control. Brief notifications confirm saves, account actions, imports, and backups; error notifications remain until dismissed. Learn saves are confirmed by the **Saved** button instead of a notification. Review and quiz feedback stays on the cards.
 
 ## Prepare and import a vocabulary set
 
