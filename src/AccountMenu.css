@@ -523,8 +523,7 @@
 
 .companion-person-card,
 .companion-result-card,
-.companion-shared-card,
-.companion-confirm-card {
+.companion-shared-card {
   display: grid;
   gap: 9px;
   padding: 10px 0;
@@ -569,8 +568,7 @@
   gap: 6px;
 }
 
-.companion-card-actions button,
-.companion-delete-confirm button {
+.companion-card-actions button {
   min-height: 32px;
   padding: 6px 9px;
   border: 1px solid rgba(47, 51, 46, 0.16);
@@ -703,9 +701,6 @@
 .companion-send-button:hover:not(:disabled) { color: #304b37; }
 .companion-send-button:disabled { cursor: not-allowed; opacity: 0.45; }
 
-.companion-delete-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 9px 20px; border-bottom: 1px solid #e7d8b6; background: #fbf4e3; }
-.companion-delete-confirm p { flex: 1 1 100%; margin: 0; color: #65573c; font-size: 0.7rem; line-height: 1.4; }
-.companion-delete-confirm button:first-of-type { border-color: #9f5548; background: #fff1ed; color: #8b3c32; }
 
 .companion-chat-empty,
 .companion-chat-welcome {
@@ -777,7 +772,6 @@
   .companion-chat-header .companion-icon-button { min-width: 32px; min-height: 32px; }
   .companion-composer-footer { align-items: flex-start; }
   .companion-composer-footer > span { max-width: 62%; line-height: 1.4; }
-  .companion-delete-confirm { padding: 9px 10px; }
 }
 
 .companion-workspace-view {
@@ -944,8 +938,7 @@
 }
 .companion-person-card,
 .companion-result-card,
-.companion-shared-card,
-.companion-confirm-card {
+.companion-shared-card {
   gap: 7px;
   padding: 7px 6px;
   border: 0;
@@ -1719,22 +1712,33 @@
 .companion-correction-form p { margin: 0; color: #5c6a5f; font-size: 0.62rem; }
 .companion-correction-form .companion-card-actions { display: flex; gap: 6px; }
 .companion-edited { color: #8a908c; font: 450 0.6rem system-ui, sans-serif; }
-.companion-chat-header-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.companion-chat-header > .companion-chat-header-actions { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .companion-chat-header-actions .companion-chat-menu { margin-left: 0; }
-.companion-header-icon {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  padding: 0;
+.companion-chat-header-actions .companion-header-pill {
+  width: auto;
+  min-height: 30px;
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
   border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #69706b;
+  border-radius: 8px;
+  background: #eff1ef;
+  color: #565c58;
+  font: 550 0.66rem system-ui, sans-serif;
+  list-style: none;
   cursor: pointer;
+  transition: background-color 120ms ease;
 }
-.companion-header-icon:hover,
-.companion-header-icon[aria-pressed="true"] { background: #eff1ef; color: var(--companion-text); }
+.companion-chat-header-actions .companion-header-pill::-webkit-details-marker { display: none; }
+.companion-chat-header-actions .companion-header-pill:hover,
+.companion-chat-header-actions .companion-header-pill[aria-pressed="true"],
+.companion-chat-header-actions .companion-chat-menu[open] > .companion-header-pill { background: #e3e6e3; color: var(--companion-text); }
+@media (max-width: 520px) {
+  .companion-chat-header-actions .companion-header-pill { padding: 5px 9px; }
+  .companion-chat-header-actions .companion-header-pill > span { display: none; }
+}
 .companion-search-panel { display: grid; gap: 6px; margin: 8px 12px 0; }
 .companion-message-search {
   display: flex;
@@ -1823,10 +1827,8 @@
   line-height: 1.5;
   resize: none;
 }
-.companion-edit-form .companion-card-actions,
-.companion-unsend-confirm .companion-card-actions { display: flex; gap: 6px; }
-.companion-edit-form .companion-card-actions button,
-.companion-unsend-confirm .companion-card-actions button {
+.companion-edit-form .companion-card-actions { display: flex; gap: 6px; }
+.companion-edit-form .companion-card-actions button {
   min-height: 28px;
   padding: 5px 12px;
   border: 0;
@@ -1837,17 +1839,6 @@
   cursor: pointer;
 }
 .companion-edit-form .companion-card-actions button[type="submit"] { background: var(--companion-blue-bg); color: var(--companion-blue); }
-.companion-unsend-confirm .companion-card-actions button:first-child { background: var(--companion-red-bg); color: var(--companion-red); }
-.companion-unsend-confirm {
-  max-width: 420px;
-  display: grid;
-  gap: 6px;
-  margin-top: 6px;
-  padding: 9px 12px;
-  border-radius: 12px;
-  background: #fff0cf;
-}
-.companion-unsend-confirm p { margin: 0; color: #65573c; font-size: 0.66rem; line-height: 1.4; }
 .companion-report-form {
   width: min(320px, 100%);
   gap: 8px;
@@ -1924,45 +1915,16 @@
 .companion-welcome-logo { width: 76px; height: 76px; margin-bottom: 6px; }
 .companion-chat-welcome h2 { color: var(--companion-text); font: 650 1.2rem system-ui, sans-serif; }
 .companion-chat-welcome p { color: var(--companion-muted); font-size: 0.7rem; }
-.companion-confirm-card {
-  padding: 11px;
-  border: 0;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 5px 16px rgba(35, 40, 37, 0.1);
-}
-.companion-card-actions button,
-.companion-delete-confirm button {
+.companion-card-actions button {
   border: 0;
   border-radius: 999px;
   background: #eff1ef;
 }
-.companion-card-actions button:first-child,
-.companion-delete-confirm button:first-of-type {
+.companion-card-actions button:first-child {
   border: 0;
   background: var(--companion-blue-bg);
   color: var(--companion-blue);
 }
-.companion-delete-confirm {
-  margin: 8px 12px 0;
-  padding: 12px;
-  border: 0;
-  border-radius: 14px;
-  background: #fff0cf;
-}
-.companion-delete-confirm button {
-  min-height: 34px;
-  padding: 7px 13px;
-  border: 0;
-  border-radius: 999px;
-  background: #e8ebe8;
-  color: #272a27;
-  font: 600 0.68rem system-ui, sans-serif;
-  cursor: pointer;
-}
-.companion-delete-confirm button:first-of-type { background: #f45bb8; color: #171017; }
-.companion-delete-confirm button:first-of-type:hover:not(:disabled) { background: #e947a8; }
-.companion-delete-confirm button:last-of-type:hover:not(:disabled) { background: #dce0dc; }
 .companion-practice-nudge {
   margin: 8px 12px 0;
   padding: 10px 12px;

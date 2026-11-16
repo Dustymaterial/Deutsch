@@ -305,37 +305,6 @@
   cursor: default;
 }
 
-.reset-review-confirmation {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 10px;
-  background: #f5e9e4;
-}
-
-.reset-review-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.reset-review-actions .quiet-button {
-  margin: 0;
-}
-
-.reset-review-button {
-  padding: 8px 11px;
-  border: 0;
-  border-radius: 8px;
-  color: #fff;
-  background: #925348;
-  font: inherit;
-  font-size: 0.72rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
 .session-setting-block .study-set-filter {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

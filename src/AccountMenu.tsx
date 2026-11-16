@@ -3,6 +3,7 @@ import { avatarDataUri, avatarOptions, defaultAvatarSeed } from './pixelAvatar.m
 import { Eye, EyeOff } from 'lucide-react'
 import { useFormValidation } from './formValidation'
 import { AccountSecurityPanel } from './AccountSecurityPanel'
+import { useConfirm } from './confirmContext'
 import './AccountMenu.css'
 
 export type AccountUser = {
@@ -159,6 +160,16 @@ export function AccountMenu({
     }
   }
 
+  const confirm = useConfirm()
+  const requestSignOut = async () => {
+    const confirmed = await confirm({
+      title: 'Sign out?',
+      message: 'You will stop syncing and using companions on this device until you sign in again. Your deck stays saved on this device.',
+      confirmLabel: 'Sign out',
+    })
+    if (confirmed) await signOut()
+  }
+
   const signOut = async () => {
     setBusy(true)
     setError(null)
@@ -281,7 +292,7 @@ export function AccountMenu({
             <button className="account-secondary" disabled={busy} onClick={() => {
               setError(null); setSecurityMode('change')
             }} type="button">Change password</button>
-            <button className="account-secondary" disabled={busy} onClick={signOut} type="button">
+            <button className="account-secondary" disabled={busy} onClick={() => void requestSignOut()} type="button">
               Sign out
             </button>
             {syncStatus && <p className="account-message" role="status">{syncStatus}</p>}

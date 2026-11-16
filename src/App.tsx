@@ -35,6 +35,7 @@ import {
 import { isProductionAnswerCorrect } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
 import { CompanionPanel, type SharedWordPreview } from './CompanionPanel'
+import { useConfirm } from './confirmContext'
 import { mergeAccountProgress, type AccountProgress } from './accountSync'
 import LearnMode from './LearnMode'
 import { MenuSelect, type MenuSelectOption } from './MenuSelect'
@@ -1069,11 +1070,28 @@ function SessionSettingsDialog({
   const scopedCards = getCardsForStudySet(cards, tag)
   const reviewedCards = scopedCards.filter((card) => card.lastReviewedAt !== null)
   const reviewedCount = reviewedCards.length
-  const [confirmReset, setConfirmReset] = useState(false)
+  const confirm = useConfirm()
+  const resetWord = async (card: Card) => {
+    const confirmed = await confirm({
+      title: `Reset ${card.prompt}?`,
+      message: 'Its history and schedule are cleared and it becomes a new word again in every set. This cannot be undone.',
+      confirmLabel: 'Reset word',
+      tone: 'danger',
+    })
+    if (confirmed && onReset(card.id)) reviewedSearchRef.current?.focus()
+  }
+  const resetSet = async () => {
+    const confirmed = await confirm({
+      title: 'Reset review progress?',
+      message: `Review history and schedules for ${reviewedCount.toLocaleString()} ${reviewedCount === 1 ? 'word' : 'words'} in ${tag || 'all words'} are cleared. These words become new again, including in other sets. This cannot be undone.`,
+      confirmLabel: 'Reset progress',
+      tone: 'danger',
+    })
+    if (confirmed && onReset()) panelRef.current?.focus()
+  }
   const [reviewedOpen, setReviewedOpen] = useState(false)
   const [reviewedQuery, setReviewedQuery] = useState('')
   const [reviewedLimit, setReviewedLimit] = useState(25)
-  const [confirmWordId, setConfirmWordId] = useState<string | null>(null)
   const panelRef = useRef<HTMLElement>(null)
   const reviewedSearchRef = useRef<HTMLInputElement>(null)
   const matchingCards = getReviewedWords(scopedCards, reviewedQuery)
@@ -1104,8 +1122,6 @@ function SessionSettingsDialog({
         </div>
         <div className="session-setting-block">
           <StudySetSelect cards={cards} value={tag} onChange={(value) => {
-            setConfirmReset(false)
-            setConfirmWordId(null)
             setReviewedQuery('')
             setReviewedLimit(25)
             onChange(value)
@@ -1116,8 +1132,6 @@ function SessionSettingsDialog({
           </p>
           <button type="button" className="quiet-button reviewed-words-toggle" aria-expanded={reviewedOpen} onClick={() => {
             setReviewedOpen(!reviewedOpen)
-            setConfirmReset(false)
-            setConfirmWordId(null)
           }}>{reviewedOpen ? 'Hide reviewed words' : 'View reviewed words'}</button>
           {reviewedOpen && (
             <section className="reviewed-words" aria-label="Reviewed words">
@@ -1126,7 +1140,6 @@ function SessionSettingsDialog({
                 <input ref={reviewedSearchRef} type="search" value={reviewedQuery} placeholder="German or meaning" onChange={(event) => {
                   setReviewedQuery(event.target.value)
                   setReviewedLimit(25)
-                  setConfirmWordId(null)
                 }} />
               </label>
               {matchingCards.length ? (
@@ -1153,22 +1166,7 @@ function SessionSettingsDialog({
                                 </ul>
                               </>
                             )}
-                            {confirmWordId === card.id ? (
-                              <div className="reset-review-confirmation">
-                                <p>Reset the history and schedule for {card.prompt}? It becomes new again in every set. This cannot be undone.</p>
-                                <div className="reset-review-actions">
-                                  <button type="button" className="quiet-button" onClick={() => setConfirmWordId(null)}>Cancel</button>
-                                  <button type="button" className="reset-review-button" onClick={() => {
-                                    if (onReset(card.id)) {
-                                      setConfirmWordId(null)
-                                      reviewedSearchRef.current?.focus()
-                                    }
-                                  }}>Reset this word</button>
-                                </div>
-                              </div>
-                            ) : (
-                              <button type="button" className="quiet-button reviewed-word-reset" disabled={!resetAvailable} onClick={() => setConfirmWordId(card.id)}>Reset this word</button>
-                            )}
+                            <button type="button" className="quiet-button reviewed-word-reset" disabled={!resetAvailable} onClick={() => void resetWord(card)}>Reset this word</button>
                           </div>
                         </details>
                       </li>
@@ -1181,22 +1179,7 @@ function SessionSettingsDialog({
               ) : <p>{reviewedCount ? 'No reviewed words match your search.' : 'No reviewed words in this set yet.'}</p>}
             </section>
           )}
-          {confirmReset ? (
-            <div className="reset-review-confirmation">
-              <p>Reset review history and schedules for {reviewedCount.toLocaleString()} {reviewedCount === 1 ? 'word' : 'words'} in {tag || 'all words'}? These words become new again, including in other sets. This cannot be undone.</p>
-              <div className="reset-review-actions">
-                <button type="button" className="quiet-button" onClick={() => setConfirmReset(false)}>Cancel</button>
-                <button type="button" className="reset-review-button" onClick={() => {
-                  if (onReset()) {
-                    setConfirmReset(false)
-                    panelRef.current?.focus()
-                  }
-                }}>Reset review progress</button>
-              </div>
-            </div>
-          ) : (
-            <button type="button" className="quiet-button reset-review-link" disabled={!reviewedCount || !resetAvailable} onClick={() => { setConfirmWordId(null); setConfirmReset(true) }}>Reset review progress</button>
-          )}
+          <button type="button" className="quiet-button reset-review-link" disabled={!reviewedCount || !resetAvailable} onClick={() => void resetSet()}>Reset review progress</button>
           {!resetAvailable && <p>Reset is unavailable until saved data and account sync are ready.</p>}
         </div>
         <StudySetProgressSummary cards={scopedCards} tag={tag} compact />
@@ -1233,6 +1216,7 @@ function AppFooter({ signedIn }: { signedIn: boolean }) {
 }
 
 function App() {
+  const confirm = useConfirm()
   const [loaded] = useState(loadDeck)
   const [loadedStudyPlan] = useState(loadStudyPlan)
   const [introduction] = useState(() => {
@@ -2071,6 +2055,28 @@ function App() {
     }
   }
 
+  const requestStartWithStarterPack = async () => {
+    const hasCards = cards.length > 0
+    const confirmed = await confirm({
+      title: hasCards ? 'Replace your deck?' : 'Start with the starter vocabulary?',
+      message: hasCards
+        ? `Your current deck and review progress on this device are replaced by ${starterPack.cards.length.toLocaleString()} open starter words. This cannot be undone.`
+        : `${starterPack.cards.length.toLocaleString()} open starter words are added to your deck.`,
+      confirmLabel: hasCards ? 'Replace deck' : 'Add starter words',
+      tone: hasCards ? 'danger' : 'neutral',
+    })
+    if (confirmed) startWithStarterPack()
+  }
+
+  const requestAddStarterPack = async () => {
+    const confirmed = await confirm({
+      title: `Add ${starterPack.cards.length.toLocaleString()} starter words?`,
+      message: 'The open starter vocabulary is added alongside your cards. Existing cards and progress are kept.',
+      confirmLabel: 'Add words',
+    })
+    if (confirmed) addStarterPackToDeck()
+  }
+
   const shortDueCard = scopedCards
     .filter(
       (card) =>
@@ -2344,7 +2350,7 @@ function App() {
                 {practiceLoopIds && (
                   <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
                 )}
-                <button type="button" onClick={addStarterPackToDeck}>
+                <button type="button" onClick={() => void requestAddStarterPack()}>
                   Add {starterPack.cards.length} open starter words
                 </button>
                 <button type="button" onClick={() => importInput.current?.click()}>
@@ -2370,7 +2376,7 @@ function App() {
           <div className="storage-warning" role="status">
             <p>{storageWarning ?? savingError ?? studyPlanWarning ?? loadedPause.warning}</p>
             {storageWarning && (
-              <button type="button" onClick={startWithStarterPack}>Use the starter vocabulary pack</button>
+              <button type="button" onClick={() => void requestStartWithStarterPack()}>Use the starter vocabulary pack</button>
             )}
           </div>
         )}
@@ -2453,7 +2459,7 @@ function App() {
           )}
           <ActivityPreview days={activityDays} today={new Date(now)} onOpen={openActivity} />
           {storageWarning && (
-            <button type="button" className="quiet-button reset-button" onClick={startWithStarterPack}>
+            <button type="button" className="quiet-button reset-button" onClick={() => void requestStartWithStarterPack()}>
               Start fresh with starter vocabulary
             </button>
           )}
@@ -2497,7 +2503,7 @@ function App() {
               {practiceLoopIds && (
                 <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
               )}
-              <button type="button" onClick={addStarterPackToDeck}>
+              <button type="button" onClick={() => void requestAddStarterPack()}>
                 Add {starterPack.cards.length} open starter words
               </button>
               <button type="button" onClick={() => importInput.current?.click()}>
@@ -2524,7 +2530,7 @@ function App() {
         <div className="storage-warning" role="status">
           <p>{storageWarning ?? savingError ?? studyPlanWarning ?? loadedPause.warning}</p>
           {storageWarning && (
-            <button type="button" onClick={startWithStarterPack}>Use the starter vocabulary pack</button>
+            <button type="button" onClick={() => void requestStartWithStarterPack()}>Use the starter vocabulary pack</button>
           )}
         </div>
       )}

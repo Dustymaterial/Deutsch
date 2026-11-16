@@ -3,6 +3,7 @@ import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, LayoutGridCircles,
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
+import { useConfirm } from './confirmContext'
 import starterPack from './data/german-starter-pack.json'
 import { findWord, indexWords, normalizeWord, splitMessage } from './wordLookup'
 import { matchSnippet } from './messageSearch'
@@ -179,7 +180,7 @@ export function CompanionPanel({
   const [username, setUsername] = useState('')
   const [found, setFound] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [confirm, setConfirm] = useState<{ user: Profile; action: 'block' | 'remove' } | null>(null)
+  const confirmDialog = useConfirm()
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
@@ -190,7 +191,6 @@ export function CompanionPanel({
   const [reportingMessageId, setReportingMessageId] = useState<string | null>(null)
   const [reportReason, setReportReason] = useState<ReportReason>('other')
   const [reportDetails, setReportDetails] = useState('')
-  const [confirmDeleteChat, setConfirmDeleteChat] = useState(false)
   const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
@@ -199,7 +199,6 @@ export function CompanionPanel({
   const [searchState, setSearchState] = useState<{ chatId: string; query: string; messages: ChatMessage[]; hasMore: boolean } | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ messageId: string; text: string } | null>(null)
-  const [confirmUnsendId, setConfirmUnsendId] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [correcting, setCorrecting] = useState<{ messageId: string; text: string; note: string } | null>(null)
   const [savingCorrection, setSavingCorrection] = useState<{ messageId: string; meaning: string } | null>(null)
@@ -207,7 +206,8 @@ export function CompanionPanel({
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
-  const messageEnd = useRef<HTMLDivElement>(null)
+  const chatStream = useRef<HTMLDivElement>(null)
+  const scrollOnOpen = useRef(false)
   const messageComposer = useRef<HTMLTextAreaElement>(null)
   const shareTools = useRef<HTMLDetailsElement>(null)
   const wordPicker = useRef<HTMLDetailsElement>(null)
@@ -301,7 +301,6 @@ export function CompanionPanel({
       selectedChatId.current = null
       setSelectedChat(null)
       setChatMessages([])
-      setConfirmDeleteChat(false)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -363,15 +362,26 @@ export function CompanionPanel({
   }, [messageDraft])
 
   useEffect(() => {
+    const stream = chatStream.current
+    if (!stream || chatLoading) return
+    if (scrollOnOpen.current) {
+      // A freshly opened chat starts at the newest message, without animating through the history.
+      scrollOnOpen.current = false
+      lastScrolledMessage.current = newestMessageId
+      stream.scrollTop = stream.scrollHeight
+      window.requestAnimationFrame(() => { stream.scrollTop = stream.scrollHeight })
+      return
+    }
     if (!newestMessageId) {
       lastScrolledMessage.current = null
       return
     }
     if (newestMessageId !== lastScrolledMessage.current) {
-      messageEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      stream.scrollTo({ top: stream.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' })
       lastScrolledMessage.current = newestMessageId
     }
-  }, [newestMessageId])
+  }, [newestMessageId, chatLoading])
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true)
@@ -414,10 +424,81 @@ export function CompanionPanel({
         setChatMessages([])
       }
       setFound(null)
-      setConfirm(null)
       onNotify(choice === 'request' ? 'Request sent. It will appear in their companion panel.' : 'Companions updated.')
       await load()
     })
+  }
+
+  const confirmedAction = async (user: Profile, choice: Action) => {
+    const name = user.username
+    const copy: Record<Exclude<Action, 'accept'>, { title: string; message: string; confirmLabel: string; cancelLabel?: string; tone?: 'danger' | 'neutral' }> = {
+      block: { title: `Block ${name}?`, message: 'This ends any connection and stops requests and chat in both directions. Unblocking does not restore the connection.', confirmLabel: 'Block', tone: 'danger' },
+      remove: { title: `Remove ${name}?`, message: 'They will no longer be a companion and your private chat ends. Either of you can send a new request after 24 hours.', confirmLabel: 'Remove companion', tone: 'danger' },
+      unblock: { title: `Unblock ${name}?`, message: 'You are not reconnected automatically. Either of you can send a new request after 24 hours.', confirmLabel: 'Unblock' },
+      decline: { title: `Decline ${name}’s request?`, message: 'They cannot send another request for 24 hours.', confirmLabel: 'Decline', tone: 'danger' },
+      cancel: { title: 'Cancel your request?', message: `Your request to ${name} is withdrawn. You can send another after 24 hours.`, confirmLabel: 'Cancel request', cancelLabel: 'Keep request' },
+    }
+    if (choice !== 'accept' && !await confirmDialog(copy[choice])) return
+    action(user, choice)
+  }
+
+  const requestDeleteChat = async () => {
+    if (!selectedChat) return
+    const name = selectedChat.companion.username
+    const confirmed = await confirmDialog({
+      title: 'Delete this conversation?',
+      message: `It is cleared from your list and your view. ${name} keeps their copy, and a new message can bring the conversation back.`,
+      confirmLabel: 'Delete conversation',
+      tone: 'danger',
+    })
+    if (confirmed) deleteChat()
+  }
+
+  const requestUnsend = async (chatMessage: ChatMessage) => {
+    const confirmed = await confirmDialog({
+      title: 'Unsend this message?',
+      message: 'It is removed for both of you and replaced by “Message unsent”. A copy already included in a report is kept for moderation.',
+      confirmLabel: 'Unsend',
+      tone: 'danger',
+    })
+    if (confirmed) unsendMessage(chatMessage)
+  }
+
+  const requestNudge = async (user: Companion) => {
+    const confirmed = await confirmDialog({
+      title: `Send ${user.username} a reminder?`,
+      message: 'A gentle, one-time nudge appears in their companion panel and may be emailed if they have notifications on. You can send one reminder a day.',
+      confirmLabel: 'Send reminder',
+    })
+    if (confirmed) sendNudge(user)
+  }
+
+  const requestShareWord = async (recipient: Profile, card: Card) => {
+    const confirmed = await confirmDialog({
+      title: `Share ${card.prompt} with ${recipient.username}?`,
+      message: 'They see a preview and choose whether to add it to their deck. Shares expire after 30 days.',
+      confirmLabel: 'Share word',
+    })
+    if (confirmed) sendWord(recipient)
+  }
+
+  const requestWordCard = async (card: Card) => {
+    const name = selectedChat?.companion.username ?? 'your companion'
+    const confirmed = await confirmDialog({
+      title: `Send ${card.prompt} to ${name}?`,
+      message: 'It appears in the chat as a word card they can add to their deck.',
+      confirmLabel: 'Send word',
+    })
+    if (confirmed) sendWordCard(card)
+  }
+
+  const requestDismissShare = async (share: SharedWordPreview) => {
+    const confirmed = await confirmDialog({
+      title: `Set aside ${share.card.prompt}?`,
+      message: 'It is removed from your shared words. You can ask your companion to share it again.',
+      confirmLabel: 'Set aside',
+    })
+    if (confirmed) resolveShare(share, 'dismiss')
   }
 
   const openChat = (user: Profile) => {
@@ -431,6 +512,7 @@ export function CompanionPanel({
       }
       selectedChatId.current = data.id
       lastScrolledMessage.current = null
+      scrollOnOpen.current = true
       setSelectedChat({ id: data.id, companion: data.companion })
       setChatMessages([])
       setChatLoading(true)
@@ -452,7 +534,6 @@ export function CompanionPanel({
     selectedChatId.current = null
     setSelectedChat(null)
     setChatMessages([])
-    setConfirmDeleteChat(false)
   }
 
   const backToDeck = () => {
@@ -580,7 +661,6 @@ export function CompanionPanel({
       const data = await request(`/messages/${chatMessage.id}/unsend`, {}) as { message: ChatMessage }
       if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
       replaceMessage(data.message)
-      setConfirmUnsendId(null)
       setEditing(null)
       await loadMessages(chatId, 'merge')
       await load()
@@ -634,7 +714,7 @@ export function CompanionPanel({
     void run(async () => {
       await request(`/chats/${chatId}/delete`, {})
       closeChat()
-      onNotify('Conversation hidden from your chat list.')
+      onNotify('Conversation deleted.')
       await load()
     })
   }
@@ -775,9 +855,9 @@ export function CompanionPanel({
       <summary aria-label={`Actions for ${user.username}`}><Ellipsis size={17} aria-hidden="true" /></summary>
       <div className="companion-row-popover">
         {user.status === 'incoming'
-          ? <><button type="button" disabled={busy} onClick={(event) => { closePopover(event); action(user, 'accept') }}>Accept request</button><button type="button" disabled={busy} onClick={(event) => { closePopover(event); action(user, 'decline') }}>Decline request</button></>
-          : <button type="button" disabled={busy} onClick={(event) => { closePopover(event); action(user, 'cancel') }}>Cancel request</button>}
-        <button className="danger" type="button" disabled={busy} onClick={(event) => { closePopover(event); setConfirm({ user, action: 'block' }) }}>Block learner</button>
+          ? <><button type="button" disabled={busy} onClick={(event) => { closePopover(event); action(user, 'accept') }}>Accept request</button><button type="button" disabled={busy} onClick={(event) => { closePopover(event); void confirmedAction(user, 'decline') }}>Decline request</button></>
+          : <button type="button" disabled={busy} onClick={(event) => { closePopover(event); void confirmedAction(user, 'cancel') }}>Cancel request</button>}
+        <button className="danger" type="button" disabled={busy} onClick={(event) => { closePopover(event); void confirmedAction(user, 'block') }}>Block learner</button>
       </div>
     </details>
   </article>
@@ -813,7 +893,7 @@ export function CompanionPanel({
                 ? <p className="companion-card-note">This learner is already in your companion list.</p>
                 : <div className="companion-card-actions">
                   <button type="button" disabled={busy} onClick={() => action(found, 'request')}>Send request</button>
-                  <button type="button" disabled={busy} onClick={() => setConfirm({ user: found, action: 'block' })}>Block</button>
+                  <button type="button" disabled={busy} onClick={() => void confirmedAction(found, 'block')}>Block</button>
                 </div>}
             </section>}
 
@@ -861,10 +941,10 @@ export function CompanionPanel({
                       <summary aria-label={`Actions for ${user.username}`}><Ellipsis size={17} aria-hidden="true" /></summary>
                       <div className="companion-row-popover">
                         {user.canNudge
-                          ? <button type="button" disabled={busy} onClick={(event) => { closePopover(event); sendNudge(user) }}>Send a nudge</button>
+                          ? <button type="button" disabled={busy} onClick={(event) => { closePopover(event); void requestNudge(user) }}>Send a nudge</button>
                           : <span>Nudged recently</span>}
                         {user.nudgeAt && <button type="button" disabled={busy} onClick={(event) => { closePopover(event); markNudgeRead(user) }}>Mark nudge as read</button>}
-                        <button className="danger" type="button" disabled={busy} onClick={(event) => { closePopover(event); setConfirm({ user, action: 'remove' }) }}>Remove companion</button>
+                        <button className="danger" type="button" disabled={busy} onClick={(event) => { closePopover(event); void confirmedAction(user, 'remove') }}>Remove companion</button>
                       </div>
                     </details>
                   </article>
@@ -882,7 +962,7 @@ export function CompanionPanel({
                   {share.note && <p className="shared-word-note">{share.note}</p>}
                   <div className="companion-card-actions">
                     <button type="button" disabled={busy} onClick={() => resolveShare(share, 'add')}>Add word</button>
-                    <button type="button" disabled={busy} onClick={() => resolveShare(share, 'dismiss')}>Not now</button>
+                    <button type="button" disabled={busy} onClick={() => void requestDismissShare(share)}>Not now</button>
                   </div>
                 </article>)}
             </section>}
@@ -894,7 +974,7 @@ export function CompanionPanel({
                 <h2>Blocked learners <span>{blockedCompanions.length}</span></h2>
                 {blockedCompanions.map((user) => <article className="companion-person-card companion-blocked-card" key={user.id}>
                   <div className="companion-person"><img src={avatarDataUri(user.avatarSeed)} alt="" /><div><strong>{user.username}</strong><span className="companion-status-tag blocked">Blocked</span></div></div>
-                  <button type="button" disabled={busy} onClick={() => action(user, 'unblock')}>Unblock</button>
+                  <button type="button" disabled={busy} onClick={() => void confirmedAction(user, 'unblock')}>Unblock</button>
                 </article>)}
               </section>}
               <details className="companion-share-tools" ref={shareTools}>
@@ -916,7 +996,7 @@ export function CompanionPanel({
                     <small>{shareNote.length}/240</small>
                   </label>
                   <div className="companion-share-recipients">
-                    {connectedCompanions.map((user) => <button className="companion-primary-button" disabled={busy} key={user.id} type="button" onClick={() => sendWord(user)}>Share with {user.username}</button>)}
+                    {connectedCompanions.map((user) => <button className="companion-primary-button" disabled={busy} key={user.id} type="button" onClick={() => { const card = cards.find((item) => item.id === selectedCardId); if (card) void requestShareWord(user, card) }}>Share with {user.username}</button>)}
                   </div>
                 </>}
               </details>
@@ -932,13 +1012,6 @@ export function CompanionPanel({
               </div>
             </details>
           </>}
-          {confirm && <div className="companion-confirm-card" role="group" aria-label="Confirm companion action">
-            <p>{confirm.action === 'block' ? `Block ${confirm.user.username}? This ends any connection and prevents requests.` : `Remove ${confirm.user.username} from your companions?`}</p>
-            <div className="companion-card-actions">
-              <button type="button" disabled={busy} onClick={() => action(confirm.user, confirm.action)}>Yes, {confirm.action}</button>
-              <button type="button" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
-            </div>
-          </div>}
         </aside>
 
         <section className="companion-chat-panel" aria-label="Direct messages">
@@ -953,11 +1026,11 @@ export function CompanionPanel({
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
               <div className="companion-chat-header-actions">
-                <button className="companion-header-icon" type="button" aria-label="Search this conversation" title="Search this conversation" aria-pressed={searchOpen} onClick={toggleSearch}><Search size={16} aria-hidden="true" /></button>
+                <button className="companion-header-pill" type="button" aria-label="Search this conversation" aria-pressed={searchOpen} onClick={toggleSearch}><Search size={14} aria-hidden="true" /><span>Search</span></button>
                 <details className="companion-row-menu companion-chat-menu">
-                  <summary aria-label="Conversation actions"><Ellipsis size={18} aria-hidden="true" /></summary>
+                  <summary className="companion-header-pill" aria-label="Conversation actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
                   <div className="companion-row-popover">
-                    <button type="button" onClick={(event) => { closePopover(event); setConfirmDeleteChat(true) }}>Hide conversation</button>
+                    <button type="button" onClick={(event) => { closePopover(event); void requestDeleteChat() }}>Delete conversation</button>
                   </div>
                 </details>
               </div>
@@ -990,13 +1063,8 @@ export function CompanionPanel({
             <aside className="companion-practice-nudge" aria-label="Practice suggestion">
               <p>Try using one word you reviewed recently in a sentence. A small practice moment counts.</p>
             </aside>
-            {confirmDeleteChat && <div className="companion-delete-confirm" role="group" aria-label="Delete conversation">
-              <p>Hide this conversation from your list? Your companion keeps their copy. New messages can bring it back.</p>
-              <button type="button" disabled={busy} onClick={deleteChat}>Hide conversation</button>
-              <button type="button" disabled={busy} onClick={() => setConfirmDeleteChat(false)}>Keep it</button>
-            </div>}
             {chatError && <p className="companion-alert" role="alert">{chatError}</p>}
-            <div className="companion-chat-stream" role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite">
+            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite">
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
@@ -1103,7 +1171,7 @@ export function CompanionPanel({
                         <summary aria-label="Edit or unsend this message"><Ellipsis size={15} aria-hidden="true" /></summary>
                         <div className="companion-row-popover">
                           {chatMessage.kind === 'text' && !chatMessage.correction && <button type="button" onClick={(event) => { closePopover(event); setEditing({ messageId: chatMessage.id, text: chatMessage.text }) }}>Edit message</button>}
-                          <button className="danger" type="button" onClick={(event) => { closePopover(event); setConfirmUnsendId(chatMessage.id) }}>Unsend</button>
+                          <button className="danger" type="button" onClick={(event) => { closePopover(event); void requestUnsend(chatMessage) }}>Unsend</button>
                         </div>
                       </details>}
                       {!chatMessage.isMine && <details className="companion-message-menu" onToggle={placePopover}>
@@ -1117,13 +1185,6 @@ export function CompanionPanel({
                           }}>Report message</button>}
                         </div>
                       </details>}
-                    </div>}
-                    {confirmUnsendId === chatMessage.id && <div className="companion-unsend-confirm" role="group" aria-label="Unsend message">
-                      <p>Unsend this message? It will be removed for both of you.</p>
-                      <div className="companion-card-actions">
-                        <button type="button" disabled={busy} onClick={() => unsendMessage(chatMessage)}>Unsend</button>
-                        <button type="button" disabled={busy} onClick={() => setConfirmUnsendId(null)}>Keep it</button>
-                      </div>
                     </div>}
                   {reportingMessageId === chatMessage.id && <form className="companion-report-form" onSubmit={(event) => { event.preventDefault(); reportMessage(chatMessage) }}>
                     <label className="companion-field">Report reason
@@ -1144,7 +1205,6 @@ export function CompanionPanel({
                   </form>}
                   </div>
                 </article>)}
-              <div ref={messageEnd} />
             </div>
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
@@ -1162,7 +1222,7 @@ export function CompanionPanel({
                   <div className="companion-word-picker-panel">
                     <input value={wordPickerQuery} onChange={(event) => setWordPickerQuery(event.target.value)} placeholder="Search your words…" aria-label="Search your words" />
                     <div className="companion-word-picker-results" role="group" aria-label="Words to share in this chat">
-                      {pickerCards.map((card) => <button key={card.id} type="button" disabled={busy} onClick={() => sendWordCard(card)}>
+                      {pickerCards.map((card) => <button key={card.id} type="button" disabled={busy} onClick={() => void requestWordCard(card)}>
                         <strong lang="de">{card.prompt}</strong><span>{card.meaning}</span>
                       </button>)}
                       {!pickerCards.length && <p className="companion-empty-note">No matching shareable words.</p>}
