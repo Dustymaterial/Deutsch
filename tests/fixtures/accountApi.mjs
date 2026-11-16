@@ -29,20 +29,26 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
       if (operator === '$lte') return actual !== undefined && actual <= value
       if (operator === '$lt') return actual !== undefined && actual < value
       if (operator === '$gt') return actual !== undefined && actual > value
+      if (operator === '$ne') return actual !== value
       throw new Error(`Unknown operator ${operator}`)
     })
   }
-  return actual === expected
+  return Array.isArray(actual) ? actual.includes(expected) : actual === expected
 })
-const records = { users: [], progress: [] }
+const records = { users: [], progress: [], relationships: [] }
 const collection = (name) => ({
   async createIndex() {},
+  find(query) {
+    return { async toArray() { return records[name].filter((item) => matches(item, query)).map((item) => ({ ...item })) } }
+  },
   async findOne(query) {
     const record = records[name].find((item) => matches(item, query))
     return record ? { ...record, otp: record.otp ? structuredClone(record.otp) : undefined } : null
   },
   async insertOne(value) {
-    if (records[name].some((item) => item.emailKey === value.emailKey || item.usernameKey === value.usernameKey)) {
+    if (records[name].some((item) => (value.emailKey && item.emailKey === value.emailKey)
+      || (value.usernameKey && item.usernameKey === value.usernameKey)
+      || (value.pairKey && item.pairKey === value.pairKey))) {
       throw Object.assign(new Error('duplicate'), { code: 11000 })
     }
     const _id = new ObjectId()
@@ -76,12 +82,16 @@ process.env.MAILJET_SECRET_KEY = 'test-secret'
 process.env.SENDER_EMAIL = 'sender@example.test'
 process.env.PORT = '0'
 const deliveries = []
+let failCompanionDelivery = false
 const nativeFetch = globalThis.fetch
 globalThis.fetch = async (url, options) => {
   if (url === 'https://api.mailjet.com/v3.1/send') {
     const message = JSON.parse(options.body).Messages[0]
     assert.equal(message.InlinedAttachments[0].ContentType, 'image/png')
     assert.equal(message.InlinedAttachments[0].ContentID, 'avatar')
+    if (failCompanionDelivery && message.Subject.includes('companion request')) {
+      return new Response('', { status: 500 })
+    }
     deliveries.push(message)
     return new Response(JSON.stringify({ Messages: [{ Status: 'success' }] }), { status: 200 })
   }
@@ -132,11 +142,74 @@ try {
   assert.equal((await request('/api/auth/reset-password', { email, code: resetCode, password: 'reset-password-123' })).status, 200)
   assert.equal((await request('/api/auth/me', null, login.cookie)).status, 401)
   assert.equal((await request('/api/auth/login', { email, password: 'reset-password-123' })).status, 200)
-  const legacy = { _id: new ObjectId(), email: 'legacy@example.test', emailKey: 'legacy@example.test', username: 'legacy', avatarSeed: 'pixel-red', passwordHash: await bcrypt.hash(password, 4) }
+  const legacy = { _id: new ObjectId(), email: 'legacy@example.test', emailKey: 'legacy@example.test', username: 'legacy', usernameKey: 'legacy', emailVerifiedAt: null, avatarSeed: 'pixel-red', passwordHash: await bcrypt.hash(password, 4) }
   records.users.push(legacy)
   const legacyLogin = await request('/api/auth/login', { email: legacy.email, password })
   assert.equal(legacyLogin.status, 200)
   assert.equal(legacyLogin.body.user.emailVerified, false)
+  assert.equal((await request('/api/companions/', null, legacyLogin.cookie)).status, 403)
+
+  const companion = {
+    _id: new ObjectId(), email: 'companion@example.test', emailKey: 'companion@example.test',
+    username: 'Companion', usernameKey: 'companion', avatarSeed: 'pixel-red',
+    emailVerifiedAt: new Date(), passwordHash: await bcrypt.hash(password, 4),
+  }
+  records.users.push(companion)
+  const learner = await request('/api/auth/login', { email, password: 'reset-password-123' })
+  const other = await request('/api/auth/login', { email: companion.email, password })
+  const learnerId = records.users.find((item) => item.email === email)._id.toString()
+  const otherId = companion._id.toString()
+  assert.equal((await request('/api/companions/', null, null)).status, 401)
+  assert.equal((await request('/api/companions/search', { username: 'legacy' }, learner.cookie)).status, 404)
+  assert.equal((await request('/api/companions/request', { id: legacy._id.toString() }, learner.cookie)).status, 404)
+  const found = await request('/api/companions/search', { username: 'COMPANION' }, learner.cookie)
+  assert.deepEqual(found.body.user, { id: otherId, username: 'Companion', avatarSeed: 'pixel-red' })
+  assert.equal((await request('/api/companions/search', { username: 'comp' }, learner.cookie)).status, 404)
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
+  assert.equal(deliveries.length, 3)
+  assert.match(deliveries[2].TextPart, /learner would like/)
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 409)
+  assert.equal((await request('/api/companions/action', { id: otherId, action: 'accept' }, learner.cookie)).status, 409)
+  assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].status, 'incoming')
+  assert.equal((await request('/api/companions/action', { id: learnerId, action: 'accept' }, other.cookie)).status, 200)
+  assert.equal((await request('/api/companions/', null, learner.cookie)).body.companions[0].status, 'connected')
+  assert.equal((await request('/api/companions/action', { id: otherId, action: 'block' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/companions/search', { username: 'learner' }, other.cookie)).status, 404)
+  assert.deepEqual((await request('/api/companions/', null, other.cookie)).body.companions, [])
+  assert.equal((await request('/api/companions/request', { id: learnerId }, other.cookie)).status, 404)
+  assert.equal((await request('/api/companions/', null, learner.cookie)).body.companions[0].status, 'blocked')
+  assert.equal((await request('/api/companions/action', { id: otherId, action: 'unblock' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 429)
+  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
+  assert.equal((await request('/api/companions/settings', { emailsEnabled: false }, other.cookie)).status, 200)
+  assert.equal((await request('/api/companions/', null, other.cookie)).body.emailsEnabled, false)
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
+  assert.equal(deliveries.length, 3)
+  assert.equal((await request('/api/companions/action', { id: learnerId, action: 'decline' }, other.cookie)).status, 200)
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 429)
+  assert.deepEqual((await request('/api/companions/', null, learner.cookie)).body.companions, [])
+  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
+  const concurrent = await Promise.all([
+    request('/api/companions/request', { id: otherId }, learner.cookie),
+    request('/api/companions/request', { id: otherId }, learner.cookie),
+  ])
+  assert.deepEqual(concurrent.map((item) => item.status).sort(), [201, 409])
+  assert.equal((await request('/api/companions/action', { id: otherId, action: 'cancel' }, learner.cookie)).status, 200)
+  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
+  assert.equal((await request('/api/companions/settings', { emailsEnabled: true }, other.cookie)).status, 200)
+  companion.companionEmailHistory = Array.from({ length: 5 }, () => new Date())
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
+  assert.equal(deliveries.length, 3)
+  assert.equal((await request('/api/companions/action', { id: otherId, action: 'cancel' }, learner.cookie)).status, 200)
+  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
+  records.users.find((item) => item.email === email).companionRequestHistory = Array.from({ length: 10 }, () => new Date())
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 429)
+  records.users.find((item) => item.email === email).companionRequestHistory = []
+  companion.companionEmailHistory = []
+  failCompanionDelivery = true
+  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
+  assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].status, 'incoming')
+  assert.equal(deliveries.length, 3)
   console.log('Account API integration passed')
 } finally {
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))

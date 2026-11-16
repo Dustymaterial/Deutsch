@@ -225,6 +225,73 @@
   color: #9c2f26;
 }
 
+.companion-group {
+  margin-top: 16px;
+}
+
+.companion-group h3 {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+}
+
+.companion-entry,
+.companion-confirm {
+  margin-top: 9px;
+  padding: 10px;
+  border: 1px solid rgba(68, 55, 62, 0.12);
+  border-radius: 10px;
+  background: #fffefa;
+}
+
+.companion-person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.companion-person img {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+}
+
+.companion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.companion-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(47, 51, 46, 0.19);
+  border-radius: 8px;
+  background: #fcf8f4;
+  color: #39343e;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.companion-confirm p {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.companion-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 @media (max-width: 520px) {
   .account-popover {
     position: fixed;

@@ -13,9 +13,9 @@ The footer links to the GitHub project and this documentation.
 
 Requirements: Node.js 22.12 or newer.
 
-Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_URI` to your full MongoDB Atlas connection string, including username and password, with the database path `/deutsch`. URL-encode special characters in the credentials and put query options after a single `?`. The server explicitly uses only the `deutsch` database, where it creates `users`, `progress`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB URI is only read by the server, not sent to the browser.
+Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_URI` to your full MongoDB Atlas connection string, including username and password, with the database path `/deutsch`. URL-encode special characters in the credentials and put query options after a single `?`. The server explicitly uses only the `deutsch` database, where it creates `users`, `progress`, `relationships`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB URI is only read by the server, not sent to the browser.
 
-Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and `SENDER_EMAIL` on the server to send account codes. Verify the sender or domain with Mailjet. Without these settings, existing accounts can still sign in, but new registrations and code requests are unavailable. Mailjet receives the recipient address and email content, including the account avatar and one-time code. Never put credentials in the client or commit them.
+Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and `SENDER_EMAIL` on the server to send account codes and optional companion request notifications. Verify the sender or domain with Mailjet. Without these settings, existing accounts can still sign in, but new registrations and code requests are unavailable; companion requests remain visible in the app. Mailjet receives the recipient address and email content, including the recipient's avatar and, as applicable, the one-time code or sender's username. Never put credentials in the client or commit them.
 
 The development command starts both the Vite app and account API:
 
@@ -229,6 +229,12 @@ Use the JSON backup to move your deck manually between browser profiles or devic
 - Give a concise translation of the example, not another unrelated definition.
 - Use consistent tags for course and lesson grouping (for example `vhs-Lernportal`, `Lektion 2`) plus themes such as `food` or `travel`. Open **··· → Tune session** to select a tag and limit the session; the daily new-card quota is shared across the whole deck.
 - Check imported material for accuracy. The app does not independently verify translations, grammar, sources, or CEFR levels.
+
+## Learning companions
+
+Verified, signed-in learners can open **Account → Learning companions** and search for an exact username (case-insensitive). Send a request, which the other learner can accept or decline; you can also cancel a sent request or remove a companion. Blocking ends the connection and prevents requests in either direction. Unblocking does not restore the connection. After a request is declined or cancelled, or a connection is removed or blocked, wait 24 hours before requesting that learner again.
+
+Companion request emails are on by default and can be turned off in the companion panel. Sending is limited to ten requests per account per hour and five notification emails per recipient per hour; delivery is not guaranteed. Requests are still visible in the app if email is disabled or fails. Companions see only usernames and avatars, not email addresses or study progress. There are no invite links, word sharing, messages, or reminders yet. Companions require a connection to the account service; individual study still works offline.
 
 ## Data, privacy, and recovery
 

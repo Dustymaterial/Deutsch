@@ -38,9 +38,24 @@ test('uses password recovery copy for reset codes', async () => {
     email = JSON.parse(options.body).Messages[0]
     return { ok: true, json: async () => ({ Messages: [{ Status: 'success' }] }) }
   })
+
   await mailer.sendCode({ ...message, purpose: 'reset' })
   assert.match(email.Subject, /Reset/)
   assert.match(email.TextPart, /reset your password/)
+})
+
+test('sends an escaped companion request with the recipient avatar and opt-out guidance', async () => {
+  let email
+  const mailer = createAccountMailer(configuration, async (_url, options) => {
+    email = JSON.parse(options.body).Messages[0]
+    return { ok: true, json: async () => ({ Messages: [{ Status: 'success' }] }) }
+  })
+  await mailer.sendCompanionRequest({ ...message, senderName: '<Friend>' })
+  assert.match(email.TextPart, /<Friend> would like/)
+  assert.match(email.TextPart, /turn off companion emails/)
+  assert.match(email.HTMLPart, /&lt;Friend&gt;/)
+  assert.doesNotMatch(email.HTMLPart, /<Friend>/)
+  assert.equal(email.InlinedAttachments[0].ContentID, 'avatar')
 })
 
 test('reports configuration, provider and malformed-response failures', async () => {

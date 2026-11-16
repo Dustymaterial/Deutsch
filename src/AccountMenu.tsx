@@ -3,6 +3,7 @@ import { avatarDataUri, avatarOptions, defaultAvatarSeed } from './pixelAvatar.m
 import { Eye, EyeOff } from 'lucide-react'
 import { useFormValidation } from './formValidation'
 import { AccountSecurityPanel } from './AccountSecurityPanel'
+import { CompanionPanel } from './CompanionPanel'
 import './AccountMenu.css'
 
 export type AccountUser = {
@@ -52,6 +53,7 @@ export function AccountMenu({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [securityMode, setSecurityMode] = useState<'verify' | 'reset' | 'change' | null>(null)
+  const [showCompanions, setShowCompanions] = useState(false)
   const [codeSent, setCodeSent] = useState(false)
   const { errors, validate, handleInput, clearErrors } = useFormValidation()
   useEffect(() => {
@@ -165,6 +167,7 @@ export function AccountMenu({
       const body = await responseBody(response)
       if (!response.ok) throw new Error(body.error ?? 'Could not sign out.')
       setUser(null)
+      setShowCompanions(false)
       setUsername('')
       setAvatarSeed(defaultAvatarSeed)
       setEmail('')
@@ -215,6 +218,8 @@ export function AccountMenu({
             onNotify={onNotify}
             onBack={() => { setSecurityMode(null); setRegistering(false); setError(null); clearErrors() }}
           />
+        ) : user && showCompanions ? (
+          <CompanionPanel onBack={() => setShowCompanions(false)} />
         ) : user ? (
           <>
             <div className="account-popover-heading">
@@ -263,10 +268,14 @@ export function AccountMenu({
               </button>
             </form>
             {!user.emailVerified && (
-              <button className="account-secondary" disabled={busy} onClick={() => {
-                setError(null); setCodeSent(false); setSecurityMode('verify')
-              }} type="button">Verify email</button>
+              <>
+                <button className="account-secondary" disabled={busy} onClick={() => {
+                  setError(null); setCodeSent(false); setSecurityMode('verify')
+                }} type="button">Verify email</button>
+                <p className="account-message">Verify your email to connect with learning companions.</p>
+              </>
             )}
+            {user.emailVerified && <button className="account-secondary" disabled={busy} onClick={() => setShowCompanions(true)} type="button">Learning companions</button>}
             <button className="account-secondary" disabled={busy} onClick={() => {
               setError(null); setSecurityMode('change')
             }} type="button">Change password</button>

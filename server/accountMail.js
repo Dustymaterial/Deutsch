@@ -28,6 +28,44 @@ export function createAccountMailer(configuration, fetchImpl = fetch) {
   const { MAILJET_API_KEY: apiKey, MAILJET_SECRET_KEY: secret, SENDER_EMAIL: sender } = configuration
   const configured = Boolean(apiKey && secret && sender)
 
+  async function deliver({ email, subject, text, html, avatarPng }) {
+    if (!configured) throw new Error('Account email is not configured.')
+    if (!Buffer.isBuffer(avatarPng) || avatarPng.length === 0) throw new Error('Invalid email avatar.')
+    const response = await fetchImpl(mailjetUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${apiKey}:${secret}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        Messages: [{
+          From: { Email: sender, Name: 'Deutsch Deck' },
+          To: [{ Email: email }],
+          Subject: subject,
+          TextPart: text,
+          HTMLPart: html,
+          InlinedAttachments: [{
+            ContentType: 'image/png',
+            Filename: 'avatar.png',
+            ContentID: 'avatar',
+            Base64Content: avatarPng.toString('base64'),
+          }],
+        }],
+      }),
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!response.ok) throw new Error('Account email delivery failed.')
+    let body
+    try {
+      body = await response.json()
+    } catch {
+      throw new Error('Account email delivery returned an invalid response.')
+    }
+    if (!Array.isArray(body?.Messages) || body.Messages.length !== 1 || body.Messages[0]?.Status !== 'success') {
+      throw new Error('Account email delivery failed.')
+    }
+  }
+
   return {
     configured,
     async sendCode({ email, username, code, purpose, avatarPng }) {
@@ -53,39 +91,24 @@ export function createAccountMailer(configuration, fetchImpl = fetch) {
 </div><p style="color:#77717b;font-size:12px">A little practice, one word at a time.</p>
 </td></tr></table></body></html>`
 
-      const response = await fetchImpl(mailjetUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${apiKey}:${secret}`).toString('base64')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          Messages: [{
-            From: { Email: sender, Name: 'Deutsch Deck' },
-            To: [{ Email: email }],
-            Subject: subject,
-            TextPart: text,
-            HTMLPart: html,
-            InlinedAttachments: [{
-              ContentType: 'image/png',
-              Filename: 'avatar.png',
-              ContentID: 'avatar',
-              Base64Content: avatarPng.toString('base64'),
-            }],
-          }],
-        }),
-        signal: AbortSignal.timeout(10000),
-      })
-      if (!response.ok) throw new Error('Account email delivery failed.')
-      let body
-      try {
-        body = await response.json()
-      } catch {
-        throw new Error('Account email delivery returned an invalid response.')
-      }
-      if (!Array.isArray(body?.Messages) || body.Messages.length !== 1 || body.Messages[0]?.Status !== 'success') {
-        throw new Error('Account email delivery failed.')
-      }
+      await deliver({ email, subject, text, html, avatarPng })
+    },
+    async sendCompanionRequest({ email, username, senderName, avatarPng }) {
+      const subject = 'A companion request on Deutsch Deck'
+      const text = `Deutsch Deck\n\nHi ${username},\n\n${senderName} would like to be your learning companion. Open Deutsch Deck to accept or decline their request.\n\nYou can turn off companion emails in your companion settings.`
+      const html = `<!doctype html>
+<html lang="en"><body style="margin:0;padding:24px 12px;background:#f5f4ee;color:#292a2d;font-family:Arial,sans-serif">
+<table role="presentation" style="width:100%;max-width:480px;margin:auto;border-collapse:collapse"><tr><td>
+<p style="font-size:16px;font-weight:700;letter-spacing:-0.4px">deutsch deck</p>
+<div style="padding:28px;background:#fffdf6;border:1px solid #e3e1da;border-radius:20px">
+<img src="cid:avatar" width="56" height="56" alt="" style="display:block;border-radius:8px;background:#f7e7bd">
+<p style="margin:18px 0 8px;color:#625b65;font-size:14px">Hi ${escapeHtml(username)},</p>
+<h1 style="margin:0;font-size:23px;line-height:1.3">A little learning company.</h1>
+<p style="font-size:14px;line-height:1.6">${escapeHtml(senderName)} would like to be your learning companion. Open Deutsch Deck to accept or decline their request.</p>
+<p style="color:#625b65;font-size:13px;line-height:1.6">You can turn off companion emails in your companion settings.</p>
+</div><p style="color:#77717b;font-size:12px">A little practice, one word at a time.</p>
+</td></tr></table></body></html>`
+      await deliver({ email, subject, text, html, avatarPng })
     },
   }
 }

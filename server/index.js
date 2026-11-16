@@ -13,6 +13,7 @@ import { buildMongoConnectionString } from './mongoConfig.js'
 import { createAccountMailer } from './accountMail.js'
 import { accountAvatarPng } from './accountAvatar.js'
 import { createAccountSecurity } from './accountSecurity.js'
+import { createCompanionRouter } from './companions.js'
 
 const isLocalDevelopment = process.argv.includes('--local')
 const envFile = dotenv.config()
@@ -150,6 +151,7 @@ const codeAttemptLimiter = rateLimit({
 let client
 let users
 let progress
+let relationships
 let accountSecurity
 const accountMailer = createAccountMailer(configuration)
 
@@ -212,6 +214,7 @@ if (mongoConnectionString) {
   const db = client.db(databaseName)
   users = db.collection('users')
   progress = db.collection('progress')
+  relationships = db.collection('relationships')
   accountSecurity = createAccountSecurity({
     users,
     secret: configuration.SESSION_SECRET,
@@ -222,6 +225,8 @@ if (mongoConnectionString) {
     users.createIndex({ emailKey: 1 }, { unique: true }),
     users.createIndex({ usernameKey: 1 }, { unique: true }),
     progress.createIndex({ userId: 1 }, { unique: true }),
+    relationships.createIndex({ pairKey: 1 }, { unique: true }),
+    relationships.createIndex({ participants: 1 }),
   ])
 
   app.use(session({
@@ -420,6 +425,12 @@ app.patch('/api/auth/profile', requireUser, async (req, res) => {
     user: publicUser({ ...req.accountUser, ...result.data, username }),
   })
 })
+
+if (relationships) {
+  app.use('/api/companions', createCompanionRouter({
+    users, relationships, requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
+  }))
+}
 
 app.get('/api/progress', requireUser, async (req, res) => {
   const saved = await progress.findOne({ userId: req.accountUser._id.toString() })
