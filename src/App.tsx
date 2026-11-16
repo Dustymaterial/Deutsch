@@ -453,7 +453,7 @@ function AddCardDialog({
               name="tags"
               maxLength={120}
               defaultValue={defaultTag}
-              placeholder="VHL Lernportal|Lektion 1"
+              placeholder="vhs-Lernportal|Lektion 1"
             />
           </label>
 

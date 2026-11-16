@@ -1,10 +1,10 @@
 # Deutsch Daily Deck
 
-A calm, local-first German vocabulary companion for learners using a course such as the VHL Lernportal. It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official VHL product or a replacement for the course.
+A calm, local-first German vocabulary companion for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
 
 ![Deutsch Daily Deck showing a German vocabulary card and account setup](./public/Deck.PNG)
 
-Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not VHL or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Studying remains local-first; optionally create an account to sync your deck and goal across devices.
+Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not vhs-Lernportal or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Studying remains local-first; optionally create an account to sync your deck and goal across devices.
 
 ## Start the app
 
@@ -74,7 +74,7 @@ Correct choices are recorded as **Hard**, not Good: options provide cues, so a c
 
 ### Built-in starter topics
 
-The **Open starter** study set has 2,593 deduplicated cards: frequency-ranked core vocabulary plus Health, Clothes, Food, Feelings, Family, Nature, Time and numbers, School, Travel, and Work. The core tag covers 2,171 cards; topic tags overlap it. Open **··· → Tune session** to choose a study set, view progress, adjust the goal, or narrow by source-supplied A1/A2 labels. These themes are independent vocabulary practice; they do not represent VHL lesson content. Add your own VHL lesson tags to keep course-specific words separate. Fresh installs start with this pack. Existing saved decks are not replaced; use **··· → Add open starter words** to add it without losing review history. Duplicate cards are skipped.
+The **Open starter** study set has 2,593 deduplicated cards: frequency-ranked core vocabulary plus Health, Clothes, Food, Feelings, Family, Nature, Time and numbers, School, Travel, and Work. The core tag covers 2,171 cards; topic tags overlap it. Open **··· → Tune session** to choose a study set, view progress, adjust the goal, or narrow by source-supplied A1/A2 labels. These themes are independent vocabulary practice; they do not represent vhs-Lernportal lesson content. Add your own lesson tags to keep course-specific words separate. Fresh installs start with this pack. Existing saved decks are not replaced; use **··· → Add open starter words** to add it without losing review history. Duplicate cards are skipped.
 
 The starter data is a filtered and reformatted subset of [slovymovy/words at the pinned source revision](https://github.com/slovymovy/words/tree/bbef653dc3737361949403c36c822cda61cff512), based on Wiktionary content processed by [Kaikki.org](https://kaikki.org/) and [Wiktextract](https://github.com/tatuylonen/wiktextract). In addition to ten topic lists, the generator considers the first 3,000 unique alphabetic terms in the source German frequency list and keeps only source-labeled A1/A2 senses with English meanings and translated examples. The upstream data is licensed **CC BY-SA 4.0**; this adapted vocabulary subset is distributed under the same license. The code and the data have separate licensing. Source attribution and the license are in [the source repository](https://github.com/slovymovy/words) and [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Its labels and translations can contain errors, so check important items against your course or a trusted dictionary. For academic citation, the upstream project requests: Tatu Ylonen, “Wiktextract: Wiktionary as Machine-Readable Structured Data,” LREC 2022.
 
@@ -120,13 +120,13 @@ Select **Add a word** in the top bar. If a tag-based study set is selected, its 
 - An English meaning.
 - A short natural German example and its English translation.
 - For nouns, the article is required; add the plural when known.
-- Course and lesson tags separated by `|`, for example `VHL Lernportal|Lektion 2|Essen`.
+- Course and lesson tags separated by `|`, for example `vhs-Lernportal|Lektion 2|Essen`.
 
 Prefer one clear, common meaning per card. If a word has several unrelated meanings, make separate cards with distinct examples. Keep example sentences short and grammatical. Do not label a word A1/A2 unless you have checked a reliable course or vocabulary source.
 
 ## Prepare and import a vocabulary set
 
-Open the **··· deck menu → Get spreadsheet template** or **Get JSON template** (or download the [CSV template](./public/deck-template.csv) or [JSON template](./public/deck-template.json) directly). Add your own selected words from the VHL lesson, with the lesson recorded in `tags`, then choose **··· → Import vocabulary or backup**. The app does not log in to, scrape, or copy material from VHL.
+Open the **··· deck menu → Get spreadsheet template** or **Get JSON template** (or download the [CSV template](./public/deck-template.csv) or [JSON template](./public/deck-template.json) directly). Add your own selected words from a vhs-Lernportal lesson, with the lesson recorded in `tags`, then choose **··· → Import vocabulary or backup**. The app does not log in to, scrape, or copy material from the vhs-Lernportal.
 
 ### Spreadsheet / CSV
 
@@ -142,7 +142,7 @@ The CSV header must include these columns:
 | `plural` | No | The complete plural form, e.g. `die Wohnungen` |
 | `translation` | No | English translation of the example |
 | `level` | No | `A1` or `A2`; defaults to `A1` |
-| `tags` | No | Optional tags separated by `|`, e.g. `VHL Lernportal|Lektion 2|Essen` |
+| `tags` | No | Optional tags separated by `|`, e.g. `vhs-Lernportal|Lektion 2|Essen` |
 
 You may reorder columns, but keep the header names. Save/export as **CSV UTF-8**. A spreadsheet should quote cells containing commas or line breaks; standard doubled quotes inside a quoted cell are supported. Keep one vocabulary item per row.
 
@@ -178,7 +178,7 @@ The downloadable JSON template shows the complete supported shape. A simple file
 }
 ```
 
-Each entry needs `word`, `category`, `meaning`, and `example`; nouns also need `article`. `plural`, `translation`, `level`, and `tags` are optional. `tags` is a JSON array of strings. Put the course and lesson in separate tags (for example `["VHL Lernportal", "Lektion 2"]`); the **Study set** selector can then practise all tagged words or one lesson at a time. JSON files may also be a bare array of these entries.
+Each entry needs `word`, `category`, `meaning`, and `example`; nouns also need `article`. `plural`, `translation`, `level`, and `tags` are optional. `tags` is a JSON array of strings. Put the course and lesson in separate tags (for example `["vhs-Lernportal", "Lektion 2"]`); the **Study set** selector can then practise all tagged words or one lesson at a time. JSON files may also be a bare array of these entries.
 
 ### What import does
 
@@ -196,7 +196,7 @@ Use the JSON backup to move your deck manually between browser profiles or devic
 - Use the exact German spelling, including umlauts (`ä`, `ö`, `ü`) and `ß`.
 - Prefer a natural sentence over an artificial sentence built just to contain the word.
 - Give a concise translation of the example, not another unrelated definition.
-- Use consistent tags for course and lesson grouping (for example `VHL Lernportal`, `Lektion 2`) plus themes such as `food` or `travel`. Open **··· → Tune session** to select a tag and limit the session; the daily new-card quota is shared across the whole deck.
+- Use consistent tags for course and lesson grouping (for example `vhs-Lernportal`, `Lektion 2`) plus themes such as `food` or `travel`. Open **··· → Tune session** to select a tag and limit the session; the daily new-card quota is shared across the whole deck.
 - Check imported material for accuracy. The app does not independently verify translations, grammar, sources, or CEFR levels.
 
 ## Data, privacy, and recovery

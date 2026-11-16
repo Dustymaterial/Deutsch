@@ -19,19 +19,19 @@ const makeCard = (id, tags, overrides = {}) => ({
 
 test('study-set tags omit automatic card metadata and archived items', () => {
   const cards = [
-    makeCard('one', ['A1', 'noun', 'adverb', 'numeral', 'VHL', 'Lektion 1']),
-    makeCard('two', ['a1', 'VHL', 'Themen']),
+    makeCard('one', ['A1', 'noun', 'adverb', 'numeral', 'vhs-Lernportal', 'Lektion 1']),
+    makeCard('two', ['a1', 'vhs-Lernportal', 'Themen']),
     makeCard('archived', ['Lektion 9'], { status: 'archived' }),
   ]
 
-  assert.deepEqual(getStudySetTags(cards), ['Lektion 1', 'Themen', 'VHL'])
+  assert.deepEqual(getStudySetTags(cards), ['Lektion 1', 'Themen', 'vhs-Lernportal'])
 })
 
 test('tag filtering includes only active cards tagged for the selected study set', () => {
   const cards = [
-    makeCard('one', ['VHL', 'Lektion 1']),
-    makeCard('two', ['VHL', 'Lektion 2']),
-    makeCard('archived', ['VHL', 'Lektion 1'], { status: 'archived' }),
+    makeCard('one', ['vhs-Lernportal', 'Lektion 1']),
+    makeCard('two', ['vhs-Lernportal', 'Lektion 2']),
+    makeCard('archived', ['vhs-Lernportal', 'Lektion 1'], { status: 'archived' }),
   ]
 
   assert.deepEqual(getCardsForStudySet(cards, 'Lektion 1').map((card) => card.id), ['one'])
