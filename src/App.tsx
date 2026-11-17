@@ -61,7 +61,8 @@ import {
   getStudySetTags,
 } from './studySets'
 import { useUnreadMessages } from './useUnreadMessages'
-import { clearChatCache } from './chatPersistentCache'
+import { chatCacheClearedKey, clearChatCache } from './chatPersistentCache'
+import { clearCommunityDirectoryCache, setCommunityCacheOwner } from './communityDirectoryCache'
 import { cardFromStarterEntry, createSeedDeck, deckStorageKey as STORAGE_KEY, loadStarterPack, makeCard, type LoadedDeck, type StarterEntry, type StarterPack } from './starterDeck'
 import './App.css'
 
@@ -1379,6 +1380,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     }
   }, [sessionSettingsOpen, studyPlanOpen])
   const handleAccountUserChange = useCallback((user: AccountUser | null) => {
+    setCommunityCacheOwner(user?.id ?? null)
     const nextIdentity = user?.email ?? null
     if (accountIdentity.current !== nextIdentity) {
       accountIdentity.current = nextIdentity
@@ -1400,6 +1402,27 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     })
     if (groupInvitationRef.current && user?.emailVerified && !companionWorkspaceEntry.current) openCompanionWorkspace()
   }, [openCompanionWorkspace, showToast])
+  useEffect(() => {
+    if (!accountUser?.emailVerified) return
+    let active = true
+    const accountId = accountUser.id
+    void Promise.all([import('./CompanionPanel'), import('./companionsApi')]).then(([, api]) => {
+      if (active) return api.prefetchCommunity(accountId)
+    }).catch((failure: unknown) => {
+      console.warn('Could not prefetch the community workspace.', failure)
+    })
+    return () => { active = false }
+  }, [accountUser?.id, accountUser?.emailVerified])
+  useEffect(() => {
+    const clear = (event: StorageEvent) => {
+      if (event.key === chatCacheClearedKey && event.newValue
+        && accountUser?.id && (event.newValue.startsWith(`${accountUser.id}:`) || event.newValue.startsWith('*:'))) {
+        clearCommunityDirectoryCache()
+      }
+    }
+    window.addEventListener('storage', clear)
+    return () => window.removeEventListener('storage', clear)
+  }, [accountUser?.id])
   const intensitySettings = INTENSITY_SETTINGS[studyPlan.intensity]
   const goalEstimate = estimateGoalPace(studyPlan, new Date(now))
   const scopedCards = useMemo(

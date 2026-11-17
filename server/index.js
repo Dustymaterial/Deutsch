@@ -14,6 +14,7 @@ import { createAccountMailer } from './accountMail.js'
 import { accountAvatarPng } from './accountAvatar.js'
 import { createAccountSecurity } from './accountSecurity.js'
 import { createCompanionRouter } from './companions.js'
+import { createChatLiveHub } from './chatLive.js'
 import {
   createGroupsRouter, createModerationRouter, createModeratorCheck, groupRetention,
 } from './groups.js'
@@ -176,6 +177,7 @@ let groupMembers
 let groupMessages
 let groupReports
 let chatTyping
+let chatLive
 let accountSecurity
 const accountMailer = createAccountMailer(configuration)
 
@@ -248,6 +250,7 @@ if (mongoConnectionString) {
   groupMessages = db.collection('groupMessages')
   groupReports = db.collection('groupReports')
   chatTyping = db.collection('chatTyping')
+  chatLive = createChatLiveHub(db)
   const existingGroups = await groups.find({}).toArray()
   const slotsByOwner = new Map()
   for (const group of existingGroups) {
@@ -502,11 +505,11 @@ app.patch('/api/auth/profile', requireUser, async (req, res) => {
 if (relationships) {
   app.use('/api/companions', createCompanionRouter({
     users, relationships, sharedWords, conversations, companionMessages, companionReports,
-    requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng, chatTyping,
+    requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng, chatTyping, chatLive,
   }))
   const isModerator = createModeratorCheck((configuration.MODERATOR_USER_IDS ?? '').split(','))
   app.use('/api/groups', createGroupsRouter({
-    users, groups, groupMembers, groupMessages, groupReports, requireUser, isModerator, chatTyping,
+    users, groups, groupMembers, groupMessages, groupReports, requireUser, isModerator, chatTyping, chatLive,
   }))
   app.use('/api/moderation', createModerationRouter({
     users, groupMessages, groupReports, companionReports, requireUser, isModerator,

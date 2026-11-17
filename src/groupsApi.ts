@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SharedWordPreview } from './CompanionPanel'
+import { clearCommunityDirectoryCache, getCommunityDirectory, loadCommunityDirectory } from './communityDirectoryCache'
 
 export type Profile = { id: string; username: string; avatarSeed: string }
 
@@ -101,23 +102,34 @@ export const errorMessage = (failure: unknown, fallback: string) =>
   failure instanceof Error ? failure.message : fallback
 
 // Keeps the directory fresh while the workspace is open; failures keep the last known list.
-export function useGroupDirectory() {
-  const [directory, setDirectory] = useState<GroupDirectory | null>(null)
+export function useGroupDirectory(accountId: string | null) {
+  const [directory, setDirectory] = useState<GroupDirectory | null>(() => getCommunityDirectory(accountId, 'groups'))
   const [error, setError] = useState<string | null>(null)
+  const sequence = useRef(0)
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (join = false) => {
+    const request = ++sequence.current
     try {
-      const data = await groupsRequest<GroupDirectory>('/')
-      if (!Array.isArray(data.groups)) throw new Error('The groups service returned an incomplete response.')
+      const data = await loadCommunityDirectory(accountId, 'groups', async () => {
+        const result = await groupsRequest<GroupDirectory>('/')
+        if (!Array.isArray(result.groups)) throw new Error('The groups service returned an incomplete response.')
+        return result
+      }, join)
+      if (request !== sequence.current) return
       setDirectory(data)
       setError(null)
     } catch (failure) {
+      if (request !== sequence.current) return
+      if (failure instanceof GroupsApiError && [401, 403].includes(failure.status)) {
+        clearCommunityDirectoryCache()
+        setDirectory(null)
+      }
       setError(errorMessage(failure, 'Could not load groups.'))
     }
-  }, [])
+  }, [accountId])
 
   useEffect(() => {
-    const first = window.setTimeout(() => void reload(), 0)
+    const first = window.setTimeout(() => void reload(true), 0)
     const refresh = () => {
       if (document.visibilityState === 'visible') void reload()
     }
