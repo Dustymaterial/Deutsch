@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { ArrowRight, ArrowUpRight, Clock3, MessagesSquare } from 'lucide-react'
 import {
   detectWeakPattern,
@@ -34,7 +34,7 @@ import {
 } from './studyPlan'
 import { isProductionAnswerCorrect } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
-import { CompanionPanel, type SharedWordPreview } from './CompanionPanel'
+import type { SharedWordPreview } from './CompanionPanel'
 import { useConfirm } from './confirmContext'
 import type { WordEntry } from './wordLookup'
 import { mergeAccountProgress, type AccountProgress } from './accountSync'
@@ -64,6 +64,26 @@ import {
 } from './studySets'
 import { useUnreadMessages } from './useUnreadMessages'
 import './App.css'
+
+const CompanionPanel = lazy(() => import('./CompanionPanel').then((module) => ({ default: module.CompanionPanel })))
+
+class CompanionLoadBoundary extends Component<{ children: ReactNode; onBack: () => void }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() { return { failed: true } }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Could not open the companion workspace.', error, info)
+  }
+
+  render() {
+    if (this.state.failed) return <div className="companion-workspace-view" role="alert">
+      <p>Could not open your community. Check your connection and reload the app to try again.</p>
+      <button type="button" onClick={this.props.onBack}>Back to deck</button>
+    </div>
+    return this.props.children
+  }
+}
 
 type LoadedDeck = {
   cards: Card[]
@@ -1243,6 +1263,7 @@ function App() {
   const [studyPlanWarning, setStudyPlanWarning] = useState(loadedStudyPlan.warning)
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const accountMenuEntry = useRef(false)
   const [companionWorkspaceOpen, setCompanionWorkspaceOpen] = useState(false)
   const [groupInvitation, setGroupInvitation] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('groupInvite'))
   const groupInvitationRef = useRef(groupInvitation)
@@ -1358,17 +1379,40 @@ function App() {
   const importInput = useRef<HTMLInputElement>(null)
   const deckMenu = useRef<HTMLDetailsElement>(null)
   const addCardButton = useRef<HTMLButtonElement>(null)
+  const setAccountMenuVisible = useCallback((open: boolean) => {
+    if (open && !accountMenuEntry.current) {
+      window.history.pushState({ ...window.history.state, __deutschAccountMenu: true }, '', window.location.href)
+      accountMenuEntry.current = true
+    } else if (!open && accountMenuEntry.current) {
+      accountMenuEntry.current = false
+      if (window.history.state?.__deutschAccountMenu) window.history.back()
+    }
+    setAccountMenuOpen(open)
+  }, [])
   const openCompanionWorkspace = useCallback(() => {
     if (!companionWorkspaceEntry.current) {
-      window.history.pushState({ __deutschCompanionWorkspace: true }, '', window.location.href)
+      if (accountMenuEntry.current && window.history.state?.__deutschAccountMenu) {
+        accountMenuEntry.current = false
+        const state = { ...window.history.state, __deutschCompanionWorkspace: true }
+        delete state.__deutschAccountMenu
+        window.history.replaceState(state, '', window.location.href)
+      } else {
+        window.history.pushState({ ...window.history.state, __deutschCompanionWorkspace: true }, '', window.location.href)
+      }
       companionWorkspaceEntry.current = true
+      setAccountMenuOpen(false)
+    } else {
+      setAccountMenuVisible(false)
     }
-    setAccountMenuOpen(false)
     setCompanionWorkspaceOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
-  }, [])
+  }, [setAccountMenuVisible])
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
+      if (accountMenuEntry.current && !event.state?.__deutschAccountMenu) {
+        accountMenuEntry.current = false
+        setAccountMenuOpen(false)
+      }
       if (companionWorkspaceEntry.current && !event.state?.__deutschCompanionWorkspace) {
         companionWorkspaceEntry.current = false
         setCompanionWorkspaceOpen(false)
@@ -2278,7 +2322,7 @@ function App() {
     if (deckMenu.current) deckMenu.current.open = false
   }
   const openAccountMenu = () => {
-    setAccountMenuOpen(true)
+    setAccountMenuVisible(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
   const openLearnSettings = () => {
@@ -2360,7 +2404,18 @@ function App() {
     />
   )
 
+  const closeCompanionWorkspace = (conversationEntry: boolean) => {
+    if (companionWorkspaceEntry.current) {
+      companionWorkspaceEntry.current = false
+      window.history.go(conversationEntry ? -2 : -1)
+    } else if (conversationEntry) {
+      window.history.back()
+    }
+    setCompanionWorkspaceOpen(false)
+  }
   const companionWorkspace = (
+    <CompanionLoadBoundary onBack={() => closeCompanionWorkspace(Boolean(window.history.state?.__deutschCompanionChat || window.history.state?.__deutschCompanionGroup))}>
+    <Suspense fallback={<div className="companion-workspace-view" role="status">Opening your community…</div>}>
     <CompanionPanel
       key={accountUser?.email ?? 'signed-out'}
       cards={cards}
@@ -2368,15 +2423,7 @@ function App() {
       onAddStarterWord={addStarterWord}
       onAddDictionaryWord={addDictionaryWord}
       onNotify={showToast}
-      onBack={(conversationEntry) => {
-        if (companionWorkspaceEntry.current) {
-          companionWorkspaceEntry.current = false
-          window.history.go(conversationEntry ? -2 : -1)
-        } else if (conversationEntry) {
-          window.history.back()
-        }
-        setCompanionWorkspaceOpen(false)
-      }}
+      onBack={closeCompanionWorkspace}
       invitationToken={groupInvitation}
       onInvitationHandled={() => {
         groupInvitationRef.current = null
@@ -2388,6 +2435,8 @@ function App() {
         window.history.replaceState(window.history.state, '', url)
       }}
     />
+    </Suspense>
+    </CompanionLoadBoundary>
   )
 
   const appContent = !activeCard && !learnOpen ? (
@@ -2405,7 +2454,7 @@ function App() {
               onUserChange={handleAccountUserChange}
               onNotify={showToast}
               onOpenCompanions={openCompanionWorkspace}
-              onOpenChange={setAccountMenuOpen}
+              onOpenChange={setAccountMenuVisible}
               open={accountMenuOpen}
               syncStatus={accountSyncMessage}
             />
@@ -2556,7 +2605,7 @@ function App() {
             onUserChange={handleAccountUserChange}
             onNotify={showToast}
             onOpenCompanions={openCompanionWorkspace}
-            onOpenChange={setAccountMenuOpen}
+            onOpenChange={setAccountMenuVisible}
             open={accountMenuOpen}
             syncStatus={accountSyncMessage}
           />

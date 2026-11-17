@@ -253,6 +253,8 @@ Companions are optional and need a verified, signed-in account and a connection 
 ### Chatting
 
 - Messages are private 1:1 plain text, up to 2,000 characters, and refresh automatically while a conversation is open (background tabs pause refresh). Opening a conversation shows its header immediately while messages load, then starts at its newest message. Recently opened private and group chats can briefly show an in-memory copy while they update; message controls wait for the refresh. Copies are not stored on disk and are discarded when the companion workspace closes. Chat messages are not emailed.
+- The community interface is downloaded when first opened rather than on every app launch. If it has not been downloaded yet, opening it requires a connection; the app reports a loading failure and offers a return to the deck.
+- Device Back closes the account menu before going back through an open chat and the companion workspace.
 - **Reply** to a message; the reply shows a quote of the original, color-coded per replied-to message. **React** with one of five emoji; each learner has at most one reaction per message and can remove it.
 - **Share a word** under the message box sends a word card from your deck (word, meaning, example, any plural) that the recipient can add with **Add to deck**.
 - For 10 minutes after sending you can **edit** a text message or **unsend** any message. Edited messages show “edited”; an unsent message becomes “Message unsent”, its text, word card, reactions and review are removed, and replies that quoted it show the same. A copy already retained in a moderation report is not removed.

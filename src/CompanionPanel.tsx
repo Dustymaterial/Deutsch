@@ -361,8 +361,9 @@ export function CompanionPanel({
   }, [groupCache, groupDirectory])
 
   useEffect(() => {
-    const handlePopState = () => {
+    const handlePopState = (event: PopStateEvent) => {
       if (!conversationHistoryEntry.current) return
+      if (event.state?.__deutschCompanionChat || event.state?.__deutschCompanionGroup) return
       conversationHistoryEntry.current = false
       chatOpenSequence.current += 1
       setOpeningChat(null)
@@ -615,7 +616,7 @@ export function CompanionPanel({
     const cached = existing ? privateCache.current.get(existing.id) : null
     setSidebarView('chats')
     if (!conversationHistoryEntry.current) {
-      window.history.pushState({ __deutschCompanionChat: true }, '', window.location.href)
+      window.history.pushState({ ...window.history.state, __deutschCompanionChat: true }, '', window.location.href)
       conversationHistoryEntry.current = true
     }
     setSelectedGroupId(null)
@@ -688,7 +689,7 @@ export function CompanionPanel({
     setReportingMessageId(null)
     setSidebarView('groups')
     if (!conversationHistoryEntry.current) {
-      window.history.pushState({ __deutschCompanionGroup: true }, '', window.location.href)
+      window.history.pushState({ ...window.history.state, __deutschCompanionGroup: true }, '', window.location.href)
       conversationHistoryEntry.current = true
     }
     selectedChatId.current = null
