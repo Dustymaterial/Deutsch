@@ -31,7 +31,7 @@ export type GroupMessage = {
   isMine: boolean
   createdAt: string
   canHide: boolean
-  kind: 'text' | 'unsent' | 'hidden'
+  kind: 'text' | 'unsent' | 'hidden' | 'system'
   text: string
   replyTo?: { id: string; isMine: boolean; text: string }
   reported: boolean

@@ -90,8 +90,8 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
   const others = matching.filter((group) => !group.joined)
   const atLimit = directory ? directory.ownedCount >= directory.ownedLimit : true
 
-  const card = (group: GroupSummary) => <article className={`group-card${selectedId === group.id ? ' selected' : ''}`} key={group.id}>
-    <button className="group-card-open" type="button" disabled={!group.joined} onClick={() => onOpen(group.id)} aria-label={group.joined ? `Open ${group.name}` : undefined}>
+  const card = (group: GroupSummary) => <article className={`group-card companion-contact-card${selectedId === group.id ? ' selected' : ''}`} key={group.id}>
+    <button className="group-card-open companion-contact-open" type="button" disabled={!group.joined} onClick={() => onOpen(group.id)} aria-label={group.joined ? `Open ${group.name}` : undefined}>
       <span className="group-avatar" aria-hidden="true">{group.name.slice(0, 1).toLocaleUpperCase()}</span>
       <span className="group-card-copy">
         <strong>{group.name}</strong>
@@ -133,11 +133,11 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
     {!directory ? <p className="companion-empty-note">Loading groups…</p> : <>
       <section className="companion-list-section" aria-labelledby="my-groups-heading">
         <h2 id="my-groups-heading">Your groups <span>{mine.length}</span></h2>
-        {mine.length === 0 ? <p className="companion-empty-note">Groups you join or create appear here.</p> : <div className="group-list">{mine.map(card)}</div>}
+        {mine.length === 0 ? <p className="companion-empty-note">Groups you join or create appear here.</p> : <div className="group-list companion-contact-list">{mine.map(card)}</div>}
       </section>
       <section className="companion-list-section" aria-labelledby="browse-groups-heading">
         <h2 id="browse-groups-heading">Browse groups <span>{others.length}</span></h2>
-        {others.length === 0 ? <p className="companion-empty-note">{needle ? 'No groups match your search.' : 'No other groups yet. Create the first one.'}</p> : <div className="group-list">{others.map(card)}</div>}
+        {others.length === 0 ? <p className="companion-empty-note">{needle ? 'No groups match your search.' : 'No other groups yet. Create the first one.'}</p> : <div className="group-list companion-contact-list">{others.map(card)}</div>}
       </section>
     </>}
   </>
@@ -167,6 +167,9 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
   const [membersOpen, setMembersOpen] = useState(false)
   const [members, setMembers] = useState<{ list: (Profile & { role: string })[]; canRemove: boolean } | null>(null)
   const [reporting, setReporting] = useState<{ id: string; reason: string; details: string } | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  const [newName, setNewName] = useState('')
+  const { errors: renameErrors, validate: validateRename, handleInput: handleRenameInput } = useFormValidation()
   const stream = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const firstLoad = useRef(true)
@@ -174,8 +177,9 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
 
   const load = useCallback(async () => {
     try {
-      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(`/${group.id}/messages`)
+      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary }>(`/${group.id}/messages`)
       setMessages((current) => mergeMessages(current, data.messages))
+      if (data.group.name !== group.name) await reload()
       if (firstLoad.current) {
         firstLoad.current = false
         setHasOlder(data.hasMore)
@@ -186,7 +190,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
       setError(errorMessage(failure, 'Could not load messages.'))
       setLoaded(true)
     }
-  }, [group.id])
+  }, [group.id, group.name, reload])
 
   useEffect(() => {
     const first = window.setTimeout(() => void load(), 0)
@@ -310,6 +314,30 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     })
   }
 
+  const rename = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!validateRename(event.currentTarget)) return
+    const name = newName.trim().replace(/\s+/g, ' ')
+    if (name === group.name) {
+      setRenaming(false)
+      return
+    }
+    void (async () => {
+      const confirmed = await confirmDialog({
+        title: 'Change group name?',
+        message: `The group will be called “${name}” and members will see a notice in the chat.`,
+        confirmLabel: 'Change name',
+      })
+      if (!confirmed) return
+      await run(async () => {
+        await groupsRequest(`/${group.id}/name`, { name })
+        setRenaming(false)
+        await reload()
+        await load()
+      })
+    })()
+  }
+
   const deleteGroup = async () => {
     const ok = await confirmDialog({ title: `Delete ${group.name}?`, message: 'All messages and members are removed for everyone. This cannot be undone.', confirmLabel: 'Delete group', tone: 'danger' })
     if (!ok) return
@@ -350,6 +378,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         <details className="companion-row-menu companion-chat-menu">
           <summary className="companion-header-pill" aria-label="Group actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
           <div className="companion-row-popover">
+            {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); setNewName(group.name); setRenaming(true) }}>Change group name</button>}
             {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); void setState(group.state === 'open' ? 'closed' : 'open') }}>{group.state === 'open' ? 'Close to new members' : 'Open to new members'}</button>}
             {(group.isOwner || canModerate) && <button className="danger" type="button" onClick={(event) => { closePopover(event); void deleteGroup() }}>Delete group</button>}
             {!group.isOwner && <button className="danger" type="button" onClick={(event) => { closePopover(event); void leave() }}>Leave group</button>}
@@ -357,6 +386,16 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         </details>
       </div>
     </header>
+    {renaming && <form className="group-rename-form" noValidate onInput={handleRenameInput} onSubmit={rename}>
+      <label className="companion-field">Group name
+        <input name="name" value={newName} onChange={(event) => setNewName(event.target.value)} minLength={3} maxLength={40} required aria-invalid={Boolean(renameErrors.name) || undefined} aria-describedby={renameErrors.name ? 'group-rename-error' : undefined} autoFocus />
+        {renameErrors.name && <span className="field-error" id="group-rename-error">{renameErrors.name}</span>}
+      </label>
+      <div className="companion-card-actions">
+        <button type="submit" disabled={busy}>Save name</button>
+        <button type="button" disabled={busy} onClick={() => setRenaming(false)}>Cancel</button>
+      </div>
+    </form>}
     {membersOpen && <div className="companion-search-panel group-members">
       {group.description && <p className="group-description">{group.description}</p>}
       {!members ? <p className="companion-search-note">Loading members…</p> : <ul>
@@ -374,8 +413,10 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite">
       {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
       {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0
-        ? <div className="companion-chat-empty"><Users size={25} aria-hidden="true" /><p>Say hello to the group.</p><span>Ask a question, share a tip, or welcome someone new.</span></div>
-        : messages.map((message) => <article className="companion-message-row group-message" id={`group-message-${message.id}`} key={message.id}>
+        ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Say hello to the group.</p><span>Ask a question, share a tip, or welcome someone new.</span></div>
+        : messages.map((message) => message.kind === 'system'
+          ? <p className="group-system-message" key={message.id}>{message.text}</p>
+          : <article className="companion-message-row group-message" id={`group-message-${message.id}`} key={message.id}>
           <div className="companion-message-content">
             {message.replyTo && message.kind === 'text' && <button className="companion-reply-quote" style={replyColor(message.replyTo.id)} type="button" onClick={() => jumpTo(message.replyTo!.id)}>
               <strong>{message.replyTo.isMine ? 'You' : 'Replying to a message'}</strong><span>{message.replyTo.text}</span>

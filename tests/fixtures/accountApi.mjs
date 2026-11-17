@@ -100,6 +100,10 @@ const collection = (name) => ({
   async updateOne(query, update) {
     const record = records[name].find((item) => matches(item, query))
     if (!record) return { matchedCount: 0, modifiedCount: 0 }
+    if (name === 'groups' && update.$set?.nameKey
+      && records.groups.some((item) => item !== record && item.nameKey === update.$set.nameKey)) {
+      throw Object.assign(new Error('duplicate'), { code: 11000 })
+    }
     applyUpdate(record, update)
     return { matchedCount: 1, modifiedCount: 1 }
   },
@@ -613,6 +617,29 @@ try {
   assert.equal((await request(`/api/groups/${groupId}/leave`, {}, learner.cookie)).status, 409)
   assert.equal((await request(`/api/groups/${groupId}/leave`, {}, fourth.cookie)).status, 200)
   assert.equal((await request('/api/groups', null, learner.cookie)).body.groups.find((item) => item.id === groupId).memberCount, 2)
+
+  const renamePath = `/api/groups/${groupId}/name`
+  assert.equal((await request(renamePath, { name: 'New name' }, other.cookie)).status, 404)
+  assert.equal((await request(renamePath, { name: 'ab' }, learner.cookie)).status, 400)
+  assert.equal((await request(renamePath, { name: 'zweite gruppe' }, learner.cookie)).status, 409)
+  assert.equal((await request(renamePath, { name: 'Anfänger Treff' }, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages.filter((item) => item.kind === 'system').length, 0)
+  assert.equal((await request(renamePath, { name: '  Deutsch   zusammen  ' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).name, 'Deutsch zusammen')
+  const notice = (await request(`/api/groups/${groupId}/messages`, null, other.cookie)).body.messages.find((item) => item.kind === 'system')
+  assert.equal(notice.text, 'learner changed the group name to Deutsch zusammen.')
+  assert.equal((await request(`/api/groups/${groupId}/messages/${notice.id}/unsend`, {}, learner.cookie)).status, 404)
+  for (let index = 0; index < 55; index++) {
+    records.groupMessages.push({
+      _id: new ObjectId(), groupId, senderId: otherId, text: `Later message ${index}`,
+      createdAt: new Date(Date.now() + (index + 1) * 1000),
+    })
+  }
+  const recentPage = (await request(`/api/groups/${groupId}/messages`, null, other.cookie)).body
+  assert.equal(recentPage.hasMore, true)
+  assert.equal(recentPage.messages.length, 50)
+  const earlierPage = (await request(`/api/groups/${groupId}/messages?before=${encodeURIComponent(recentPage.messages[0].createdAt)}`, null, other.cookie)).body
+  assert.ok(earlierPage.messages.some((item) => item.id === notice.id && item.kind === 'system'))
 
   assert.equal((await request(`/api/groups/${groupId}/delete`, {}, other.cookie)).status, 404)
   assert.equal((await request(`/api/groups/${groupId}/delete`, {}, learner.cookie)).status, 200)

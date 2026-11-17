@@ -21,6 +21,7 @@ const createSchema = z.object({
   name: z.string().trim().min(3).max(40),
   description: z.string().trim().max(200).optional(),
 })
+const renameSchema = createSchema.pick({ name: true })
 const messageSchema = z.object({
   text: z.string().trim().min(1).max(1000),
   replyToId: objectIdSchema.optional(),
@@ -285,6 +286,33 @@ export function createGroupsRouter({
     res.json({ state: result.data.state })
   })
 
+  router.post('/:id/name', async (req, res) => {
+    const result = renameSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Name the group with 3 to 40 characters.' })
+    const group = await loadGroup(req.params.id)
+    if (!group || !canModerate(group, req)) return notFound(res)
+    const name = result.data.name.replace(/\s+/g, ' ')
+    if (name === group.name) return res.json({ name })
+    const now = new Date()
+    const change = {
+      id: new ObjectId().toString(),
+      name,
+      actor: req.accountUser.username,
+      createdAt: now,
+    }
+    try {
+      const updated = await groups.updateOne({ _id: group._id, name: group.name }, {
+        $set: { name, nameKey: nameKeyFor(name), lastActivityAt: now },
+        $push: { nameChanges: { $each: [change], $position: 0, $slice: 1000 } },
+      })
+      if (updated.matchedCount !== 1) return res.status(409).json({ error: 'The group name changed. Refresh and try again.' })
+    } catch (error) {
+      if (error?.code !== 11000) throw error
+      return res.status(409).json({ error: 'A group with that name already exists.' })
+    }
+    res.json({ name })
+  })
+
   router.post('/:id/delete', async (req, res) => {
     const group = await loadGroup(req.params.id)
     if (!group || !canModerate(group, req)) return notFound(res)
@@ -343,14 +371,28 @@ export function createGroupsRouter({
     const found = await groupMessages.find({
       groupId: group._id.toString(),
       ...(before ? { createdAt: { $lt: before } } : {}),
-    }, { sort: { createdAt: -1 }, limit: pageSize }).toArray()
+    }, { sort: { createdAt: -1 }, limit: pageSize + 1 }).toArray()
     const lookup = profileCache()
     const moderating = canModerate(group, req)
     const messages = []
-    for (const message of found.reverse()) {
+    for (const message of found) {
       messages.push(serializeMessage(message, me, await lookup(message.senderId), moderating))
     }
-    res.json({ hasMore: found.length === pageSize, messages, group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }) })
+    for (const change of group.nameChanges ?? []) {
+      if (before && change.createdAt >= before) continue
+      messages.push({
+        id: change.id,
+        kind: 'system',
+        text: `${change.actor} changed the group name to ${change.name}.`,
+        createdAt: change.createdAt.toISOString(),
+        sender: null,
+        isMine: false,
+        canHide: false,
+        reported: false,
+      })
+    }
+    messages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    res.json({ hasMore: messages.length > pageSize, messages: messages.slice(0, pageSize).reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }) })
   })
 
   router.post('/:id/messages', async (req, res) => {

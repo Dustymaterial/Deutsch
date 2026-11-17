@@ -285,7 +285,7 @@ Groups are open spaces for any verified learner, separate from private chat. Ope
 - **Open or closed.** The creator can close a group so nobody new can join; members stay and can keep talking. The creator can open it again.
 - **Rules first.** Before a learner's first create or join, they read and agree to short group rules. Creating, joining and posting need an account at least 24 hours old (`GROUP_MIN_ACCOUNT_AGE_HOURS`).
 - **Messages.** Plain text up to 1,000 characters with replies. Messages are visible to every member, so a note in the group says so. Learners can unsend their own messages. At most two links per message, no repeated message within a minute, a short pause between messages and 60 messages per hour.
-- **Owners.** A group's creator can hide a message, remove a member (who cannot rejoin), close or open the group, or delete it.
+- **Owners.** A group's creator can rename it (members see a notice in the chat), hide a message, remove a member (who cannot rejoin), close or open the group, or delete it. The latest 1,000 name-change notices are retained with the group.
 - **Reporting and moderation.** Any member can report another member's message. Three reports from different members hide it automatically. Reports from groups and from private chats appear in the **Moderation** view for the accounts listed in `MODERATOR_USER_IDS`, who can dismiss, hide the message or suspend the learner from groups for 1 to 90 days. Closed reports are deleted 90 days later, and group messages are deleted after one year.
 - **Privacy.** Members see only usernames and avatars. Group messages are never sent to a third-party or AI service. Tap-to-translate and sentence check are not yet available in groups.
 
