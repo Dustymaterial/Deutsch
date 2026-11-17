@@ -7,6 +7,7 @@ import { useConfirm } from './confirmContext'
 import './AccountMenu.css'
 
 export type AccountUser = {
+  id: string
   username: string
   email: string
   avatarSeed: string

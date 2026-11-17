@@ -63,6 +63,7 @@ import {
   getStudySetTags,
 } from './studySets'
 import { useUnreadMessages } from './useUnreadMessages'
+import { clearChatCache } from './chatPersistentCache'
 import './App.css'
 
 const CompanionPanel = lazy(() => import('./CompanionPanel').then((module) => ({ default: module.CompanionPanel })))
@@ -1275,6 +1276,7 @@ function App() {
   const [accountSyncError, setAccountSyncError] = useState<string | null>(null)
   const accountRevision = useRef(0)
   const accountIdentity = useRef<string | null>(null)
+  const cacheIdentityQueue = useRef<Promise<void>>(Promise.resolve())
   const localProgressRef = useRef({ cards, studyPlan, canSave, studyPlanWarning })
   const [revealed, setRevealed] = useState(false)
   const [now, setNow] = useState(INITIAL_NOW)
@@ -1467,8 +1469,18 @@ function App() {
       accountRevision.current = 0
     }
     setAccountUser(user)
+    cacheIdentityQueue.current = cacheIdentityQueue.current.then(async () => {
+      const key = 'deutsch-chat-cache-owner'
+      const previous = localStorage.getItem(key)
+      const next = user?.id ?? null
+      if (previous && previous !== next) await clearChatCache(previous)
+      if (next) localStorage.setItem(key, next)
+      else localStorage.removeItem(key)
+    }).catch((failure: unknown) => {
+      showToast(failure instanceof Error ? `Could not update saved chat storage: ${failure.message}` : 'Could not update saved chat storage on this device.', 'error')
+    })
     if (groupInvitationRef.current && user?.emailVerified && !companionWorkspaceEntry.current) openCompanionWorkspace()
-  }, [openCompanionWorkspace])
+  }, [openCompanionWorkspace, showToast])
   const intensitySettings = INTENSITY_SETTINGS[studyPlan.intensity]
   const goalEstimate = estimateGoalPace(studyPlan, new Date(now))
   const scopedCards = useMemo(
@@ -2417,8 +2429,9 @@ function App() {
     <CompanionLoadBoundary onBack={() => closeCompanionWorkspace(Boolean(window.history.state?.__deutschCompanionChat || window.history.state?.__deutschCompanionGroup))}>
     <Suspense fallback={<div className="companion-workspace-view" role="status">Opening your community…</div>}>
     <CompanionPanel
-      key={accountUser?.email ?? 'signed-out'}
+      key={accountUser?.id ?? 'signed-out'}
       cards={cards}
+      accountId={accountUser?.id ?? null}
       onReceiveWord={receiveSharedWord}
       onAddStarterWord={addStarterWord}
       onAddDictionaryWord={addDictionaryWord}

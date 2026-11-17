@@ -19,7 +19,7 @@ import { ReportPopover, type ReportReason } from './ReportPopover'
 import { ModerationQueue } from './ModerationQueue'
 import { useGroupDirectory } from './groupsApi'
 import type { GroupMessage } from './groupsApi'
-import { ChatMemoryCache } from './chatMemoryCache'
+import { PersistentChatCache, chatCacheClearedKey, chatCacheEnabled, clearChatCache, setChatCacheEnabled } from './chatPersistentCache'
 import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
@@ -164,6 +164,7 @@ function CompanionLoader({ label, compact = false }: { label: string; compact?: 
 
 export function CompanionPanel({
   cards,
+  accountId,
   onReceiveWord,
   onAddStarterWord,
   onAddDictionaryWord,
@@ -173,6 +174,7 @@ export function CompanionPanel({
   onInvitationHandled,
 }: {
   cards: Card[]
+  accountId: string | null
   onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
   onAddStarterWord: (entryId: string) => 'added' | 'already-present' | false
   onAddDictionaryWord: (entry: WordEntry) => 'added' | 'already-present' | false
@@ -185,6 +187,12 @@ export function CompanionPanel({
   const [sharedWords, setSharedWords] = useState<SharedWordPreview[]>([])
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [emailsEnabled, setEmailsEnabled] = useState(true)
+  const [cachePreference] = useState(() => {
+    try { return { enabled: chatCacheEnabled(), error: null } }
+    catch { return { enabled: false, error: 'Could not read the saved chat preference on this device.' } }
+  })
+  const [persistentCacheEnabled, setPersistentCacheEnabled] = useState(cachePreference.enabled)
+  const [cacheProblem, setCacheProblem] = useState<string | null>(cachePreference.error)
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -235,8 +243,22 @@ export function CompanionPanel({
   const chatOpenSequence = useRef(0)
   const latestChatRequest = useRef(0)
   const latestChatInFlight = useRef<{ id: string; sequence: number } | null>(null)
-  const privateCache = useRef(new ChatMemoryCache<ChatMessage>())
-  const [groupCache] = useState(() => new ChatMemoryCache<GroupMessage>())
+  const [privateCache] = useState(() => new PersistentChatCache<ChatMessage>(accountId ?? '', 'private', false,
+    (value): value is ChatMessage => Boolean(value && typeof value === 'object' && 'id' in value && typeof value.id === 'string'
+      && 'text' in value && typeof value.text === 'string' && 'createdAt' in value && typeof value.createdAt === 'string'
+      && Number.isFinite(Date.parse(value.createdAt)) && 'senderId' in value && typeof value.senderId === 'string'
+      && 'isMine' in value && typeof value.isMine === 'boolean' && 'reported' in value && typeof value.reported === 'boolean'
+      && 'kind' in value && (value.kind === 'text' || value.kind === 'word' || value.kind === 'unsent')
+      && 'reactions' in value && Array.isArray(value.reactions)),
+    (failure) => setCacheProblem(failure instanceof Error ? `Chat storage is unavailable: ${failure.message}` : 'Chat storage is unavailable.')))
+  const [groupCache] = useState(() => new PersistentChatCache<GroupMessage>(accountId ?? '', 'group', false,
+    (value): value is GroupMessage => Boolean(value && typeof value === 'object' && 'id' in value && typeof value.id === 'string'
+      && 'text' in value && typeof value.text === 'string' && 'createdAt' in value && typeof value.createdAt === 'string'
+      && Number.isFinite(Date.parse(value.createdAt)) && 'isMine' in value && typeof value.isMine === 'boolean'
+      && 'reported' in value && typeof value.reported === 'boolean' && 'canHide' in value && typeof value.canHide === 'boolean'
+      && 'kind' in value && (value.kind === 'text' || value.kind === 'word' || value.kind === 'unsent' || value.kind === 'hidden' || value.kind === 'system')
+      && (value.kind === 'system' || ('reactions' in value && Array.isArray(value.reactions)))),
+    (failure) => setCacheProblem(failure instanceof Error ? `Chat storage is unavailable: ${failure.message}` : 'Chat storage is unavailable.')))
   const conversationHistoryEntry = useRef(false)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory()
@@ -256,10 +278,10 @@ export function CompanionPanel({
     setSharedWords(accountData.sharedWords)
     setEmailsEnabled(accountData.emailsEnabled)
     setChats(chatData.chats)
-    privateCache.current.retain(new Set(chatData.chats.map((chat) => chat.id)))
+    privateCache.retain(new Set(chatData.chats.map((chat) => chat.id)))
     setError(null)
     setLoaded(true)
-  }, [])
+  }, [privateCache])
 
   const loadMessages = useCallback(async (
     chatId: string,
@@ -287,7 +309,7 @@ export function CompanionPanel({
       throw new Error('The chat service returned an incomplete response.')
     }
     if (!before) {
-      privateCache.current.set(chatId, { messages: data.messages.map(normalizeMessage), hasMore: data.hasMore })
+      privateCache.set(chatId, { messages: data.messages.map(normalizeMessage), hasMore: data.hasMore })
       setChatTyping({ id: chatId, typing: data.typing })
     }
     setChatMessages((current) => mode === 'replace' ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
@@ -295,15 +317,19 @@ export function CompanionPanel({
     setChatError(null)
     if (!before) setChatUpdating(false)
     return data
-  }, [])
+  }, [privateCache])
 
   useEffect(() => {
     let active = true
-    Promise.resolve().then(load).catch((failure: unknown) => {
+    Promise.resolve().then(() => Promise.all([
+      accountId && cachePreference.enabled ? privateCache.start() : privateCache.whenReady(),
+      accountId && cachePreference.enabled ? groupCache.start() : groupCache.whenReady(),
+      load(),
+    ])).catch((failure: unknown) => {
       if (active) setError(failure instanceof Error ? failure.message : 'Could not load companions.')
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [load])
+  }, [accountId, cachePreference.enabled, load, privateCache, groupCache])
 
   useEffect(() => {
     const refresh = () => {
@@ -332,7 +358,7 @@ export function CompanionPanel({
       void loadMessages(chatId, 'merge').catch((failure: unknown) => {
         if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence) return
         if (failure instanceof CompanionApiError && [401, 403, 404].includes(failure.status)) {
-          privateCache.current.delete(chatId)
+          privateCache.delete(chatId)
           chatOpenSequence.current += 1
           selectedChatId.current = null
           setSelectedChat(null)
@@ -354,11 +380,32 @@ export function CompanionPanel({
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', refresh)
     }
-  }, [loadMessages, selectedChat])
+  }, [loadMessages, selectedChat, privateCache])
 
   useEffect(() => {
     if (groupDirectory) groupCache.retain(new Set(groupDirectory.groups.filter((group) => group.joined).map((group) => group.id)))
   }, [groupCache, groupDirectory])
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== chatCacheClearedKey || !event.newValue || !accountId
+        || (!event.newValue.startsWith(`${accountId}:`) && !event.newValue.startsWith('*:'))) return
+      privateCache.stop()
+      groupCache.stop()
+      privateCache.retain(new Set())
+      groupCache.retain(new Set())
+      chatOpenSequence.current += 1
+      selectedChatId.current = null
+      setSelectedChat(null)
+      setOpeningChat(null)
+      setSelectedGroupId(null)
+      setChatMessages([])
+      setPersistentCacheEnabled(false)
+      setCacheProblem('Saved chats were cleared in another tab. Reopen a chat to refresh it.')
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [accountId, groupCache, privateCache])
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -506,6 +553,28 @@ export function CompanionPanel({
     }
   }
 
+  const togglePersistentCache = async () => {
+    if (!accountId) return
+    const enabled = !persistentCacheEnabled
+    setBusy(true)
+    setCacheProblem(null)
+    try {
+      setChatCacheEnabled(enabled)
+      setPersistentCacheEnabled(enabled)
+      if (enabled) {
+        await Promise.all([privateCache.start(), groupCache.start()])
+      } else {
+        privateCache.stop()
+        groupCache.stop()
+        await clearChatCache(accountId)
+      }
+    } catch (failure) {
+      setCacheProblem(failure instanceof Error ? `Could not update saved chats: ${failure.message}` : 'Could not update saved chats on this device.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const closePopover = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.currentTarget.closest('details')?.removeAttribute('open')
   }
@@ -613,7 +682,7 @@ export function CompanionPanel({
     const existing = chats.find((chat) => chat.companion.id === user.id)
     if (existing && selectedChatId.current === existing.id) return
     const sequence = ++chatOpenSequence.current
-    const cached = existing ? privateCache.current.get(existing.id) : null
+    const cached = existing ? privateCache.get(existing.id) : null
     setSidebarView('chats')
     if (!conversationHistoryEntry.current) {
       window.history.pushState({ ...window.history.state, __deutschCompanionChat: true }, '', window.location.href)
@@ -646,7 +715,7 @@ export function CompanionPanel({
         await loadMessages(data.id)
       } catch (failure) {
         if (chatOpenSequence.current === sequence) {
-          privateCache.current.delete(existing?.id ?? '')
+          privateCache.delete(existing?.id ?? '')
           if (cached) setChatMessages([])
           setChatUpdating(false)
           const description = failure instanceof Error ? failure.message : 'Could not open this conversation.'
@@ -900,7 +969,7 @@ export function CompanionPanel({
     const chatId = selectedChat.id
     void run(async () => {
       await request(`/chats/${chatId}/delete`, {})
-      privateCache.current.delete(chatId)
+      privateCache.delete(chatId)
       closeChat()
       onNotify('Conversation deleted.')
       await load()
@@ -1102,6 +1171,7 @@ export function CompanionPanel({
             </button>
           </div>
           {error && <p className="companion-alert" role="alert">{error}</p>}
+          {cacheProblem && <p className="companion-alert" role="alert">{cacheProblem}</p>}
           {loading ? <CompanionLoader label="Loading your connections" /> : !loaded ? (
             <button className="companion-primary-button" disabled={busy} onClick={() => void run(load)} type="button">Try again</button>
           ) : <>
@@ -1248,6 +1318,13 @@ export function CompanionPanel({
                   <span aria-hidden="true" />
                 </button>
               </div>
+              {accountId && <div className="companion-email-setting">
+                <span>Save recent chats on this device</span>
+                <button className="app-toggle" type="button" role="switch" aria-label="Save recent chats on this device" aria-checked={persistentCacheEnabled} disabled={busy} onClick={() => void togglePersistentCache()}>
+                  <span aria-hidden="true" />
+                </button>
+              </div>}
+              <p className="companion-empty-note">Saved chats can be seen by someone using this browser. Turn this off on a shared device to remove them.</p>
               </div>
             </details>
           </>}
