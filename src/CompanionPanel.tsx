@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, Check, LayoutGridCircles, Languages, MessageCircle, Reply, Search, SmilePlus, SpellCheck, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, Check, LayoutGridCircles, Languages, MessageCircle, Reply, Search, ShieldCheck, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
@@ -11,6 +11,10 @@ import { loadDictionary } from './dictionaryLoader'
 import { ChatWordPeek } from './ChatWordPeek'
 import { CorrectionDiff } from './CorrectionDiff'
 import { matchSnippet } from './messageSearch'
+import { replyColor } from './replyColor'
+import { GroupConversation, GroupsSidebar } from './GroupsPanel'
+import { ModerationQueue } from './ModerationQueue'
+import { useGroupDirectory } from './groupsApi'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -60,21 +64,6 @@ type SelectedChat = { id: string; companion: Profile }
 type ReportReason = 'spam' | 'harassment' | 'inappropriate' | 'other'
 
 const reactionOptions = ['👍', '🎉', '💡', '❤️', '👏']
-
-const replyPalette = [
-  { accent: '#8fb9e6', tint: '#e8f1fb' },
-  { accent: '#f0a3cf', tint: '#fbe9f3' },
-  { accent: '#9fd49a', tint: '#e9f5e6' },
-  { accent: '#efc36a', tint: '#fbf1d9' },
-  { accent: '#b9a5e8', tint: '#f0ebfb' },
-  { accent: '#84d0c8', tint: '#e3f5f3' },
-]
-
-// Message ids end in an increasing counter, so neighbouring messages get different colours.
-const replyColor = (messageId: string) => {
-  const color = replyPalette[(Number.parseInt(messageId.slice(-6), 16) || 0) % replyPalette.length]
-  return { '--reply-accent': color.accent, '--reply-tint': color.tint } as React.CSSProperties
-}
 
 const shareableCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 
@@ -203,7 +192,7 @@ export function CompanionPanel({
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [sidebarView, setSidebarView] = useState<'chats' | 'requests' | 'shared'>('chats')
+  const [sidebarView, setSidebarView] = useState<'chats' | 'requests' | 'shared' | 'groups' | 'moderation'>('chats')
   const [username, setUsername] = useState('')
   const [found, setFound] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -243,6 +232,9 @@ export function CompanionPanel({
   const wordPicker = useRef<HTMLDetailsElement>(null)
   const selectedChatId = useRef<string | null>(null)
   const chatHistoryEntry = useRef(false)
+  const groupHistoryEntry = useRef(false)
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory()
   const lastScrolledMessage = useRef<string | null>(null)
   const { errors, validate, handleInput } = useFormValidation()
 
@@ -326,6 +318,11 @@ export function CompanionPanel({
 
   useEffect(() => {
     const handlePopState = () => {
+      if (groupHistoryEntry.current) {
+        groupHistoryEntry.current = false
+        setSelectedGroupId(null)
+        return
+      }
       if (!chatHistoryEntry.current) return
       chatHistoryEntry.current = false
       selectedChatId.current = null
@@ -574,8 +571,26 @@ export function CompanionPanel({
     setChatMessages([])
   }
 
+  const openGroup = (id: string) => {
+    setSidebarView('groups')
+    if (!groupHistoryEntry.current) {
+      window.history.pushState({ __deutschCompanionGroup: true }, '', window.location.href)
+      groupHistoryEntry.current = true
+    }
+    setSelectedGroupId(id)
+  }
+
+  const closeGroup = () => {
+    if (groupHistoryEntry.current) {
+      groupHistoryEntry.current = false
+      window.history.back()
+    }
+    setSelectedGroupId(null)
+  }
+
   const backToDeck = () => {
     closeChat()
+    closeGroup()
     onBack()
   }
 
@@ -910,6 +925,8 @@ export function CompanionPanel({
     .sort((a, b) => a.username.localeCompare(b.username))
   const requestCount = incomingRequests.length + outgoingRequests.length
   const unreadCount = chats.filter((chat) => chat.unread).length
+  const selectedGroup = groupDirectory?.groups.find((group) => group.id === selectedGroupId && group.joined) ?? null
+  const joinedGroupCount = groupDirectory?.groups.filter((group) => group.joined).length ?? 0
   const blockedCompanions = companions.filter((user) => user.status === 'blocked')
   const connectedCompanions = companions.filter((user) => user.status === 'connected')
     .sort((a, b) => {
@@ -936,7 +953,7 @@ export function CompanionPanel({
 
   return (
     <div className="companion-workspace-view">
-      <div className={`companion-workspace${selectedChat && sidebarView === 'chats' ? ' chat-active' : ''}`}>
+      <div className={`companion-workspace${(selectedChat && sidebarView === 'chats') || (selectedGroup && sidebarView === 'groups') ? ' chat-active' : ''}`}>
         <aside className="companion-sidebar" aria-label="Learning companions">
           <div className="companion-sidebar-heading">
             <h1>Companions</h1>
@@ -979,6 +996,12 @@ export function CompanionPanel({
               <button className={sidebarView === 'shared' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'shared'} onClick={() => setSidebarView('shared')}>
                 <BookOpen size={15} aria-hidden="true" /><span className="companion-nav-label">Shared words</span><span className="companion-nav-count">{sharedWords.length}</span>
               </button>
+              <button className={sidebarView === 'groups' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'groups'} onClick={() => setSidebarView('groups')}>
+                <Users size={15} aria-hidden="true" /><span className="companion-nav-label">Groups</span><span className="companion-nav-count">{joinedGroupCount}</span>
+              </button>
+              {groupDirectory?.canModerate && <button className={sidebarView === 'moderation' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'moderation'} onClick={() => setSidebarView('moderation')}>
+                <ShieldCheck size={15} aria-hidden="true" /><span className="companion-nav-label">Moderation</span>
+              </button>}
             </nav>
 
             {sidebarView === 'requests' && <section className="companion-list-section" aria-labelledby="requests-heading">
@@ -1022,6 +1045,10 @@ export function CompanionPanel({
                   </article>
                 })}</div>}
             </section>}
+
+            {sidebarView === 'groups' && <GroupsSidebar directory={groupDirectory} error={groupsError} selectedId={selectedGroup?.id ?? null} onOpen={openGroup} reload={reloadGroups} />}
+
+            {sidebarView === 'moderation' && groupDirectory?.canModerate && <ModerationQueue onNotify={onNotify} />}
 
             {sidebarView === 'shared' && <section className="companion-list-section" aria-labelledby="shared-heading">
               <h2 id="shared-heading">Words shared with you <span>{sharedWords.length}</span></h2>
@@ -1093,7 +1120,8 @@ export function CompanionPanel({
             </button>
           </div>
           <div className="companion-chat-surface">
-          {selectedChat ? <>
+          {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} />
+          : selectedChat ? <>
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
