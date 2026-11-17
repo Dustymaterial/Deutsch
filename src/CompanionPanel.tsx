@@ -1323,6 +1323,7 @@ export function CompanionPanel({
   const unreadCount = chats.filter((chat) => chat.unread).length
   const selectedGroup = groupDirectory?.groups.find((group) => group.id === selectedGroupId && group.joined) ?? null
   const joinedGroupCount = groupDirectory?.groups.filter((group) => group.joined).length ?? 0
+  const unreadGroupCount = groupDirectory?.groups.filter((group) => group.joined && Boolean(group.unreadCount)).length ?? 0
   const blockedCompanions = companions.filter((user) => user.status === 'blocked')
   const connectedCompanions = companions.filter((user) => user.status === 'connected')
     .sort((a, b) => {
@@ -1402,7 +1403,7 @@ export function CompanionPanel({
                 <BookOpen size={15} aria-hidden="true" /><span className="companion-nav-label">Shared words</span>{loaded && <span className="companion-nav-count">{sharedWords.length}</span>}
               </button>
               <button className={sidebarView === 'groups' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'groups'} onClick={() => switchSidebarView('groups')}>
-                <Users size={15} aria-hidden="true" /><span className="companion-nav-label">Groups</span>{groupDirectory && <span className="companion-nav-count">{joinedGroupCount}</span>}
+                <Users size={15} aria-hidden="true" /><span className="companion-nav-label">Groups</span>{groupDirectory && <span className="companion-nav-count">{joinedGroupCount}</span>}{unreadGroupCount > 0 && <b aria-label={`${unreadGroupCount} groups with unread messages`}>{unreadGroupCount}</b>}
               </button>
               {groupDirectory?.canModerate && <button className={sidebarView === 'moderation' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'moderation'} onClick={() => switchSidebarView('moderation')}>
                 <ShieldCheck size={15} aria-hidden="true" /><span className="companion-nav-label">Moderation</span>

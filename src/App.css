@@ -1697,6 +1697,18 @@
 .app-settings-panel .dialog-heading { align-items: center; }
 .app-settings-panel .dialog-heading h2 { margin: 0; }
 .app-settings-panel .dialog-heading .quiet-button { margin: 0; padding: 5px; }
+.sound-test-button {
+  margin: 0;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 999px;
+  color: #514a56;
+  background: var(--selection-cream);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sound-test-button:disabled { cursor: not-allowed; opacity: 0.5; }
 .app-settings-panel .pause-setting-toggle {
   display: flex;
   flex-direction: row;
