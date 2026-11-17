@@ -36,26 +36,54 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
   if (Array.isArray(expected)) return Array.isArray(actual) && JSON.stringify(actual) === JSON.stringify(expected)
   return Array.isArray(actual) ? actual.includes(expected) : actual === expected
 })
-const records = { users: [], progress: [], relationships: [], sharedWords: [] }
+const records = {
+  users: [], progress: [], relationships: [], sharedWords: [],
+  companionConversations: [], companionMessages: [], companionReports: [],
+}
+const applyUpdate = (record, update) => {
+  for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
+  for (const [path, value] of Object.entries(update.$inc ?? {})) set(record, path, (get(record, path) ?? 0) + value)
+  for (const [path, value] of Object.entries(update.$addToSet ?? {})) {
+    const current = get(record, path) ?? []
+    if (!current.includes(value)) set(record, path, [...current, value])
+  }
+  for (const [path, value] of Object.entries(update.$push ?? {})) {
+    set(record, path, [...value.$each, ...(get(record, path) ?? [])].slice(0, value.$slice))
+  }
+  for (const path of Object.keys(update.$unset ?? {})) unset(record, path)
+}
 const collection = (name) => ({
   async createIndex() {},
   find(query, options = {}) {
     let result = records[name].filter((item) => matches(item, query)).map((item) => ({ ...item }))
     if (options.sort) {
-      const [[field, direction]] = Object.entries(options.sort)
-      result.sort((left, right) => direction * (get(left, field) - get(right, field)))
+      const entries = Object.entries(options.sort)
+      result.sort((left, right) => {
+        for (const [field, direction] of entries) {
+          const difference = get(left, field) - get(right, field)
+          if (difference) return direction * difference
+        }
+        return 0
+      })
     }
     if (options.limit) result = result.slice(0, options.limit)
     return { async toArray() { return result } }
   },
-  async findOne(query) {
-    const record = records[name].find((item) => matches(item, query))
+  async findOne(query, options = {}) {
+    let matchesQuery = records[name].filter((item) => matches(item, query))
+    if (options.sort) {
+      const [[field, direction]] = Object.entries(options.sort)
+      matchesQuery = matchesQuery.sort((left, right) => direction * (get(left, field) - get(right, field)))
+    }
+    const record = matchesQuery[0]
     return record ? { ...record, otp: record.otp ? structuredClone(record.otp) : undefined } : null
   },
   async insertOne(value) {
     if (records[name].some((item) => (value.emailKey && item.emailKey === value.emailKey)
       || (value.usernameKey && item.usernameKey === value.usernameKey)
-      || (value.pairKey && item.pairKey === value.pairKey))) {
+      || (value.pairKey && item.pairKey === value.pairKey
+        && (name !== 'companionConversations' || item.connectionId === value.connectionId))
+      || (value.reporterId && item.reporterId === value.reporterId && item.messageId === value.messageId))) {
       throw Object.assign(new Error('duplicate'), { code: 11000 })
     }
     const _id = new ObjectId()
@@ -65,13 +93,13 @@ const collection = (name) => ({
   async updateOne(query, update) {
     const record = records[name].find((item) => matches(item, query))
     if (!record) return { matchedCount: 0, modifiedCount: 0 }
-    for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
-    for (const [path, value] of Object.entries(update.$inc ?? {})) set(record, path, (get(record, path) ?? 0) + value)
-    for (const [path, value] of Object.entries(update.$push ?? {})) {
-      set(record, path, [...value.$each, ...(get(record, path) ?? [])].slice(0, value.$slice))
-    }
-    for (const path of Object.keys(update.$unset ?? {})) unset(record, path)
+    applyUpdate(record, update)
     return { matchedCount: 1, modifiedCount: 1 }
+  },
+  async updateMany(query, update) {
+    const found = records[name].filter((item) => matches(item, query))
+    for (const record of found) applyUpdate(record, update)
+    return { matchedCount: found.length, modifiedCount: found.length }
   },
 })
 class FakeMongoClient {
@@ -168,6 +196,9 @@ try {
   records.users.push(companion)
   const learner = await request('/api/auth/login', { email, password: 'reset-password-123' })
   const other = await request('/api/auth/login', { email: companion.email, password })
+  for (let index = 0; index < 301; index++) {
+    assert.equal((await request('/api/companions/chats', null, learner.cookie)).status, 200)
+  }
   const learnerId = records.users.find((item) => item.email === email)._id.toString()
   const otherId = companion._id.toString()
   assert.equal((await request('/api/companions/', null, null)).status, 401)
@@ -181,6 +212,7 @@ try {
   assert.match(deliveries[2].TextPart, /learner would like/)
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 409)
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'accept' }, learner.cookie)).status, 409)
+  assert.equal((await request('/api/companions/chats/open', { id: otherId }, learner.cookie)).status, 404)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].status, 'incoming')
   assert.equal((await request('/api/companions/action', { id: learnerId, action: 'accept' }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/', null, learner.cookie)).body.companions[0].status, 'connected')
@@ -224,7 +256,154 @@ try {
   assert.ok((await request('/api/companions/', null, other.cookie)).body.companions[0].nudgeAt)
   assert.equal((await request('/api/companions/nudge/read', { id: learnerId }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].nudgeAt, undefined)
+  const openedChat = await request('/api/companions/chats/open', { id: otherId }, learner.cookie)
+  assert.equal(openedChat.status, 200)
+  assert.equal((await request('/api/companions/chats/open', { id: learnerId }, other.cookie)).body.id, openedChat.body.id)
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '   ' }, learner.cookie)).status, 400)
+  const sentMessage = await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '  Viel Erfolg beim Lernen!  ' }, learner.cookie)
+  assert.equal(sentMessage.status, 201)
+  assert.equal(sentMessage.body.message.text, 'Viel Erfolg beim Lernen!')
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'x'.repeat(2001) }, learner.cookie)).status, 400)
+  records.users.find((item) => item.email === email).companionMessageHistory = Array.from({ length: 60 }, () => new Date())
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'Rate limit check.' }, learner.cookie)).status, 429)
+  records.users.find((item) => item.email === email).companionMessageHistory = []
+  const receivedMessages = await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, other.cookie)
+  assert.equal(receivedMessages.body.messages.length, 1)
+  assert.equal(receivedMessages.body.messages[0].isMine, false)
+  const unreadChat = (await request('/api/companions/chats', null, learner.cookie)).body.chats[0]
+  assert.equal(unreadChat.lastMessage.text, 'Viel Erfolg beim Lernen!')
+  assert.equal(unreadChat.unread, false)
+  const report = await request(`/api/companions/messages/${sentMessage.body.message.id}/report`, {
+    reason: 'other', details: 'This is a test report.',
+  }, other.cookie)
+  assert.equal(report.status, 201)
+  assert.equal((await request(`/api/companions/messages/${sentMessage.body.message.id}/report`, { reason: 'spam' }, other.cookie)).status, 409)
+  assert.equal((await request(`/api/companions/messages/${sentMessage.body.message.id}/report`, { reason: 'spam' }, learner.cookie)).status, 404)
+  assert.equal(records.companionReports[0].reportedUserId, learnerId)
+  const reply = await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'Danke!' }, other.cookie)
+  assert.equal(reply.status, 201)
+  assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats[0].unread, true)
+  const messagesPath = `/api/companions/chats/${openedChat.body.id}/messages`
+  const wordCard = { prompt: 'die Lektion', article: 'die', meaning: 'lesson', example: 'Die Lektion ist kurz.', category: 'noun' }
+  const wordMessage = await request(messagesPath, { card: wordCard }, learner.cookie)
+  assert.equal(wordMessage.status, 201)
+  assert.equal(wordMessage.body.message.kind, 'word')
+  assert.equal(wordMessage.body.message.text, 'Shared a word: die Lektion')
+  assert.deepEqual(wordMessage.body.message.card, wordCard)
+  assert.equal((await request(messagesPath, { card: wordCard, text: 'Both' }, learner.cookie)).status, 400)
+  assert.equal((await request(messagesPath, { card: { ...wordCard, article: undefined } }, learner.cookie)).status, 400)
+  assert.equal((await request('/api/companions/chats', null, other.cookie)).body.chats[0].lastMessage.text, 'Shared a word: die Lektion')
+  const threaded = await request(messagesPath, { text: 'Gern!', replyToId: reply.body.message.id }, learner.cookie)
+  assert.equal(threaded.status, 201)
+  assert.deepEqual(threaded.body.message.replyTo, { id: reply.body.message.id, isMine: false, text: 'Danke!' })
+  assert.equal((await request(messagesPath, { text: 'Lost', replyToId: new ObjectId().toString() }, learner.cookie)).status, 400)
+  const reactionPath = `/api/companions/messages/${threaded.body.message.id}/reaction`
+  assert.equal((await request(reactionPath, { emoji: '😈' }, other.cookie)).status, 400)
+  assert.deepEqual((await request(reactionPath, { emoji: '🎉' }, other.cookie)).body.reactions, [{ emoji: '🎉', count: 1, mine: true }])
+  assert.deepEqual((await request(reactionPath, { emoji: '💡' }, other.cookie)).body.reactions, [{ emoji: '💡', count: 1, mine: true }])
+  assert.deepEqual((await request(reactionPath, { emoji: '💡' }, learner.cookie)).body.reactions, [{ emoji: '💡', count: 2, mine: true }])
+  const reacted = (await request(messagesPath, null, learner.cookie)).body.messages.find((item) => item.id === threaded.body.message.id)
+  assert.deepEqual(reacted.reactions, [{ emoji: '💡', count: 2, mine: true }])
+  assert.deepEqual((await request(reactionPath, { emoji: null }, other.cookie)).body.reactions, [{ emoji: '💡', count: 1, mine: false }])
+  assert.equal((await request(`/api/companions/messages/${new ObjectId().toString()}/reaction`, { emoji: '👍' }, other.cookie)).status, 404)
+  const correctionPath = `/api/companions/messages/${reply.body.message.id}/correction`
+  assert.equal((await request(correctionPath, { text: '   ' }, learner.cookie)).status, 400)
+  assert.equal((await request(correctionPath, { text: 'Danke!' }, learner.cookie)).status, 400)
+  assert.equal((await request(correctionPath, { text: 'Danke schön!' }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${wordMessage.body.message.id}/correction`, { text: 'Die Lektionen' }, other.cookie)).status, 404)
+  const suggested = await request(correctionPath, { text: 'Danke schön!', note: 'A friendlier closing.' }, learner.cookie)
+  assert.equal(suggested.status, 201)
+  assert.deepEqual(
+    { text: suggested.body.message.correction.text, note: suggested.body.message.correction.note, byMe: suggested.body.message.correction.byMe },
+    { text: 'Danke schön!', note: 'A friendlier closing.', byMe: true },
+  )
+  assert.equal((await request(correctionPath, { text: 'Vielen Dank!' }, learner.cookie)).status, 409)
+  const authorView = (await request(messagesPath, null, other.cookie)).body.messages.find((item) => item.id === reply.body.message.id)
+  assert.equal(authorView.text, 'Danke!')
+  assert.equal(authorView.correction.byMe, false)
+  assert.equal(authorView.correction.response, undefined)
+  const respondPath = `${correctionPath}/respond`
+  assert.equal((await request(respondPath, { response: 'thanks' }, learner.cookie)).status, 404)
+  assert.equal((await request(respondPath, { response: 'maybe' }, other.cookie)).status, 400)
+  assert.equal((await request(respondPath, { response: 'thanks' }, other.cookie)).body.message.correction.response, 'thanks')
+  assert.equal((await request(respondPath, { response: 'saved' }, other.cookie)).body.message.correction.response, 'saved')
+  assert.equal((await request(respondPath, { response: 'thanks' }, other.cookie)).body.message.correction.response, 'saved')
+  const correctorView = (await request(messagesPath, null, learner.cookie)).body.messages.find((item) => item.id === reply.body.message.id)
+  assert.equal(correctorView.correction.response, 'saved')
+  const cheer = await request(messagesPath, { text: 'Super!' }, other.cookie)
+  const cheerPath = `/api/companions/messages/${cheer.body.message.id}/correction`
+  assert.equal((await request(cheerPath, { approve: true, text: 'Super!!' }, learner.cookie)).status, 400)
+  assert.equal((await request(cheerPath, { approve: true, note: 'Nice' }, learner.cookie)).status, 400)
+  assert.equal((await request(cheerPath, { approve: true }, other.cookie)).status, 404)
+  const approved = await request(cheerPath, { approve: true }, learner.cookie)
+  assert.equal(approved.status, 201)
+  assert.deepEqual(
+    { approved: approved.body.message.correction.approved, text: approved.body.message.correction.text, byMe: approved.body.message.correction.byMe },
+    { approved: true, text: undefined, byMe: true },
+  )
+  assert.equal((await request(cheerPath, { approve: true }, learner.cookie)).status, 409)
+  assert.equal((await request(`${cheerPath}/respond`, { response: 'saved' }, other.cookie)).status, 400)
+  assert.equal((await request(`${cheerPath}/respond`, { response: 'thanks' }, other.cookie)).body.message.correction.response, 'thanks')
+  assert.equal((await request(`/api/companions/messages/${cheer.body.message.id}/edit`, { text: 'Toll!' }, other.cookie)).status, 409)
+  const grammar = await request(messagesPath, { text: 'Ich habe gestern gegangen' }, other.cookie)
+  const grammarPath = `/api/companions/messages/${grammar.body.message.id}/correction`
+  assert.equal((await request(grammarPath, { text: 'Ich bin gestern gegangen', tags: ['grammar'] }, learner.cookie)).status, 400)
+  assert.equal((await request(grammarPath, { text: 'Ich bin gestern gegangen', tags: ['article', 'case', 'tense', 'spelling'] }, learner.cookie)).status, 400)
+  const tagged = await request(grammarPath, { text: 'Ich bin gestern gegangen', tags: ['verb-form', 'tense', 'verb-form'], note: 'Bewegung: sein' }, learner.cookie)
+  assert.equal(tagged.status, 201)
+  assert.deepEqual(tagged.body.message.correction.tags, ['verb-form', 'tense'])
+  assert.equal((await request(messagesPath, null, other.cookie)).body.messages.find((item) => item.id === grammar.body.message.id).correction.text, 'Ich bin gestern gegangen')
+  assert.equal((await request(`/api/companions/messages/${reply.body.message.id}/edit`, { text: 'Danke sehr!' }, other.cookie)).status, 409)
+  const editPath = `/api/companions/messages/${threaded.body.message.id}/edit`
+  assert.equal((await request(editPath, { text: 'Gern geschehen!' }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${wordMessage.body.message.id}/edit`, { text: 'Changed' }, learner.cookie)).status, 404)
+  assert.equal((await request(editPath, { text: '  ' }, learner.cookie)).status, 400)
+  const edited = await request(editPath, { text: '  Gern geschehen!  ' }, learner.cookie)
+  assert.equal(edited.status, 200)
+  assert.equal(edited.body.message.text, 'Gern geschehen!')
+  assert.ok(edited.body.message.editedAt)
+  assert.equal((await request(messagesPath, null, other.cookie)).body.messages.find((item) => item.id === threaded.body.message.id).editableUntil, undefined)
+  records.companionMessages.find((item) => item._id.toString() === threaded.body.message.id).createdAt = new Date(Date.now() - 11 * 60 * 1000)
+  assert.equal((await request(editPath, { text: 'Too late' }, learner.cookie)).status, 403)
+  assert.equal((await request(`/api/companions/messages/${threaded.body.message.id}/unsend`, {}, learner.cookie)).status, 403)
+  const oops = await request(messagesPath, { text: 'Oops, wrong chat' }, learner.cookie)
+  const answered = await request(messagesPath, { text: 'Verstanden', replyToId: oops.body.message.id }, other.cookie)
+  assert.equal(answered.body.message.replyTo.text, 'Oops, wrong chat')
+  const unsendPath = `/api/companions/messages/${oops.body.message.id}/unsend`
+  assert.equal((await request(unsendPath, {}, other.cookie)).status, 404)
+  const unsent = await request(unsendPath, {}, learner.cookie)
+  assert.equal(unsent.status, 200)
+  assert.equal(unsent.body.message.kind, 'unsent')
+  assert.equal(unsent.body.message.text, 'Message unsent')
+  const afterUnsend = (await request(messagesPath, null, other.cookie)).body.messages
+  assert.equal(afterUnsend.find((item) => item.id === oops.body.message.id).kind, 'unsent')
+  assert.equal(afterUnsend.find((item) => item.id === answered.body.message.id).replyTo.text, 'Message unsent')
+  assert.equal(records.companionMessages.find((item) => item._id.toString() === oops.body.message.id).text, '')
+  assert.equal((await request(unsendPath, {}, learner.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${oops.body.message.id}/reaction`, { emoji: '👍' }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${oops.body.message.id}/report`, { reason: 'spam' }, other.cookie)).status, 404)
+  assert.equal((await request(messagesPath, { text: 'Reply', replyToId: oops.body.message.id }, other.cookie)).status, 400)
+  const searchPath = (term) => `/api/companions/chats/${openedChat.body.id}/search?q=${encodeURIComponent(term)}`
+  assert.equal((await request(searchPath('x'), null, other.cookie)).status, 400)
+  assert.equal((await request(searchPath('x'.repeat(101)), null, other.cookie)).status, 400)
+  assert.deepEqual((await request(searchPath('SCHON'), null, learner.cookie)).body.messages.map((item) => item.id), [reply.body.message.id])
+  assert.deepEqual((await request(searchPath('danke'), null, learner.cookie)).body.messages.map((item) => item.id), [reply.body.message.id])
+  assert.deepEqual((await request(searchPath('lektion'), null, other.cookie)).body.messages.map((item) => item.kind), ['word'])
+  assert.equal((await request(searchPath('shared'), null, other.cookie)).body.messages.length, 0)
+  assert.equal((await request(searchPath('oops'), null, other.cookie)).body.messages.length, 0)
+  assert.equal((await request(`/api/companions/chats/${new ObjectId().toString()}/search?q=danke`, null, other.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/delete`, {}, learner.cookie)).status, 200)
+  assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats.length, 0)
+  assert.equal((await request('/api/companions/chats', null, other.cookie)).body.chats.length, 1)
+  assert.deepEqual((await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, learner.cookie)).body.messages, [])
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'A new message after deletion.' }, other.cookie)).status, 201)
+  const afterDeleteMessage = await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, learner.cookie)
+  assert.deepEqual(afterDeleteMessage.body.messages.map((item) => item.text), ['A new message after deletion.'])
+  assert.equal((await request(searchPath('danke'), null, learner.cookie)).body.messages.length, 0)
+  assert.equal((await request(searchPath('Deletion'), null, learner.cookie)).body.messages.length, 1)
+  assert.equal((await request(searchPath('danke'), null, other.cookie)).body.messages.length, 1)
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'block' }, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, other.cookie)).status, 404)
   assert.equal((await request('/api/companions/search', { username: 'learner' }, other.cookie)).status, 404)
   assert.deepEqual((await request('/api/companions/', null, other.cookie)).body.companions, [])
   assert.equal((await request('/api/companions/request', { id: learnerId }, other.cookie)).status, 404)

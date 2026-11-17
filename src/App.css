@@ -25,6 +25,41 @@
     var(--paper);
 }
 
+.companion-launcher {
+  position: fixed;
+  z-index: 20;
+  right: 24px;
+  bottom: 24px;
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: #f45bb8;
+  color: #111;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transform: rotate(-4deg);
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.companion-launcher:hover {
+  background: #e947a8;
+  transform: rotate(0deg) translateY(-2px);
+}
+
+@media (max-width: 520px) {
+  .companion-launcher {
+    right: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    width: 46px;
+    height: 46px;
+    border-radius: 11px;
+  }
+}
+
 .app-header {
   width: min(100%, 980px);
   display: flex;
@@ -268,37 +303,6 @@
 .reset-review-link:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.reset-review-confirmation {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 10px;
-  background: #f5e9e4;
-}
-
-.reset-review-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.reset-review-actions .quiet-button {
-  margin: 0;
-}
-
-.reset-review-button {
-  padding: 8px 11px;
-  border: 0;
-  border-radius: 8px;
-  color: #fff;
-  background: #925348;
-  font: inherit;
-  font-size: 0.72rem;
-  font-weight: 700;
-  cursor: pointer;
 }
 
 .session-setting-block .study-set-filter {

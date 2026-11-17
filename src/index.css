@@ -78,42 +78,93 @@ button {
   font: inherit;
 }
 
-.app-checkbox {
+.app-toggle {
   appearance: none;
-  width: 18px;
-  height: 18px;
-  min-height: 0;
-  flex: 0 0 18px;
+  width: 34px;
+  height: 20px;
+  min-height: 20px;
+  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
   margin: 0;
-  padding: 0;
-  border: 1.5px solid #89998c;
-  border-radius: 5px;
-  background: #fffefa;
+  padding: 3px;
+  border: 0;
+  border-radius: 999px;
+  background: #d8dcd8;
   cursor: pointer;
+  transition: background-color 140ms ease;
 }
 
-.app-checkbox:checked {
-  border-color: #52715c;
-  background: #52715c url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.2 6.5 11l6-6' fill='none' stroke='%23fffefa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
+.app-toggle > span {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex: 0 0 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(35, 40, 37, 0.16);
+  transition: transform 140ms ease;
 }
 
-.app-checkbox:focus-visible {
-  outline: 2px solid #171717;
-  outline-offset: 3px;
+.app-toggle[aria-checked="true"] { background: #80ae89; }
+.app-toggle[aria-checked="true"] > span { transform: translateX(14px); }
+.app-toggle:disabled { cursor: not-allowed; opacity: 0.55; }
+
+@media (forced-colors: active) {
+  .app-toggle { border: 1px solid ButtonText; background: Canvas; }
+  .app-toggle[aria-checked="true"] { border-color: Highlight; background: Highlight; }
+  .app-toggle > span { background: ButtonText; box-shadow: none; }
+  .app-toggle[aria-checked="true"] > span { background: HighlightText; }
 }
 
-.app-checkbox:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.confirm-dialog {
+  width: min(380px, calc(100vw - 32px));
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: #fff;
+  color: #292b2a;
+  box-shadow: 0 24px 60px rgba(30, 32, 31, 0.28);
+  animation: confirm-dialog-in 140ms ease-out;
+}
+.confirm-dialog::backdrop { background: rgba(35, 38, 36, 0.38); }
+.confirm-dialog-body { display: grid; gap: 8px; padding: 22px 22px 18px; }
+.confirm-dialog h2 { margin: 0; font: 650 1.02rem/1.3 system-ui, sans-serif; letter-spacing: -0.01em; }
+.confirm-dialog p { margin: 0; color: #5d635f; font: 400 0.8rem/1.55 system-ui, sans-serif; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.confirm-dialog-actions button {
+  min-height: 36px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 10px;
+  font: 600 0.76rem system-ui, sans-serif;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+.confirm-dialog-actions button:hover { filter: brightness(0.96); }
+.confirm-dialog-actions .confirm-cancel { background: #eceeec; color: #3d433f; }
+.confirm-dialog-actions .confirm-accept.neutral { background: #b9d9fb; color: #3569a6; }
+.confirm-dialog-actions .confirm-accept.danger { background: #f3c9c1; color: #994d43; }
+.confirm-dialog-actions button:focus-visible { outline: 2px solid #3d433f; outline-offset: 2px; }
+
+@keyframes confirm-dialog-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 420px) {
+  .confirm-dialog-actions { flex-direction: column-reverse; }
+  .confirm-dialog-actions button { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-dialog { animation: none; }
 }
 
 @media (forced-colors: active) {
-  .app-checkbox,
-  .app-checkbox:checked {
-    appearance: auto;
-    border: revert;
-    background: revert;
-  }
+  .confirm-dialog { border: 1px solid CanvasText; }
+  .confirm-dialog-actions button { border: 1px solid ButtonText; }
 }
 
 button:focus-visible,

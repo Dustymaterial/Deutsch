@@ -3,8 +3,7 @@ import { avatarDataUri, avatarOptions, defaultAvatarSeed } from './pixelAvatar.m
 import { Eye, EyeOff } from 'lucide-react'
 import { useFormValidation } from './formValidation'
 import { AccountSecurityPanel } from './AccountSecurityPanel'
-import { CompanionPanel, type SharedWordPreview } from './CompanionPanel'
-import type { Card } from './deckImport'
+import { useConfirm } from './confirmContext'
 import './AccountMenu.css'
 
 export type AccountUser = {
@@ -36,16 +35,14 @@ export function AccountMenu({
   open,
   onOpenChange,
   onNotify,
-  cards,
-  onReceiveWord,
+  onOpenCompanions,
 }: {
   onUserChange: (user: AccountUser | null) => void
   syncStatus?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onNotify: (message: string) => void
-  cards: Card[]
-  onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
+  onOpenCompanions: () => void
 }) {
   const [user, setUser] = useState<AccountUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -58,7 +55,6 @@ export function AccountMenu({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [securityMode, setSecurityMode] = useState<'verify' | 'reset' | 'change' | null>(null)
-  const [showCompanions, setShowCompanions] = useState(false)
   const [codeSent, setCodeSent] = useState(false)
   const { errors, validate, handleInput, clearErrors } = useFormValidation()
   useEffect(() => {
@@ -164,6 +160,16 @@ export function AccountMenu({
     }
   }
 
+  const confirm = useConfirm()
+  const requestSignOut = async () => {
+    const confirmed = await confirm({
+      title: 'Sign out?',
+      message: 'You will stop syncing and using companions on this device until you sign in again. Your deck stays saved on this device.',
+      confirmLabel: 'Sign out',
+    })
+    if (confirmed) await signOut()
+  }
+
   const signOut = async () => {
     setBusy(true)
     setError(null)
@@ -172,7 +178,6 @@ export function AccountMenu({
       const body = await responseBody(response)
       if (!response.ok) throw new Error(body.error ?? 'Could not sign out.')
       setUser(null)
-      setShowCompanions(false)
       setUsername('')
       setAvatarSeed(defaultAvatarSeed)
       setEmail('')
@@ -223,8 +228,6 @@ export function AccountMenu({
             onNotify={onNotify}
             onBack={() => { setSecurityMode(null); setRegistering(false); setError(null); clearErrors() }}
           />
-        ) : user && showCompanions ? (
-          <CompanionPanel cards={cards} onReceiveWord={onReceiveWord} onBack={() => setShowCompanions(false)} />
         ) : user ? (
           <>
             <div className="account-popover-heading">
@@ -282,11 +285,14 @@ export function AccountMenu({
                 <p className="account-message">Verify your email to connect with learning companions.</p>
               </>
             )}
-            {user.emailVerified && <button className="account-secondary" disabled={busy} onClick={() => setShowCompanions(true)} type="button">Learning companions</button>}
+            {user.emailVerified && <button className="account-secondary" disabled={busy} onClick={() => {
+              onOpenChange(false)
+              onOpenCompanions()
+            }} type="button">Learning companions</button>}
             <button className="account-secondary" disabled={busy} onClick={() => {
               setError(null); setSecurityMode('change')
             }} type="button">Change password</button>
-            <button className="account-secondary" disabled={busy} onClick={signOut} type="button">
+            <button className="account-secondary" disabled={busy} onClick={() => void requestSignOut()} type="button">
               Sign out
             </button>
             {syncStatus && <p className="account-message" role="status">{syncStatus}</p>}
