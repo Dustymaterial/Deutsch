@@ -42,6 +42,7 @@ body {
 
 .startup-splash-leaving {
   opacity: 0;
+  pointer-events: none;
 }
 
 .startup-logo {

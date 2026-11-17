@@ -23,6 +23,9 @@ import { PersistentChatCache, chatCacheClearedKey, chatCacheEnabled, clearChatCa
 import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
+import { formatChatTime } from './chatTime'
+import { conversationEntryState, isConversationEntry } from './conversationHistory'
+import type { StarterEntry } from './starterDeck'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -117,11 +120,6 @@ async function request(path: string, body?: object): Promise<unknown> {
   return data
 }
 
-function formatChatTime(value: string) {
-  const date = new Date(value)
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
 const normalizeMessage = (message: ChatMessage): ChatMessage => ({
   ...message,
   kind: message.kind ?? 'text',
@@ -176,7 +174,7 @@ export function CompanionPanel({
   cards: Card[]
   accountId: string | null
   onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
-  onAddStarterWord: (entryId: string) => 'added' | 'already-present' | false
+  onAddStarterWord: (entry: StarterEntry) => 'added' | 'already-present' | false
   onAddDictionaryWord: (entry: WordEntry) => 'added' | 'already-present' | false
   onNotify: (message: string) => void
   onBack: (conversationEntry: boolean) => void
@@ -259,7 +257,7 @@ export function CompanionPanel({
       && 'kind' in value && (value.kind === 'text' || value.kind === 'word' || value.kind === 'unsent' || value.kind === 'hidden' || value.kind === 'system')
       && (value.kind === 'system' || ('reactions' in value && Array.isArray(value.reactions)))),
     (failure) => setCacheProblem(failure instanceof Error ? `Chat storage is unavailable: ${failure.message}` : 'Chat storage is unavailable.')))
-  const conversationHistoryEntry = useRef(false)
+  const conversationHistoryEntry = useRef<string | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory()
   const lastScrolledMessage = useRef<string | null>(null)
@@ -409,9 +407,9 @@ export function CompanionPanel({
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      if (!conversationHistoryEntry.current) return
-      if (event.state?.__deutschCompanionChat || event.state?.__deutschCompanionGroup) return
-      conversationHistoryEntry.current = false
+      const token = conversationHistoryEntry.current
+      if (!token || isConversationEntry(event.state, token)) return
+      conversationHistoryEntry.current = null
       chatOpenSequence.current += 1
       setOpeningChat(null)
       setReportingMessageId(null)
@@ -685,8 +683,9 @@ export function CompanionPanel({
     const cached = existing ? privateCache.get(existing.id) : null
     setSidebarView('chats')
     if (!conversationHistoryEntry.current) {
-      window.history.pushState({ ...window.history.state, __deutschCompanionChat: true }, '', window.location.href)
-      conversationHistoryEntry.current = true
+      const token = `${Date.now()}-${Math.random()}`
+      window.history.pushState(conversationEntryState(window.history.state, 'private', token), '', window.location.href)
+      conversationHistoryEntry.current = token
     }
     setSelectedGroupId(null)
     setReportingMessageId(null)
@@ -741,7 +740,7 @@ export function CompanionPanel({
     setOpeningChat(null)
     setReportingMessageId(null)
     if (conversationHistoryEntry.current) {
-      conversationHistoryEntry.current = false
+      conversationHistoryEntry.current = null
       window.history.back()
     }
     setSelectedGroupId(null)
@@ -758,8 +757,9 @@ export function CompanionPanel({
     setReportingMessageId(null)
     setSidebarView('groups')
     if (!conversationHistoryEntry.current) {
-      window.history.pushState({ ...window.history.state, __deutschCompanionGroup: true }, '', window.location.href)
-      conversationHistoryEntry.current = true
+      const token = `${Date.now()}-${Math.random()}`
+      window.history.pushState(conversationEntryState(window.history.state, 'group', token), '', window.location.href)
+      conversationHistoryEntry.current = token
     }
     selectedChatId.current = null
     setSelectedChat(null)
@@ -771,7 +771,7 @@ export function CompanionPanel({
 
   const closeGroup = () => {
     if (conversationHistoryEntry.current) {
-      conversationHistoryEntry.current = false
+      conversationHistoryEntry.current = null
       window.history.back()
     }
     setSelectedGroupId(null)
@@ -780,8 +780,8 @@ export function CompanionPanel({
   }
 
   const backToDeck = () => {
-    const conversationEntry = conversationHistoryEntry.current
-    conversationHistoryEntry.current = false
+    const conversationEntry = Boolean(conversationHistoryEntry.current)
+    conversationHistoryEntry.current = null
     closeChat()
     onBack(conversationEntry)
   }
@@ -1094,7 +1094,8 @@ export function CompanionPanel({
   }
 
   const addPeekedWord = (entry: WordEntry) => {
-    const result = entry.source === 'dictionary' ? onAddDictionaryWord(entry) : onAddStarterWord(entry.id)
+    const starter = entry.source === 'starter' ? starterPack.cards.find((item) => item.id === entry.id) : undefined
+    const result = entry.source === 'dictionary' ? onAddDictionaryWord(entry) : starter ? onAddStarterWord(starter) : false
     if (result === 'already-present') onNotify(`You already had ${entry.prompt} in your deck.`)
   }
   const wordTools: MessageWordTools = {
