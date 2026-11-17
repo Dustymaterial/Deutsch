@@ -44,6 +44,22 @@ test('persistent chat cache isolates accounts and kinds and bounds saved pages',
   assert.equal(errors.length, 0)
 })
 
+test('a replay cursor persists with the bounded page and is cleared with its account', async () => {
+  await clearChatCache()
+  const instance = cache('replay')
+  await instance.whenReady()
+  instance.set('chat', { ...page(...Array.from({ length: 60 }, (_, i) => String(i))), cursor: 'signed-cursor' })
+  await flush(instance)
+  const reloaded = cache('replay')
+  await reloaded.whenReady()
+  assert.equal(reloaded.get('chat').cursor, 'signed-cursor')
+  assert.equal(reloaded.get('chat').messages.length, 50)
+  await clearChatCache('replay')
+  const cleared = cache('replay')
+  await cleared.whenReady()
+  assert.equal(cleared.get('chat'), null)
+})
+
 test('hydration respects expiry, invalid data, and changes made while it is in flight', async () => {
   await clearChatCache()
   const original = cache('hydrate')

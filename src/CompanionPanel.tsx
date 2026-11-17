@@ -23,9 +23,12 @@ import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime } from './chatTime'
-import { conversationEntryState, isConversationEntry } from './conversationHistory'
+import { conversationEntryState, isChatOverlayEntry, isConversationEntry, withoutChatOverlay } from './conversationHistory'
 import { watchChatChanges } from './chatLive'
+import { replayUpdatesInRange } from './chatReplay'
 import { useChatScrollState } from './useChatScrollState'
+import { useChatOverlayHistory } from './useChatOverlayHistory'
+import { leaveChatHistory } from './chatHistoryNavigation'
 import { clearCommunityDirectoryCache, getCommunityDirectory, loadCommunityDirectory } from './communityDirectoryCache'
 import { CompanionApiError, fetchCompanionDirectory, request } from './companionsApi'
 import { loadStarterPack, type StarterEntry, type StarterPack } from './starterDeck'
@@ -64,6 +67,7 @@ type ChatSummary = {
 }
 export type CompanionDirectory = { companions: Companion[]; sharedWords: SharedWordPreview[]; emailsEnabled: boolean; chats: ChatSummary[] }
 type SelectedChat = { id: string; companion: Profile }
+type SidebarView = 'chats' | 'requests' | 'shared' | 'groups' | 'moderation'
 
 const shareableCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 
@@ -135,7 +139,7 @@ export function CompanionPanel({
   onAddStarterWord: (entry: StarterEntry) => 'added' | 'already-present' | false
   onAddDictionaryWord: (entry: WordEntry) => 'added' | 'already-present' | false
   onNotify: (message: string) => void
-  onBack: (conversationEntry: boolean) => void
+  onBack: (conversationEntry: boolean, viewDepth: number) => void
   invitationToken: string | null
   onInvitationHandled: () => void
 }) {
@@ -153,7 +157,7 @@ export function CompanionPanel({
   const [loading, setLoading] = useState(!initialDirectory)
   const [loaded, setLoaded] = useState(Boolean(initialDirectory))
   const [busy, setBusy] = useState(false)
-  const [sidebarView, setSidebarView] = useState<'chats' | 'requests' | 'shared' | 'groups' | 'moderation'>(() => invitationToken ? 'groups' : 'chats')
+  const [sidebarView, setSidebarView] = useState<SidebarView>(() => invitationToken ? 'groups' : 'chats')
   const [username, setUsername] = useState('')
   const [found, setFound] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -203,6 +207,16 @@ export function CompanionPanel({
   const latestChatRequest = useRef(0)
   const directoryRequest = useRef(0)
   const latestChatInFlight = useRef<{ id: string; sequence: number } | null>(null)
+  const olderChatInFlight = useRef<{ id: string; cursor?: string } | null>(null)
+  const [messageMenu, setMessageMenu] = useState<string | null>(null)
+  const [chatDetailsMenuOpen, setChatDetailsMenuOpen] = useState(false)
+  const chatDetailsMenu = useRef<HTMLDetailsElement | null>(null)
+  const onChatDetailsToggle = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+    const target = event.currentTarget
+    if (target.open) chatDetailsMenu.current = target
+    else if (chatDetailsMenu.current === target) chatDetailsMenu.current = null
+    setChatDetailsMenuOpen(Boolean(chatDetailsMenu.current))
+  }
   const [privateCache] = useState(() => new PersistentChatCache<ChatMessage>(accountId ?? '', 'private', false,
     (value): value is ChatMessage => Boolean(value && typeof value === 'object' && 'id' in value && typeof value.id === 'string'
       && 'text' in value && typeof value.text === 'string' && 'createdAt' in value && typeof value.createdAt === 'string'
@@ -220,10 +234,35 @@ export function CompanionPanel({
       && (value.kind === 'system' || ('reactions' in value && Array.isArray(value.reactions)))),
     (failure) => setCacheProblem(failure instanceof Error ? `Chat storage is unavailable: ${failure.message}` : 'Chat storage is unavailable.')))
   const conversationHistoryEntry = useRef<string | null>(null)
+  const sidebarHistory = useRef<{
+    base: SidebarView
+    active: string | null
+    depth: number
+    entries: Map<string, { view: SidebarView; depth: number }>
+  }>({ base: invitationToken ? 'groups' : 'chats', active: null, depth: 0, entries: new Map() })
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory(accountId)
   const lastScrolledMessage = useRef<string | null>(null)
   const { errors, validate, handleInput } = useFormValidation()
+  const privateOverlay = sidebarView === 'chats' && selectedChat ? [
+    reportingMessageId && 'report', savingCorrection && 'save', correcting && 'correct',
+    editing && 'edit', reactionPickerFor && 'reaction', messageMenu && 'message-menu', chatDetailsMenuOpen && 'details-menu', activeWord && 'word',
+    wordChipsFor && 'words', searchFor === selectedChat.id && 'search',
+    reply?.chatId === selectedChat.id && 'reply',
+  ].filter(Boolean).join(',') : ''
+  useChatOverlayHistory(sidebarView === 'chats' ? selectedChat?.id ?? null : null, privateOverlay, (overlay) => {
+    if (overlay === 'report') setReportingMessageId(null)
+    else if (overlay === 'save') setSavingCorrection(null)
+    else if (overlay === 'correct') setCorrecting(null)
+    else if (overlay === 'edit') setEditing(null)
+    else if (overlay === 'reaction') setReactionPickerFor(null)
+    else if (overlay === 'message-menu') setMessageMenu(null)
+    else if (overlay === 'details-menu') { if (chatDetailsMenu.current) chatDetailsMenu.current.open = false; setChatDetailsMenuOpen(false) }
+    else if (overlay === 'word') setActiveWord(null)
+    else if (overlay === 'words') setWordChipsFor(null)
+    else if (overlay === 'search') setSearchFor(null)
+    else if (overlay === 'reply') setReply(null)
+  })
 
   const load = useCallback(async (join = false) => {
     const sequence = ++directoryRequest.current
@@ -248,15 +287,42 @@ export function CompanionPanel({
     chatId: string,
     mode: 'replace' | 'merge' = 'replace',
     before?: Pick<ChatMessage, 'createdAt' | 'id'>,
+    replayCursor?: string,
   ) => {
+    if (!before && olderChatInFlight.current?.id === chatId && !replayCursor) return null
     const sequence = chatOpenSequence.current
     const requestSequence = before ? null : ++latestChatRequest.current
     const query = before ? `?before=${encodeURIComponent(before.createdAt)}&beforeId=${encodeURIComponent(before.id)}` : '?read=0'
     const pending = before ? null : { id: chatId, sequence }
     if (pending) latestChatInFlight.current = pending
-    let data: { messages: ChatMessage[]; hasMore: boolean; typing: boolean }
+    const cached = before ? null : privateCache.get(chatId)
+    let data: { messages: ChatMessage[]; hasMore: boolean; typing: boolean; cursor?: string | null }
+    let replayed = false
+    let reset = false
     try {
-      data = await request(`/chats/${chatId}/messages${query}`) as typeof data
+      const cursor = replayCursor ?? cached?.cursor
+      if (cursor && cached) {
+        let sync: { reset: boolean; messages?: ChatMessage[]; typing?: boolean; cursor?: string }
+        try {
+          sync = await request(`/chats/${chatId}/sync?cursor=${encodeURIComponent(cursor)}`) as typeof sync
+        } catch (failure) {
+          if (!(failure instanceof CompanionApiError) || failure.status !== 503
+            || failure.message !== 'Chat replay requires a MongoDB replica set.') throw failure
+          sync = { reset: true }
+        }
+        if (sync.reset === false && Array.isArray(sync.messages) && typeof sync.typing === 'boolean' && typeof sync.cursor === 'string') {
+          data = { messages: sync.messages, hasMore: cached.hasMore, typing: sync.typing, cursor: sync.cursor }
+          replayed = true
+        } else if (sync.reset === true) {
+          reset = true
+          data = await request(`/chats/${chatId}/messages${query}`) as typeof data
+        } else {
+          throw new Error('The chat service returned an incomplete replay response.')
+        }
+      } else {
+        reset = !before && mode === 'merge' && !cached
+        data = await request(`/chats/${chatId}/messages${query}`) as typeof data
+      }
     } catch (failure) {
       if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence
         || (requestSequence !== null && requestSequence !== latestChatRequest.current)) return null
@@ -270,15 +336,35 @@ export function CompanionPanel({
       throw new Error('The chat service returned an incomplete response.')
     }
     if (!before) {
-      privateCache.set(chatId, { messages: data.messages.map(normalizeMessage), hasMore: data.hasMore })
+      const updates = data.messages.map(normalizeMessage)
+      const messages = replayed && cached ? mergeMessages(cached.messages, replayUpdatesInRange(cached.messages, updates)) : updates
+      privateCache.set(chatId, { messages, hasMore: data.hasMore, ...(data.cursor ? { cursor: data.cursor } : {}) })
       setChatTyping({ id: chatId, typing: data.typing })
     }
-    setChatMessages((current) => mode === 'replace' ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
-    if (mode === 'replace' || before) setHasOlderMessages(data.hasMore)
+    setChatMessages((current) => replayed
+      ? mergeMessages(current, replayUpdatesInRange(current, data.messages))
+      : mode === 'replace' || reset ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
+    if (mode === 'replace' || before || reset) setHasOlderMessages(data.hasMore)
     setChatError(null)
     if (!before) setChatUpdating(false)
     return data
   }, [privateCache])
+
+  const beginOlderMessages = (chatId: string) => {
+    const operation = { id: chatId, cursor: privateCache.get(chatId)?.cursor }
+    olderChatInFlight.current = operation
+    latestChatRequest.current += 1
+    return operation
+  }
+  const finishOlderMessages = async (operation: { id: string; cursor?: string }) => {
+    try {
+      if (operation.cursor && selectedChatId.current === operation.id) {
+        await loadMessages(operation.id, 'merge', undefined, operation.cursor)
+      }
+    } finally {
+      if (olderChatInFlight.current === operation) olderChatInFlight.current = null
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -383,6 +469,17 @@ export function CompanionPanel({
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
+      const history = sidebarHistory.current
+      const next = event.state?.__deutschCompanionView
+      const viewToken = typeof next?.token === 'string' ? next.token : null
+      if (viewToken !== history.active) {
+        const view = (viewToken && history.entries.get(viewToken)) || (history.active ? { view: history.base, depth: 0 } : null)
+        if (view) {
+          history.active = viewToken && history.entries.has(viewToken) ? viewToken : null
+          history.depth = view.depth
+          setSidebarView(view.view)
+        }
+      }
       const token = conversationHistoryEntry.current
       if (!token || isConversationEntry(event.state, token)) return
       conversationHistoryEntry.current = null
@@ -399,6 +496,20 @@ export function CompanionPanel({
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
+
+  const switchSidebarView = (view: SidebarView) => {
+    if (view === sidebarView) return
+    const history = sidebarHistory.current
+    if (!conversationHistoryEntry.current) {
+      if (!history.active) history.base = sidebarView
+      const token = crypto.randomUUID()
+      history.depth += 1
+      history.active = token
+      history.entries.set(token, { view, depth: history.depth })
+      window.history.pushState({ ...window.history.state, __deutschCompanionView: { token, depth: history.depth } }, '', window.location.href)
+    }
+    setSidebarView(view)
+  }
 
   const replyingTo = reply && reply.chatId === selectedChat?.id ? reply.message : null
 
@@ -677,6 +788,9 @@ export function CompanionPanel({
     }
     setSelectedGroupId(null)
     setReportingMessageId(null)
+    setMessageMenu(null)
+    chatDetailsMenu.current = null
+    setChatDetailsMenuOpen(false)
     setActiveWord(null)
     setWordChipsFor(null)
     selectedChatId.current = existing?.id ?? null
@@ -727,9 +841,15 @@ export function CompanionPanel({
     chatOpenSequence.current += 1
     setOpeningChat(null)
     setReportingMessageId(null)
+    setMessageMenu(null)
+    chatDetailsMenu.current = null
+    setChatDetailsMenuOpen(false)
     if (conversationHistoryEntry.current) {
+      const state = window.history.state
+      const overlay = isChatOverlayEntry(state, conversationHistoryEntry.current)
       conversationHistoryEntry.current = null
-      window.history.back()
+      if (overlay) window.history.replaceState(withoutChatOverlay(state), '', window.location.href)
+      leaveChatHistory(overlay ? 2 : 1)
     }
     setSelectedGroupId(null)
     selectedChatId.current = null
@@ -743,6 +863,9 @@ export function CompanionPanel({
     chatOpenSequence.current += 1
     setOpeningChat(null)
     setReportingMessageId(null)
+    setMessageMenu(null)
+    chatDetailsMenu.current = null
+    setChatDetailsMenuOpen(false)
     setSidebarView('groups')
     if (!conversationHistoryEntry.current) {
       const token = `${Date.now()}-${Math.random()}`
@@ -759,8 +882,11 @@ export function CompanionPanel({
 
   const closeGroup = () => {
     if (conversationHistoryEntry.current) {
+      const state = window.history.state
+      const overlay = isChatOverlayEntry(state, conversationHistoryEntry.current)
       conversationHistoryEntry.current = null
-      window.history.back()
+      if (overlay) window.history.replaceState(withoutChatOverlay(state), '', window.location.href)
+      leaveChatHistory(overlay ? 2 : 1)
     }
     setSelectedGroupId(null)
     setActiveWord(null)
@@ -771,7 +897,7 @@ export function CompanionPanel({
     const conversationEntry = Boolean(conversationHistoryEntry.current)
     conversationHistoryEntry.current = null
     closeChat()
-    onBack(conversationEntry)
+    onBack(conversationEntry, sidebarHistory.current.depth)
   }
 
   const startReply = (chatMessage: ChatMessage) => {
@@ -858,7 +984,9 @@ export function CompanionPanel({
     const chatId = selectedChat.id
     let found = chatMessages.some((item) => item.id === result.id)
     let before = chatMessages[0]
+    const operation = beginOlderMessages(chatId)
     setLoadingOlder(true)
+    let problem: unknown = null
     try {
       for (let page = 0; !found && before && page < 20; page += 1) {
         const loaded = await loadMessages(chatId, 'merge', before)
@@ -868,10 +996,15 @@ export function CompanionPanel({
         if (!loaded.hasMore) break
       }
     } catch (failure) {
-      setChatError(failure instanceof Error ? failure.message : 'Could not load earlier messages.')
+      problem = failure
     } finally {
+      try { await finishOlderMessages(operation) } catch (failure) {
+        problem ??= failure
+      }
+      if (problem) setChatError(problem instanceof Error ? problem.message : 'Could not load earlier messages.')
       setLoadingOlder(false)
     }
+    if (problem) return
     if (!found) {
       setChatError('That message is too far back to show here.')
       return
@@ -946,8 +1079,12 @@ export function CompanionPanel({
   const loadOlderMessages = () => {
     if (!selectedChat || !chatMessages.length) return
     const chatId = selectedChat.id
+    const operation = beginOlderMessages(chatId)
     setLoadingOlder(true)
-    void loadMessages(chatId, 'merge', chatMessages[0]).catch((failure: unknown) => {
+    void (async () => {
+      try { await loadMessages(chatId, 'merge', chatMessages[0]) }
+      finally { await finishOlderMessages(operation) }
+    })().catch((failure: unknown) => {
       setChatError(failure instanceof Error ? failure.message : 'Could not load earlier messages.')
     }).finally(() => setLoadingOlder(false))
   }
@@ -1208,19 +1345,19 @@ export function CompanionPanel({
             </section>}
 
             <nav className="companion-sidebar-nav" aria-label="Companion views">
-              <button className={sidebarView === 'chats' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'chats'} onClick={() => setSidebarView('chats')}>
+              <button className={sidebarView === 'chats' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'chats'} onClick={() => switchSidebarView('chats')}>
                 <LayoutGridCircles size={15} aria-hidden="true" /><span className="companion-nav-label">Chats</span>{loaded && <span className="companion-nav-count">{connectedCompanions.length}</span>}{unreadCount > 0 && <b aria-label={`${unreadCount} unread chats`}>{unreadCount}</b>}
               </button>
-              <button className={sidebarView === 'requests' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'requests'} onClick={() => setSidebarView('requests')}>
+              <button className={sidebarView === 'requests' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'requests'} onClick={() => switchSidebarView('requests')}>
                 <Inbox size={15} aria-hidden="true" /><span className="companion-nav-label">Requests</span>{loaded && <span className="companion-nav-count">{requestCount}</span>}
               </button>
-              <button className={sidebarView === 'shared' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'shared'} onClick={() => setSidebarView('shared')}>
+              <button className={sidebarView === 'shared' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'shared'} onClick={() => switchSidebarView('shared')}>
                 <BookOpen size={15} aria-hidden="true" /><span className="companion-nav-label">Shared words</span>{loaded && <span className="companion-nav-count">{sharedWords.length}</span>}
               </button>
-              <button className={sidebarView === 'groups' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'groups'} onClick={() => setSidebarView('groups')}>
+              <button className={sidebarView === 'groups' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'groups'} onClick={() => switchSidebarView('groups')}>
                 <Users size={15} aria-hidden="true" /><span className="companion-nav-label">Groups</span>{groupDirectory && <span className="companion-nav-count">{joinedGroupCount}</span>}
               </button>
-              {groupDirectory?.canModerate && <button className={sidebarView === 'moderation' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'moderation'} onClick={() => setSidebarView('moderation')}>
+              {groupDirectory?.canModerate && <button className={sidebarView === 'moderation' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'moderation'} onClick={() => switchSidebarView('moderation')}>
                 <ShieldCheck size={15} aria-hidden="true" /><span className="companion-nav-label">Moderation</span>
               </button>}
             </nav>
@@ -1367,7 +1504,7 @@ export function CompanionPanel({
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
               <div className="companion-chat-header-actions">
                 <button className="companion-header-pill" type="button" aria-label="Search this conversation" aria-pressed={searchOpen} disabled={chatUpdating} onClick={toggleSearch}><Search size={14} aria-hidden="true" /><span>Search</span></button>
-                <details className="companion-row-menu companion-chat-menu">
+                <details className="companion-row-menu companion-chat-menu" onToggle={onChatDetailsToggle}>
                   <summary className="companion-header-pill" aria-label="Conversation actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
                   <div className="companion-row-popover">
                     <button type="button" onClick={(event) => { closePopover(event); void requestDeleteChat() }}>Delete conversation</button>
@@ -1408,7 +1545,7 @@ export function CompanionPanel({
             {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-typing" role="status">{selectedChat.companion.username} is typing…</p>}
             <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
               <ChatMessageList updating={chatUpdating}>
-              {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
+              {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy || chatUpdating} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className={`companion-message-row${highlightId === chatMessage.id ? ' highlighted' : ''}`} id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
@@ -1506,11 +1643,11 @@ export function CompanionPanel({
                         <button className="companion-review-pill" type="button" disabled={busy} onClick={() => startCorrection(chatMessage)}><SpellCheck size={13} aria-hidden="true" /><span>Suggest edit</span></button>
                         <button className="companion-review-pill" type="button" disabled={busy} onClick={() => approveMessage(chatMessage)}><Check size={13} aria-hidden="true" /><span>Looks good</span></button>
                       </>}
-                      {canModify(chatMessage) && <MessageActionMenu label="Edit or unsend this message" actions={[
+                      {canModify(chatMessage) && <MessageActionMenu label="Edit or unsend this message" open={messageMenu === chatMessage.id} onOpenChange={(open) => setMessageMenu(open ? chatMessage.id : null)} actions={[
                         ...(chatMessage.kind === 'text' && !chatMessage.correction ? [{ label: 'Edit message', onSelect: () => setEditing({ messageId: chatMessage.id, text: chatMessage.text }) }] : []),
                         { label: 'Unsend', danger: true, onSelect: () => void requestUnsend(chatMessage) },
                       ]} />}
-                      {!chatMessage.isMine && <MessageActionMenu label={`Actions for message from ${selectedChat.companion.username}`} actions={[
+                      {!chatMessage.isMine && <MessageActionMenu label={`Actions for message from ${selectedChat.companion.username}`} open={messageMenu === chatMessage.id} onOpenChange={(open) => setMessageMenu(open ? chatMessage.id : null)} actions={[
                         { label: chatMessage.reported ? 'Reported' : 'Report message', disabled: chatMessage.reported, onSelect: (anchor) => { reportAnchor.current = anchor; setReportingMessageId(chatMessage.id) } },
                       ]} />}
                     </div>}
@@ -1533,7 +1670,7 @@ export function CompanionPanel({
                 <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}>Send</button>
               </div>
               <div className="companion-composer-footer">
-                <details className="companion-word-picker" ref={wordPicker}>
+                <details className="companion-word-picker" ref={wordPicker} onToggle={onChatDetailsToggle}>
                   <summary><BookOpen size={13} aria-hidden="true" /><span>Share a word</span></summary>
                   <div className="companion-word-picker-panel">
                     <input value={wordPickerQuery} onChange={(event) => setWordPickerQuery(event.target.value)} placeholder="Search your words…" aria-label="Search your words" />

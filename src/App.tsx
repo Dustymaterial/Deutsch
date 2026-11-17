@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { ArrowRight, ArrowUpRight, Clock3, MessagesSquare } from 'lucide-react'
 import {
   detectWeakPattern,
@@ -63,6 +63,8 @@ import {
 import { useUnreadMessages } from './useUnreadMessages'
 import { chatCacheClearedKey, clearChatCache } from './chatPersistentCache'
 import { clearCommunityDirectoryCache, setCommunityCacheOwner } from './communityDirectoryCache'
+import { isChatOverlayEntry, withoutChatOverlay } from './conversationHistory'
+import { leaveChatHistory } from './chatHistoryNavigation'
 import { cardFromStarterEntry, createSeedDeck, deckStorageKey as STORAGE_KEY, loadStarterPack, makeCard, type LoadedDeck, type StarterEntry, type StarterPack } from './starterDeck'
 import './App.css'
 
@@ -1161,6 +1163,17 @@ function AppFooter({ signedIn }: { signedIn: boolean }) {
 
 function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const confirm = useConfirm()
+  useLayoutEffect(() => {
+    const state = window.history.state
+    if (!state || typeof state !== 'object') return
+    const keys = ['__deutschAccountMenu', '__deutschAccountMode', '__deutschCompanionWorkspace',
+      '__deutschCompanionChat', '__deutschCompanionGroup', '__deutschChatOverlay',
+      '__deutschCompanionView', '__deutschPanel', '__deutschStudyMode']
+    if (!keys.some((key) => key in state)) return
+    const cleaned = { ...state }
+    keys.forEach((key) => { delete cleaned[key] })
+    window.history.replaceState(cleaned, '', window.location.href)
+  }, [])
   const [loaded] = useState(initialDeck)
   const [loadedStudyPlan] = useState(loadStudyPlan)
   const [introduction] = useState(() => {
@@ -1297,14 +1310,37 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   }
   const importInput = useRef<HTMLInputElement>(null)
   const deckMenu = useRef<HTMLDetailsElement>(null)
+  const [deckMenuOpen, setDeckMenuOpen] = useState(false)
+  const panelHistoryEntry = useRef<string | null>(null)
+  const studyModeHistory = useRef<{
+    active: string | null
+    base: { learn: boolean; mode: ReviewMode }
+    entries: Map<string, { learn: boolean; mode: ReviewMode }>
+  }>({ active: null, base: { learn: learnOpen, mode: studyMode }, entries: new Map() })
   const addCardButton = useRef<HTMLButtonElement>(null)
   const setAccountMenuVisible = useCallback((open: boolean) => {
     if (open && !accountMenuEntry.current) {
-      window.history.pushState({ ...window.history.state, __deutschAccountMenu: true }, '', window.location.href)
+      const state = { ...window.history.state, __deutschAccountMenu: true }
+      delete state.__deutschAccountMode
+      if (deckMenu.current?.open && panelHistoryEntry.current === state.__deutschPanel) {
+        panelHistoryEntry.current = null
+        delete state.__deutschPanel
+        window.history.replaceState(state, '', window.location.href)
+      } else {
+        window.history.pushState(state, '', window.location.href)
+      }
       accountMenuEntry.current = true
     } else if (!open && accountMenuEntry.current) {
       accountMenuEntry.current = false
-      if (window.history.state?.__deutschAccountMenu) window.history.back()
+      if (window.history.state?.__deutschAccountMenu) {
+        const state = { ...window.history.state }
+        const nested = Boolean(state.__deutschAccountMode)
+        if (nested) {
+          delete state.__deutschAccountMode
+          window.history.replaceState(state, '', window.location.href)
+        }
+        window.history.go(nested ? -2 : -1)
+      }
     }
     setAccountMenuOpen(open)
   }, [])
@@ -1314,9 +1350,16 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       const state = { ...window.history.state, __deutschCompanionWorkspace: token }
       delete state.__deutschCompanionChat
       delete state.__deutschCompanionGroup
+      delete state.__deutschChatOverlay
+      delete state.__deutschAccountMode
+      delete state.__deutschCompanionView
       if (accountMenuEntry.current && window.history.state?.__deutschAccountMenu) {
         accountMenuEntry.current = false
         delete state.__deutschAccountMenu
+        window.history.replaceState(state, '', window.location.href)
+      } else if (deckMenu.current?.open && panelHistoryEntry.current === state.__deutschPanel) {
+        panelHistoryEntry.current = null
+        delete state.__deutschPanel
         window.history.replaceState(state, '', window.location.href)
       } else {
         window.history.pushState(state, '', window.location.href)
@@ -2170,6 +2213,40 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     continueQuiz(mode)
     setRevealed(false)
   }
+  const switchStudyActivity = (next: { learn: boolean; mode: ReviewMode }) => {
+    if (learnOpen === next.learn && (next.learn || studyMode === next.mode)) return
+    const history = studyModeHistory.current
+    if (!history.active) history.base = { learn: learnOpen, mode: studyMode }
+    const token = crypto.randomUUID()
+    history.entries.set(token, next)
+    history.active = token
+    window.history.pushState({ ...window.history.state, __deutschStudyMode: token }, '', window.location.href)
+    if (next.learn) {
+      if (pauseStateRef.current.pending) continueQuiz('learn')
+      setLearnOpen(true)
+    } else {
+      setMode(next.mode)
+    }
+  }
+  useEffect(() => {
+    const handleBack = (event: PopStateEvent) => {
+      const history = studyModeHistory.current
+      const token = typeof event.state?.__deutschStudyMode === 'string' ? event.state.__deutschStudyMode : null
+      if (token === history.active) return
+      const activity = (token && history.entries.get(token)) || (history.active ? history.base : null)
+      if (!activity) return
+      history.active = token && history.entries.has(token) ? token : null
+      setLearnOpen(activity.learn)
+      setStudyMode(activity.mode)
+      setLearnSettingsOpen(false)
+      setChoiceFeedback(null)
+      setProductionFeedback(null)
+      setStruggledWith([])
+      setRevealed(false)
+    }
+    window.addEventListener('popstate', handleBack)
+    return () => window.removeEventListener('popstate', handleBack)
+  }, [])
 
   const handleStudyTagChange = (tag: string) => {
     const nextScope = getCardsForStudySet(cards, tag)
@@ -2321,10 +2398,9 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
   }, [])
 
-  const panelHistoryEntry = useRef<string | null>(null)
   useEffect(() => {
     const open = addCardOpen || sessionSettingsOpen || studyPlanOpen || aboutOpen
-      || activityOpen || appSettingsOpen || learnSettingsOpen
+      || activityOpen || appSettingsOpen || learnSettingsOpen || deckMenuOpen
     if (open && !panelHistoryEntry.current) {
       const token = `${Date.now()}-${++panelHistorySequence}`
       window.history.pushState({ ...window.history.state, __deutschPanel: token }, '', window.location.href)
@@ -2336,14 +2412,18 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         && !window.history.state?.__deutschAccountMenu
         && !window.history.state?.__deutschCompanionWorkspace) window.history.back()
     }
-  }, [addCardOpen, sessionSettingsOpen, studyPlanOpen, aboutOpen, activityOpen, appSettingsOpen, learnSettingsOpen])
+  }, [addCardOpen, sessionSettingsOpen, studyPlanOpen, aboutOpen, activityOpen, appSettingsOpen, learnSettingsOpen, deckMenuOpen])
 
   useEffect(() => {
     const handleBack = (event: PopStateEvent) => {
       const token = panelHistoryEntry.current
       if (!token || event.state?.__deutschPanel === token) return
       panelHistoryEntry.current = null
-      if (learnSettingsOpen) closeLearnSettings(true)
+      if (deckMenu.current?.open) {
+        deckMenu.current.open = false
+        setDeckMenuOpen(false)
+        deckMenu.current.querySelector('summary')?.focus()
+      } else if (learnSettingsOpen) closeLearnSettings(true)
       else if (appSettingsOpen) closeAppSettings(true)
       else if (activityOpen) closeActivity(true)
       else if (aboutOpen) closeAbout(true)
@@ -2407,17 +2487,24 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     />
   )
 
-  const closeCompanionWorkspace = (conversationEntry: boolean) => {
+  const closeCompanionWorkspace = (conversationEntry: boolean, viewDepth = 0) => {
+    const state = window.history.state
+    const conversation = state?.__deutschCompanionChat ?? state?.__deutschCompanionGroup
+    const overlay = typeof conversation === 'string' && isChatOverlayEntry(state, conversation)
+    if (overlay) window.history.replaceState(withoutChatOverlay(state), '', window.location.href)
     if (companionWorkspaceEntry.current) {
       companionWorkspaceEntry.current = null
-      window.history.go(conversationEntry ? -2 : -1)
+      leaveChatHistory(1 + viewDepth + Number(conversationEntry) + Number(overlay))
     } else if (conversationEntry) {
-      window.history.back()
+      leaveChatHistory(overlay ? 2 : 1)
     }
     setCompanionWorkspaceOpen(false)
   }
   const companionWorkspace = (
-    <CompanionLoadBoundary onBack={() => closeCompanionWorkspace(Boolean(window.history.state?.__deutschCompanionChat || window.history.state?.__deutschCompanionGroup))}>
+    <CompanionLoadBoundary onBack={() => closeCompanionWorkspace(
+      Boolean(window.history.state?.__deutschCompanionChat || window.history.state?.__deutschCompanionGroup),
+      Number.isSafeInteger(window.history.state?.__deutschCompanionView?.depth) ? window.history.state.__deutschCompanionView.depth : 0,
+    )}>
     <Suspense fallback={<div className="companion-workspace-view" role="status">Opening your community…</div>}>
     <CompanionPanel
       key={accountUser?.id ?? 'signed-out'}
@@ -2462,7 +2549,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
               open={accountMenuOpen}
               syncStatus={accountSyncMessage}
             />
-            <details className="deck-menu" ref={deckMenu}>
+            <details className="deck-menu" ref={deckMenu} onToggle={(event) => setDeckMenuOpen(event.currentTarget.open)}>
               <summary aria-label="Deck backup options">···</summary>
               <div className="deck-menu-popover">
                 <button type="button" onClick={openAccountMenu}>
@@ -2514,7 +2601,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             {introduction.warning && <p role="status">{introduction.warning}</p>}
           </div>
         ) : <div ref={studyAreaRef} className="empty-state">
-          <button type="button" className="quiet-button" onClick={() => setLearnOpen(true)}>Learn new words</button>
+          <button type="button" className="quiet-button" onClick={() => switchStudyActivity({ learn: true, mode: studyMode })}>Learn new words</button>
           <span className="complete-mark" aria-hidden="true">✓</span>
           <h1>That’s a good moment to pause.</h1>
           <p className="session-note">
@@ -2613,7 +2700,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             open={accountMenuOpen}
             syncStatus={accountSyncMessage}
           />
-          <details className="deck-menu" ref={deckMenu}>
+          <details className="deck-menu" ref={deckMenu} onToggle={(event) => setDeckMenuOpen(event.currentTarget.open)}>
             <summary aria-label="Deck and study options">···</summary>
             <div className="deck-menu-popover">
               {learnOpen && (
@@ -2671,15 +2758,12 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         </div>
       ) : <>
       <div ref={studyAreaRef} className="study-mode-toggle" role="group" aria-label="Study mode">
-        <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => {
-          if (pauseStateRef.current.pending) continueQuiz('learn')
-          setLearnOpen(true)
-        }}>Learn</button>
+        <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => switchStudyActivity({ learn: true, mode: studyMode })}>Learn</button>
         <button
           type="button"
           className={!learnOpen && studyMode === 'recall' ? 'selected' : ''}
           aria-pressed={!learnOpen && studyMode === 'recall'}
-          onClick={() => setMode('recall')}
+          onClick={() => switchStudyActivity({ learn: false, mode: 'recall' })}
         >
           Recall
         </button>
@@ -2687,7 +2771,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           type="button"
           className={!learnOpen && studyMode === 'production' ? 'selected' : ''}
           aria-pressed={!learnOpen && studyMode === 'production'}
-          onClick={() => setMode('production')}
+          onClick={() => switchStudyActivity({ learn: false, mode: 'production' })}
         >
           Produce
         </button>
@@ -2695,7 +2779,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           type="button"
           className={!learnOpen && studyMode === 'choice' ? 'selected' : ''}
           aria-pressed={!learnOpen && studyMode === 'choice'}
-          onClick={() => setMode('choice')}
+          onClick={() => switchStudyActivity({ learn: false, mode: 'choice' })}
         >
           Choose
         </button>

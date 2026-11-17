@@ -43,7 +43,7 @@ const shareLifetime = 30 * 24 * hour
 
 export function createCompanionRouter({
   users, relationships, sharedWords, conversations, companionMessages, companionReports,
-  requireUser, mailer, renderAvatar, chatTyping, chatLive,
+  requireUser, mailer, renderAvatar, chatTyping, chatLive, chatReplay,
 }) {
   const router = Router()
   const limiter = rateLimit({
@@ -64,7 +64,7 @@ export function createCompanionRouter({
   const profile = (user) => ({ id: user._id.toString(), username: user.username, avatarSeed: user.avatarSeed })
   const unavailable = (res) => res.status(404).json({ error: 'That learner is unavailable.' })
   const changed = (res) => res.status(409).json({ error: 'This request changed. Refresh and try again.' })
-  const findPair = (a, b) => relationships.findOne({ pairKey: pairKey(a, b) })
+  const findPair = (a, b) => relationships.findOne({ pairKey: pairKey(a, b) }, { readConcern: { level: 'majority' }, readPreference: 'primary' })
   const hidden = (pair, me) => pair?.blockedBy?.some((id) => id !== me)
   const sentNudgeAt = (userId) => `nudges.sentAt.${userId}`
   const readNudgeAt = (userId) => `nudges.readAt.${userId}`
@@ -206,7 +206,7 @@ export function createCompanionRouter({
     const conversation = await conversations.findOne({
       _id: new ObjectId(id),
       participants: me,
-    })
+    }, { readConcern: { level: 'majority' }, readPreference: 'primary' })
     if (!conversation) return null
     const them = conversation.participants.find((participant) => participant !== me)
     const pair = await currentConnection(me, them)
@@ -315,9 +315,15 @@ export function createCompanionRouter({
 
   router.get('/chats/:id/messages', async (req, res) => {
     const me = req.accountUser._id.toString()
-    const active = await activeConversation(me, req.params.id)
+    let active = await activeConversation(me, req.params.id)
     if (!active) return unavailable(res)
     const conversationId = active.conversation._id.toString()
+    const cursor = !req.query.before && chatReplay
+      ? await chatReplay.snapshotCursor({ kind: 'private', chatId: conversationId, userId: me }) : null
+    if (cursor) {
+      active = await activeConversation(me, req.params.id)
+      if (!active) return unavailable(res)
+    }
     const hiddenAt = active.conversation.hiddenAt?.[me]
     const before = req.query.before ? new Date(String(req.query.before)) : null
     if (before && !Number.isFinite(before.getTime())) return res.status(400).json({ error: 'Choose a valid message time.' })
@@ -338,7 +344,7 @@ export function createCompanionRouter({
     }
     const found = await companionMessages.find(
       filter,
-      { sort: { createdAt: -1, _id: -1 }, limit: 51 },
+      { sort: { createdAt: -1, _id: -1 }, limit: 51, readConcern: { level: 'majority' }, readPreference: 'primary' },
     ).toArray()
     if (!before && req.query.read !== '0' && found[0]) {
       await conversations.updateOne({ _id: active.conversation._id }, {
@@ -354,7 +360,32 @@ export function createCompanionRouter({
       hasMore: found.length > 50,
       messages: messages.map((message) => serializeMessage(message, me)),
       typing,
+      cursor,
     })
+  })
+
+  router.get('/chats/:id/sync', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    if (!chatReplay) return res.status(503).json({ error: 'Chat replay requires a MongoDB replica set.' })
+    const conversationId = active.conversation._id.toString()
+    const result = await chatReplay.replay({ kind: 'private', chatId: conversationId, userId: me }, req.query.cursor)
+    if (result.reset) return res.json({ reset: true })
+    const current = await activeConversation(me, conversationId)
+    if (!current) return unavailable(res)
+    if (current.conversation.hiddenAt?.[me]?.getTime() !== active.conversation.hiddenAt?.[me]?.getTime()) {
+      return res.json({ reset: true })
+    }
+    const hiddenAt = current.conversation.hiddenAt?.[me]
+    const messages = await companionMessages.find({
+      conversationId,
+      _id: { $in: result.ids.map((id) => new ObjectId(id)) },
+      ...(hiddenAt ? { createdAt: { $gt: hiddenAt } } : {}),
+    }, { readConcern: { level: 'majority' }, readPreference: 'primary' }).toArray()
+    if (messages.length !== result.ids.length) return res.json({ reset: true })
+    const typing = Boolean(await chatTyping.findOne(typingFilter('private', conversationId, me)))
+    res.json({ reset: false, messages: messages.map((message) => serializeMessage(message, me)), typing, cursor: result.cursor })
   })
 
   router.post('/chats/:id/typing', typingRateLimit(), async (req, res) => {

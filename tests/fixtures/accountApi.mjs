@@ -151,7 +151,7 @@ const collection = (name) => ({
 })
 class FakeMongoClient {
   async connect() {}
-  db() { return { collection } }
+  db() { return { collection, admin: () => ({ command: async () => ({ ok: 1 }) }) } }
 }
 mock.module('mongodb', { namedExports: { MongoClient: FakeMongoClient, ObjectId } })
 mock.module('connect-mongo', { defaultExport: { create: () => new session.MemoryStore() } })

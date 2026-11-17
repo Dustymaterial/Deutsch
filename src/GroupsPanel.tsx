@@ -23,7 +23,9 @@ import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime as formatTime } from './chatTime'
 import { watchChatChanges } from './chatLive'
+import { replayUpdatesInRange } from './chatReplay'
 import { useChatScrollState } from './useChatScrollState'
+import { useChatOverlayHistory } from './useChatOverlayHistory'
 import './Groups.css'
 
 const rulesText = 'Groups are open to every member, so anything you post can be read by all of them. Be kind and keep it about learning German. No spam, advertising, personal details or harassment. You must be at least 13. Group owners and moderators can hide messages and remove people, and you can report any message.'
@@ -293,6 +295,15 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const [searchError, setSearchError] = useState<string | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
+  const [messageMenu, setMessageMenu] = useState<string | null>(null)
+  const [chatDetailsMenuOpen, setChatDetailsMenuOpen] = useState(false)
+  const chatDetailsMenu = useRef<HTMLDetailsElement | null>(null)
+  const onChatDetailsToggle = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+    const target = event.currentTarget
+    if (target.open) chatDetailsMenu.current = target
+    else if (chatDetailsMenu.current === target) chatDetailsMenu.current = null
+    setChatDetailsMenuOpen(Boolean(chatDetailsMenu.current))
+  }
   const [editing, setEditing] = useState<{ messageId: string; text: string } | null>(null)
   const [correcting, setCorrecting] = useState<{ messageId: string; text: string; note: string; tags: string[] } | null>(null)
   const [savingCorrection, setSavingCorrection] = useState<{ messageId: string; authorId: string; meaning: string } | null>(null)
@@ -309,10 +320,33 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const firstLoad = useRef(true)
   const loadSequence = useRef(0)
   const loadingRef = useRef(false)
+  const olderInFlight = useRef<{ cursor?: string } | null>(null)
   const accessDenied = useRef(false)
   const directorySignature = useRef<string | null>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const searchTerm = searchQuery.trim()
+  const overlay = [
+    reporting && 'report', savingCorrection && 'save', correcting && 'correct', editing && 'edit',
+    reactionPickerFor && 'reaction', messageMenu && 'message-menu', chatDetailsMenuOpen && 'details-menu', popover && 'details', wordTools.activeWord && 'word',
+    wordTools.wordChipsFor && 'words', mentionsOpen && 'mentions', membersOpen && 'members',
+    searchOpen && 'search', replyTo && 'reply',
+  ].filter(Boolean).join(',')
+  useChatOverlayHistory(group.id, overlay, (top) => {
+    if (top === 'report') setReporting(null)
+    else if (top === 'save') setSavingCorrection(null)
+    else if (top === 'correct') setCorrecting(null)
+    else if (top === 'edit') setEditing(null)
+    else if (top === 'reaction') setReactionPickerFor(null)
+    else if (top === 'message-menu') setMessageMenu(null)
+    else if (top === 'details-menu') { if (chatDetailsMenu.current) chatDetailsMenu.current.open = false; setChatDetailsMenuOpen(false) }
+    else if (top === 'details') setPopover(null)
+    else if (top === 'word') wordTools.onClose()
+    else if (top === 'words' && wordTools.wordChipsFor) wordTools.toggleChips(wordTools.wordChipsFor)
+    else if (top === 'mentions') setMentionsOpen(false)
+    else if (top === 'members') setMembersOpen(false)
+    else if (top === 'search') setSearchOpen(false)
+    else if (top === 'reply') setReplyTo(null)
+  })
   const publishTyping = useChatTyping(
     useCallback(async (id: string, value: boolean) => { await groupsRequest(`/${id}/typing`, { typing: value }) }, []),
     useCallback((failure: unknown) => setError(errorMessage(failure, 'Could not update typing status.')), []),
@@ -362,25 +396,56 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     return () => { active = false; window.clearTimeout(timer) }
   }, [group.id, searchOpen, searchTerm])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (replayCursor?: string) => {
+    if (olderInFlight.current && !replayCursor) return
     const sequence = ++loadSequence.current
     loadingRef.current = true
     try {
-      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[] }>(`/${group.id}/messages?read=0`)
+      const cached = cache.get(group.id)
+      let replayed = false
+      let reset = false
+      let data: { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[]; cursor?: string | null }
+      const cursor = replayCursor ?? cached?.cursor
+      if (cursor && cached) {
+        let sync: { reset: boolean; messages?: GroupMessage[]; group?: GroupSummary; typing?: Profile[]; cursor?: string }
+        try {
+          sync = await groupsRequest(`/${group.id}/sync?cursor=${encodeURIComponent(cursor)}`)
+        } catch (failure) {
+          if (!(failure instanceof GroupsApiError) || failure.status !== 503
+            || failure.message !== 'Chat replay requires a MongoDB replica set.') throw failure
+          sync = { reset: true }
+        }
+        if (sync.reset === false && Array.isArray(sync.messages) && sync.group && Array.isArray(sync.typing) && typeof sync.cursor === 'string') {
+          data = { messages: sync.messages, group: sync.group, typing: sync.typing, cursor: sync.cursor, hasMore: cached.hasMore }
+          replayed = true
+        } else if (sync.reset === true) {
+          reset = true
+          data = await groupsRequest(`/${group.id}/messages?read=0`)
+        } else {
+          throw new Error('The group service returned an incomplete replay response.')
+        }
+      } else {
+        reset = !cached && !firstLoad.current
+        data = await groupsRequest(`/${group.id}/messages?read=0`)
+      }
       if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean' || !data.group || !Array.isArray(data.typing)) {
         throw new Error('The group service returned an incomplete response.')
       }
       if (sequence !== loadSequence.current) return
       setTyping(data.typing)
-      cache.set(group.id, { messages: data.messages, hasMore: data.hasMore })
+      const cachedMessages = replayed && cached
+        ? mergeMessages(cached.messages, replayUpdatesInRange(cached.messages, data.messages)) : data.messages
+      cache.set(group.id, { messages: cachedMessages, hasMore: data.hasMore, ...(data.cursor ? { cursor: data.cursor } : {}) })
       const initialLoad = firstLoad.current
-      setMessages((current) => initialLoad ? data.messages : mergeMessages(current, data.messages))
-      const signature = JSON.stringify([data.messages, data.group.name, data.group.description])
+      setMessages((current) => replayed
+        ? mergeMessages(current, replayUpdatesInRange(current, data.messages))
+        : initialLoad || reset ? data.messages : mergeMessages(current, data.messages))
+      const signature = JSON.stringify([cachedMessages, data.group.name, data.group.description])
       if (directorySignature.current !== signature) {
         directorySignature.current = signature
         void reload()
       }
-      if (firstLoad.current) {
+      if (firstLoad.current || reset) {
         firstLoad.current = false
         setHasOlder(data.hasMore)
       }
@@ -406,6 +471,20 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       if (sequence === loadSequence.current) loadingRef.current = false
     }
   }, [cache, group.id, reload])
+
+  const beginOlderMessages = () => {
+    const operation = { cursor: cache.get(group.id)?.cursor }
+    olderInFlight.current = operation
+    loadSequence.current += 1
+    return operation
+  }
+  const finishOlderMessages = async (operation: { cursor?: string }) => {
+    try {
+      if (operation.cursor) await load(operation.cursor)
+    } finally {
+      if (olderInFlight.current === operation) olderInFlight.current = null
+    }
+  }
 
   const markGroupRead = useCallback(async (id: string) => {
     await groupsRequest(`/${group.id}/read`, { id })
@@ -486,16 +565,24 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     const oldest = messages[0]
     const element = stream.current
     if (!oldest || !element) return
+    const operation = beginOlderMessages()
     setLoadingOlder(true)
     const previousHeight = element.scrollHeight
-    void groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(`/${group.id}/messages?before=${encodeURIComponent(oldest.createdAt)}&beforeId=${encodeURIComponent(oldest.id)}`)
-      .then((data) => {
+    void (async () => {
+      let problem: unknown = null
+      try {
+        const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(`/${group.id}/messages?before=${encodeURIComponent(oldest.createdAt)}&beforeId=${encodeURIComponent(oldest.id)}`)
         setMessages((current) => mergeMessages(current, data.messages))
         setHasOlder(data.hasMore)
         requestAnimationFrame(() => { element.scrollTop += element.scrollHeight - previousHeight })
-      })
-      .catch((failure: unknown) => setError(errorMessage(failure, 'Could not load earlier messages.')))
-      .finally(() => setLoadingOlder(false))
+      } catch (failure) {
+        problem = failure
+      } finally {
+        await finishOlderMessages(operation)
+        if (problem) setError(errorMessage(problem, 'Could not load earlier messages.'))
+        setLoadingOlder(false)
+      }
+    })()
   }
 
   const send = (event: React.FormEvent) => {
@@ -808,15 +895,17 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     let fetchedMessages: GroupMessage[] = []
     let found = loadedMessages.some((message) => message.id === result.id && (message.kind === 'text' || message.kind === 'word'))
     let hasMore = hasOlder
+    const operation = beginOlderMessages()
     setLoadingOlder(true)
     setError(null)
+    let problem: unknown = null
     try {
       const current = await groupsRequest<{ message: GroupMessage }>(`/${group.id}/messages/${result.id}`)
       if (!current.message?.id) throw new Error('The group service returned an incomplete response.')
       if (current.message.kind !== 'text' && current.message.kind !== 'word') {
         setMessages((items) => items.map((item) => item.id === current.message.id ? current.message : item))
         setSearchState((state) => state && { ...state, messages: state.messages.filter((item) => item.id !== result.id) })
-        setError('That message is no longer available.')
+        problem = new Error('That message is no longer available.')
         return
       }
       for (let page = 0; !found && hasMore && page < 42; page += 1) {
@@ -836,7 +925,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       setMessages((items) => mergeMessages(items, [...fetchedMessages, current.message]))
       setHasOlder(hasMore)
       if (!found) {
-        setError('That message is no longer available or is too far back to show.')
+        problem = new Error('That message is no longer available or is too far back to show.')
         return
       }
       setSearchOpen(false)
@@ -845,8 +934,10 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       window.setTimeout(() => jumpTo(result.id), 60)
       window.setTimeout(() => setHighlightId((current) => current === result.id ? null : current), 2600)
     } catch (failure) {
-      setError(errorMessage(failure, 'Could not load earlier messages.'))
+      problem = failure
     } finally {
+      await finishOlderMessages(operation)
+      if (problem) setError(errorMessage(problem, 'Could not load earlier messages.'))
       setLoadingOlder(false)
     }
   }
@@ -864,7 +955,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
         <button className="companion-header-pill" type="button" aria-label="Search this group" aria-pressed={searchOpen} disabled={updating} onClick={() => { setSearchOpen((open) => !open); setSearchError(null) }}><Search size={14} aria-hidden="true" /><span>Search</span></button>
         <button className="companion-header-pill group-mentions-toggle" type="button" aria-pressed={mentionsOpen} aria-label={`Mentions, ${group.mentionCount ?? 0} pending`} onClick={() => { const next = !mentionsOpen; setMentionsOpen(next); if (next) void loadMentions() }}><AtSign size={14} aria-hidden="true" /><span>{group.mentionCount ?? 0}</span>{Boolean(group.mentionCount) && <b className="group-mentions-badge" aria-hidden="true">{group.mentionCount && group.mentionCount > 99 ? '99+' : group.mentionCount}</b>}</button>
         <button className="companion-header-pill" type="button" aria-pressed={membersOpen} onClick={toggleMembers}><Users size={14} aria-hidden="true" /><span>{group.memberCount}</span></button>
-        <details className="companion-row-menu companion-chat-menu">
+        <details className="companion-row-menu companion-chat-menu" onToggle={onChatDetailsToggle}>
           <summary className="companion-header-pill" aria-label="Group actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
           <div className="companion-row-popover">
             {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); openEditor() }}>Edit group details</button>}
@@ -967,7 +1058,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     {typing.length > 0 && <p className="companion-typing" role="status">{typing.slice(0, 3).map((person) => person.username).join(', ')}{typing.length > 3 ? ` and ${typing.length - 3} more` : ''} {typing.length === 1 ? 'is' : 'are'} typing…</p>}
     <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating}>
       <ChatMessageList updating={updating}>
-      {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
+      {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder || updating} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
       {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0
         ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Say hello to the group.</p><span>Ask a question, share a tip, or welcome someone new.</span></div>
         : messages.map((message) => message.kind === 'system'
@@ -1059,7 +1150,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
                 <button className="companion-review-pill" type="button" disabled={busy} onClick={() => setCorrecting({ messageId: message.id, text: message.text, note: '', tags: [] })}><SpellCheck size={13} aria-hidden="true" /><span>Suggest edit</span></button>
                 <button className="companion-review-pill" type="button" disabled={busy} onClick={() => submitReview(message.id, { approve: true })}><Check size={13} aria-hidden="true" /><span>Looks good</span></button>
               </>}
-              <MessageActionMenu label={message.isMine ? 'Actions for your message' : `Actions for message from ${message.sender?.username ?? 'a member'}`} actions={[
+              <MessageActionMenu label={message.isMine ? 'Actions for your message' : `Actions for message from ${message.sender?.username ?? 'a member'}`} open={messageMenu === message.id} onOpenChange={(open) => setMessageMenu(open ? message.id : null)} actions={[
                 ...(message.isMine && message.kind === 'text' && !message.hasReviews && message.editableUntil && Date.parse(message.editableUntil) > now ? [{ label: 'Edit message', onSelect: () => setEditing({ messageId: message.id, text: message.text }) }] : []),
                 ...(message.isMine ? [{ label: 'Unsend', danger: true, disabled: busy, onSelect: () => void unsend(message) }] : []),
                 ...(!message.isMine ? [{ label: message.reported ? 'Reported' : 'Report message', disabled: busy || message.reported, onSelect: (anchor: HTMLButtonElement) => { reportAnchor.current = anchor; setReporting({ messageId: message.id }) } }] : []),
@@ -1094,7 +1185,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
           }}>@{member.username}</button>)}
       </div>}
       <div className="companion-composer-footer">
-        <details className="companion-word-picker" ref={wordPicker}>
+        <details className="companion-word-picker" ref={wordPicker} onToggle={onChatDetailsToggle}>
           <summary><BookOpen size={13} aria-hidden="true" /><span>Share a word</span></summary>
           <div className="companion-word-picker-panel">
             <input value={wordPickerQuery} onChange={(event) => setWordPickerQuery(event.target.value)} placeholder="Search your words…" aria-label="Search your words" />
