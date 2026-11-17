@@ -70,7 +70,7 @@ type ChatSummary = {
   unread: boolean
   updatedAt: string
 }
-type PracticeCard = Pick<Card, 'prompt' | 'article' | 'meaning' | 'plural' | 'example' | 'translation' | 'category'> & { cardId?: string }
+type PracticeCard = Pick<Card, 'prompt' | 'article' | 'meaning' | 'plural' | 'example' | 'translation' | 'category'>
 type PracticeSession = {
   id: string
   role: 'learner' | 'helper'
@@ -96,8 +96,6 @@ const sharedCardPayload = (card: Card) => ({
   ...(card.translation ? { translation: card.translation } : {}),
   category: card.category,
 })
-
-const practiceCardPayload = (card: Card) => ({ ...sharedCardPayload(card), cardId: card.id })
 
 const wordKey = (card: SharedWordPreview['card']) =>
   [card.category, card.article ?? '', card.prompt, card.meaning].join('|').trim().toLocaleLowerCase('de-DE')
@@ -199,8 +197,7 @@ export function CompanionPanel({
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
   const [practice, setPractice] = useState<PracticeSession | null>(null)
-  const [practiceQuery, setPracticeQuery] = useState('')
-  const [practiceCardIds, setPracticeCardIds] = useState<string[]>([])
+  const [practiceTag, setPracticeTag] = useState('')
   const [practiceAnswer, setPracticeAnswer] = useState('')
   const [searchFor, setSearchFor] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -612,7 +609,7 @@ export function CompanionPanel({
     const closeOutside = (event: PointerEvent) => {
       const target = event.target
       if (!(target instanceof Node)) return
-      workspace.current?.querySelectorAll<HTMLDetailsElement>('.companion-row-menu[open], .companion-message-menu[open], .companion-sidebar-details[open], .companion-word-picker[open]').forEach((menu) => {
+      workspace.current?.querySelectorAll<HTMLDetailsElement>('.companion-row-menu[open], .companion-message-menu[open], .companion-sidebar-details[open], .companion-word-picker[open], .companion-practice-fab[open]').forEach((menu) => {
         if (!menu.contains(target)) menu.open = false
       })
     }
@@ -1299,31 +1296,19 @@ export function CompanionPanel({
     })
   }
 
-  const togglePracticeCard = (cardId: string) => {
-    setPracticeCardIds((current) => current.includes(cardId)
-      ? current.filter((id) => id !== cardId)
-      : current.length < 5 ? [...current, cardId] : current)
-  }
-
   const startPractice = async () => {
-    if (!selectedChat || !practiceCardIds.length) return
-    const selected = cards.filter((card) => practiceCardIds.includes(card.id) && card.status === 'active' && isShareableCard(card))
-    if (selected.length !== practiceCardIds.length) {
-      onNotify('Choose active words that are still in your deck.', 'error')
-      return
-    }
+    if (!selectedChat) return
+    const scope = practiceTag ? ` from ${practiceTag}` : ''
     const confirmed = await confirmDialog({
       title: `Ask ${selectedChat.companion.username} to practise together?`,
-      message: `They will receive these ${selected.length} selected word${selected.length === 1 ? '' : 's'} one at a time. Practice together never changes your review history or schedule.`,
+      message: `Deutsch Deck will choose five reviewed words${scope} at random. Neither of you sees them before the session begins, and practice never changes your review history or schedule.`,
       confirmLabel: 'Ask to practise',
     })
     if (!confirmed) return
     void run(async () => {
-      const data = await request(`/chats/${selectedChat.id}/practice`, { cards: selected.map(practiceCardPayload) }) as { practice?: PracticeSession }
+      const data = await request(`/chats/${selectedChat.id}/practice`, practiceTag ? { tag: practiceTag } : {}) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not start a practice session.')
       setPractice(data.practice)
-      setPracticeCardIds([])
-      setPracticeQuery('')
       if (practicePicker.current) practicePicker.current.open = false
       onNotify(`Practice request sent to ${selectedChat.companion.username}.`)
     })
@@ -1368,12 +1353,9 @@ export function CompanionPanel({
       && (!pickerQuery || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(pickerQuery)))
     .sort((a, b) => Date.parse(b.lastReviewedAt ?? b.createdAt) - Date.parse(a.lastReviewedAt ?? a.createdAt))
     .slice(0, 8), [cards, hasConversation, pickerQuery])
-  const practiceNeedle = practiceQuery.trim().toLocaleLowerCase()
-  const practiceCards = useMemo(() => !selectedChat ? [] : cards
-    .filter((card) => card.status === 'active' && isShareableCard(card)
-      && (!practiceNeedle || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(practiceNeedle)))
-    .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))
-    .slice(0, 8), [cards, practiceNeedle, selectedChat])
+  const practiceTags = useMemo(() => [...new Set(cards
+    .filter((card) => card.status === 'active' && card.reviewHistory.length > 0)
+    .flatMap((card) => card.tags))].sort((a, b) => a.localeCompare(b)), [cards])
   const deckWordKeys = useMemo(() => new Set(hasConversation ? cards.map(cardContentKey) : []), [cards, hasConversation])
   const repliedToIds = new Set(chatMessages.flatMap((item) => item.replyTo ? [item.replyTo.id] : []))
   const deckEntries = useMemo(() => !hasConversation ? [] : cards
@@ -1731,8 +1713,8 @@ export function CompanionPanel({
               {practice.status === 'pending' && practice.role === 'helper'
                 ? <>
                   <span className="companion-together-kicker">Practice together</span>
-                  <strong>{selectedChat.companion.username} chose {practice.total} word{practice.total === 1 ? '' : 's'} and asked for your help.</strong>
-                  <p>You will see one selected word at a time. Their schedule and review history stay private.</p>
+                  <strong>{selectedChat.companion.username} asked for help with {practice.total} surprise review words.</strong>
+                  <p>Deutsch Deck chose them at random. You will see one at a time; their schedule and review history stay private.</p>
                   <div className="companion-card-actions">
                     <button type="button" disabled={busy} onClick={() => decidePractice('accept')}>Help practise</button>
                     <button type="button" disabled={busy} onClick={() => decidePractice('decline')}>Not now</button>
@@ -1742,7 +1724,7 @@ export function CompanionPanel({
                   ? <>
                     <span className="companion-together-kicker">Practice together</span>
                     <strong>Waiting for {selectedChat.companion.username} to join.</strong>
-                    <p>You chose {practice.total} word{practice.total === 1 ? '' : 's'}. They can accept or decline; nothing changes in your deck.</p>
+                    <p>Deutsch Deck chose {practice.total} reviewed words at random. They can accept or decline; nothing changes in your deck.</p>
                     <button type="button" className="companion-subtle-button" disabled={busy} onClick={() => decidePractice('end')}>Cancel request</button>
                   </>
                   : practice.status === 'active' && practice.card && practice.role === 'helper'
@@ -1909,6 +1891,20 @@ export function CompanionPanel({
             {(chatTyping?.id === selectedChat.id && chatTyping.typing) && <div className="companion-chat-statuses">
               {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-chat-status typing" role="status">{selectedChat.companion.username} is typing…</p>}
             </div>}
+            {!practice && <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>
+              <summary><BookOpen size={14} aria-hidden="true" /><span>Practice together</span></summary>
+              <div className="companion-practice-fab-panel">
+                <strong>Surprise practice</strong>
+                <p>Five reviewed words are chosen at random. Neither of you sees them before the session begins.</p>
+                <label>Limit to a lesson or topic (optional)
+                  <select value={practiceTag} onChange={(event) => setPracticeTag(event.target.value)}>
+                    <option value="">All reviewed words</option>
+                    {practiceTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                  </select>
+                </label>
+                <button type="button" disabled={busy} onClick={() => void startPractice()}>Ask to practise</button>
+              </div>
+            </details>}
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
               {replyingTo && <div className="companion-reply-bar" style={replyColor(replyingTo.id)}>
@@ -1932,23 +1928,6 @@ export function CompanionPanel({
                     </div>
                   </div>
                 </details>
-                {!practice && <details className="companion-word-picker companion-practice-picker" ref={practicePicker} onToggle={onChatDetailsToggle}>
-                  <summary><BookOpen size={13} aria-hidden="true" /><span>Practice together</span></summary>
-                  <div className="companion-word-picker-panel">
-                    <p className="companion-practice-picker-note">Choose up to five words. Your companion sees only these cards, and practice does not change your schedule.</p>
-                    <input value={practiceQuery} onChange={(event) => setPracticeQuery(event.target.value)} placeholder="Search your words…" aria-label="Search words to practise" />
-                    <div className="companion-word-picker-results" role="group" aria-label="Words to practise together">
-                      {practiceCards.map((card) => <button key={card.id} type="button" className={practiceCardIds.includes(card.id) ? 'selected' : ''} aria-pressed={practiceCardIds.includes(card.id)} disabled={busy || (!practiceCardIds.includes(card.id) && practiceCardIds.length >= 5)} onClick={() => togglePracticeCard(card.id)}>
-                        <strong lang="de">{card.article ? `${card.article} ${card.prompt}` : card.prompt}</strong><span>{card.meaning}</span>
-                      </button>)}
-                      {!practiceCards.length && <p className="companion-empty-note">No matching active words.</p>}
-                    </div>
-                    <div className="companion-card-actions">
-                      <span>{practiceCardIds.length}/5 selected</span>
-                      <button type="button" disabled={busy || !practiceCardIds.length} onClick={() => void startPractice()}>Ask to practise</button>
-                    </div>
-                  </div>
-                </details>}
                 <span>{messageDraft.length}/2000</span>
               </div>
             </form>

@@ -34,16 +34,10 @@ const shareSchema = z.object({
   card: sharedCardSchema,
   note: z.string().trim().max(240).optional(),
 })
-const practiceCardSchema = sharedCardSchema.extend({ cardId: z.string().trim().min(1).max(200) })
-const practiceStartSchema = z.object({ cards: z.array(practiceCardSchema).min(1).max(5) }).superRefine(({ cards }, context) => {
-  const ids = new Set()
-  cards.forEach((card, index) => {
-    if (ids.has(card.cardId)) context.addIssue({ code: 'custom', path: ['cards', index, 'cardId'], message: 'Choose each word only once.' })
-    ids.add(card.cardId)
-  })
-})
+const practiceStartSchema = z.object({ tag: z.string().trim().min(1).max(100).optional() })
 const practiceAnswerSchema = z.object({ answer: z.string().trim().min(1).max(1000) })
 const practiceDecisionSchema = z.object({ decision: z.enum(['accept', 'decline', 'end', 'try-again', 'correct', 'reveal', 'retry', 'next']) })
+const practiceCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 const hour = 60 * 60 * 1000
 const searchableFields = (message) => [
   ...(message.card ? [] : [message.text]),
@@ -57,7 +51,7 @@ const shareLifetime = 30 * 24 * hour
 const practiceLifetime = 24 * hour
 
 export function createCompanionRouter({
-  users, relationships, sharedWords, conversations, companionMessages, companionReports, practiceSessions,
+  users, progress, relationships, sharedWords, conversations, companionMessages, companionReports, practiceSessions,
   requireUser, mailer, renderAvatar, chatTyping, chatLive, chatReplay, groups, groupMembers,
 }) {
   const router = Router()
@@ -399,12 +393,40 @@ export function createCompanionRouter({
 
   router.post('/chats/:id/practice', async (req, res) => {
     const result = practiceStartSchema.safeParse(req.body)
-    if (!result.success) return res.status(400).json({ error: 'Choose one to five different active words to practise.' })
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid lesson or topic.' })
     const me = req.accountUser._id.toString()
     const found = await activePractice(me, req.params.id)
     if (!found) return unavailable(res)
     if (found.session) return res.status(409).json({ error: 'Finish the current practice session before starting another.' })
     const now = new Date()
+    const saved = await progress.findOne({ userId: me }, { projection: { cards: 1 } })
+    const reviewed = (saved?.cards ?? []).filter((card) => card.status === 'active'
+      && practiceCategories.has(card.category)
+      && (card.category !== 'noun' || ['der', 'die', 'das'].includes(card.article))
+      && ((Array.isArray(card.reviewHistory) && card.reviewHistory.length > 0) || card.lastReviewedAt))
+    const scoped = result.data.tag ? reviewed.filter((card) => card.tags?.includes(result.data.tag)) : reviewed
+    const olderThanTenMinutes = scoped.filter((card) => !card.lastReviewedAt || new Date(card.lastReviewedAt).getTime() <= now.getTime() - 10 * 60 * 1000)
+    const eligible = olderThanTenMinutes.length >= 5 ? olderThanTenMinutes : scoped
+    if (eligible.length < 5) {
+      return res.status(409).json({ error: result.data.tag
+        ? `Review at least five active words in ${result.data.tag} before practising that topic together.`
+        : 'Review at least five active words before starting surprise practice.' })
+    }
+    const cards = [...eligible]
+    for (let index = cards.length - 1; index > 0; index--) {
+      const swap = Math.floor(Math.random() * (index + 1))
+      ;[cards[index], cards[swap]] = [cards[swap], cards[index]]
+    }
+    const selected = cards.slice(0, 5).map((card) => ({
+      cardId: card.id,
+      prompt: card.prompt,
+      ...(card.article ? { article: card.article } : {}),
+      meaning: card.meaning,
+      ...(card.plural ? { plural: card.plural } : {}),
+      example: card.example,
+      ...(card.translation ? { translation: card.translation } : {}),
+      category: card.category,
+    }))
     if (!await reserveMessageSlot(req.accountUser, now)) {
       return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
     }
@@ -414,8 +436,8 @@ export function createCompanionRouter({
       learnerId: me,
       helperId: found.active.them,
       status: 'pending',
-      cards: result.data.cards,
-      total: result.data.cards.length,
+      cards: selected,
+      total: selected.length,
       cardIndex: 0,
       createdAt: now,
       updatedAt: now,
@@ -425,7 +447,7 @@ export function createCompanionRouter({
     await companionMessages.insertOne({
       conversationId: found.active.conversation._id.toString(),
       senderId: me,
-      text: `Asked for help practising ${session.total} selected word${session.total === 1 ? '' : 's'}.`,
+      text: `Asked for help with a surprise practice of ${session.total} reviewed words.`,
       createdAt: now,
     })
     await conversations.updateOne({ _id: found.active.conversation._id }, { $set: { updatedAt: now } })
