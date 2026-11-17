@@ -1444,18 +1444,24 @@
 .daily-options .quiet-button {
   width: 100%;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   margin: 0;
-  border-radius: 10px;
+  padding: 12px 16px;
+  border-radius: 999px;
 }
 
-.daily-options .primary-button {
-  padding: 11px 14px;
+.daily-options .primary-button:hover {
+  background: #34313b;
 }
 
 .daily-options .quiet-button {
-  padding: 9px 14px;
-  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink);
+  background: var(--selection-cream);
+  transition: background-color 140ms ease;
+}
+
+.daily-options .quiet-button:hover {
+  background: #f3dda7;
 }
 
 .daily-options .quiet-button small {
