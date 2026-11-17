@@ -2560,5 +2560,12 @@ input[aria-invalid="true"]:focus,
     select {
       font-size: 16px !important;
     }
+
+    /* Keep Safari's 16px focus threshold, while letting quiet placeholder copy
+       retain the compact visual weight used throughout the app. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"])::placeholder,
+    textarea::placeholder {
+      font-size: 0.875em;
+    }
   }
 }
