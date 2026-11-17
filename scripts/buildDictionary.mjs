@@ -1,111 +1,76 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { createInterface } from 'node:readline'
+import { downloadKaikki } from './kaikkiDownload.mjs'
 
 // Builds the lazily loaded German word-form dictionary used for tap-to-translate in companion chat.
-// Source data: slovymovy/words (derived from Wiktionary, Kaikki.org and Wiktextract), CC BY-SA 4.0.
-const SOURCE_REVISION = 'bbef653dc3737361949403c36c822cda61cff512'
-const BASE_URL = `https://raw.githubusercontent.com/slovymovy/words/${SOURCE_REVISION}`
+//
+// Entries and inflections come from the German entries of English Wiktionary, as extracted by
+// Wiktextract and published by Kaikki.org (CC BY-SA 4.0 and GFDL). Word frequency, used only to decide
+// which words to keep and how to rank them, comes from the pinned slovymovy/words German frequency list.
+const FREQUENCY_REVISION = 'bbef653dc3737361949403c36c822cda61cff512'
+const FREQUENCY_URL = `https://raw.githubusercontent.com/slovymovy/words/${FREQUENCY_REVISION}/freqs/de_kaikki_words.txt`
 const OUTPUT_PATH = resolve('src/data/german-dictionary.json')
 const CACHE_DIR = process.env.DICTIONARY_CACHE_DIR ?? join(tmpdir(), 'deutsch-dictionary-cache')
-const CANDIDATE_LIMIT = Number(process.env.DICTIONARY_CANDIDATES ?? 15000)
-const WORKERS = 24
+const MAX_RANK = Number(process.env.DICTIONARY_MAX_RANK ?? 30000)
+const EXAMPLE_RANK = Number(process.env.DICTIONARY_EXAMPLE_RANK ?? MAX_RANK)
 const MAX_GLOSS_LENGTH = 90
+const MAX_GLOSSES = 4
 const MAX_EXAMPLE_LENGTH = 140
-const LEVEL_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 
 const POS_ALIASES = {
   noun: 'noun',
   verb: 'verb',
   adj: 'adjective',
-  adjective: 'adjective',
   adv: 'adverb',
-  adverb: 'adverb',
   num: 'numeral',
-  numeral: 'numeral',
   prep: 'preposition',
-  preposition: 'preposition',
   conj: 'conjunction',
-  conjunction: 'conjunction',
   pron: 'pronoun',
-  pronoun: 'pronoun',
   det: 'determiner',
-  determiner: 'determiner',
   article: 'determiner',
   particle: 'particle',
   intj: 'interjection',
-  interjection: 'interjection',
 }
-const ARTICLE_BY_GENDER = { masculine: 'der', feminine: 'die', neuter: 'das' }
-const CASE_TAGS = new Set(['nominative', 'genitive', 'dative', 'accusative'])
+const GENDER_ARTICLES = { masculine: 'der', feminine: 'die', neuter: 'das' }
+const SKIPPED_SENSE_TAGS = new Set(['form-of', 'alt-of', 'obsolete', 'archaic', 'historical', 'misspelling', 'nonstandard'])
 const SKIPPED_FORM_TAGS = new Set([
   'auxiliary', 'table-tags', 'inflection-template', 'class', 'multiword-construction', 'romanization',
+  'diminutive', 'alternative', 'obsolete',
 ])
 const WORD_PATTERN = /^[\p{L}\p{M}]+(?:-[\p{L}\p{M}]+)*$/u
 const PREFIX_PATTERN = /^(?:ich|du|er\/sie\/es|er|sie|es|wir|ihr|der|die|das|den|dem|des|ein|eine|einen|einem|eines|einer|am)\s+/iu
+const ALTERNATIVE_GLOSS = /^(?:alternative|obsolete|superseded|nonstandard|dated|eye dialect)\b.*\b(?:of|for)\b/iu
+const closedClass = new Set(['pronoun', 'determiner', 'numeral'])
 
-const normalizePos = (value) => POS_ALIASES[String(value ?? '').toLowerCase()] ?? null
+const formKey = (token) => token.normalize('NFC').toLocaleLowerCase('de-DE')
 
-const cleanText = (value) =>
-  String(value ?? '')
-    .replace(/<\/?w>/g, '')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-const cachePath = (path) => join(CACHE_DIR, `${createHash('sha1').update(path).digest('hex')}.json`)
-
-const fetchWithRetry = async (path, parse) => {
-  const url = `${BASE_URL}/${path.split('/').map(encodeURIComponent).join('/')}`
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(30_000) })
-      if (response.status === 404) return null
-      if (!response.ok) {
-        if (response.status >= 500 || response.status === 429) throw new Error(`HTTP ${response.status}`)
-        throw new Error(`Could not download ${url}: HTTP ${response.status}`)
-      }
-      return await parse(response)
-    } catch (error) {
-      if (attempt === 3) throw new Error(`Failed to download ${url}: ${error.message}`, { cause: error })
-      await new Promise((done) => setTimeout(done, 250 * 2 ** attempt))
-    }
-  }
-  return null
+const cachedText = async (name, url) => {
+  await mkdir(CACHE_DIR, { recursive: true })
+  const file = join(CACHE_DIR, name)
+  const existing = await stat(file).catch(() => null)
+  if (existing?.size) return readFile(file, 'utf8')
+  const response = await fetch(url, { signal: AbortSignal.timeout(120_000) })
+  if (!response.ok) throw new Error(`Could not download ${url}: HTTP ${response.status}`)
+  const text = await response.text()
+  await writeFile(file, text)
+  return text
 }
 
-// Cached so an interrupted build resumes instead of downloading everything again.
-const fetchJsonCached = async (path) => {
-  const file = cachePath(path)
-  try {
-    return JSON.parse(await readFile(file, 'utf8'))
-  } catch {
-    // Not cached yet.
-  }
-  const data = await fetchWithRetry(path, (response) => response.json())
-  await writeFile(file, JSON.stringify(data))
-  return data
-}
+const frequencyText = await cachedText(`frequency-${FREQUENCY_REVISION.slice(0, 8)}.txt`, FREQUENCY_URL)
+const ranks = new Map()
+frequencyText.split(/\r?\n/).slice(1).forEach((row, index) => {
+  const key = formKey(row.split('\t', 1)[0].trim())
+  if (key && !ranks.has(key)) ranks.set(key, index + 1)
+})
 
-const mapWithLimit = async (items, limit, worker) => {
-  const results = new Array(items.length)
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next
-      next += 1
-      results[index] = await worker(items[index], index)
-    }
-  }))
-  return results
-}
+const cleanGloss = (gloss) => gloss.replace(/\s+/g, ' ').replace(/[.;:\s]+$/u, '').trim()
+// Wiktionary glosses carry long clarifications in brackets; the short core is what a learner needs.
+const tidyGloss = (gloss) => cleanGloss(cleanGloss(gloss).replace(/\s*\([^()]*\)/gu, '')) || cleanGloss(gloss)
+const GRAMMAR_GLOSS = /^(?:forms|used (?:to|as|in|with|for)|expresses|indicates|as a|introduces)\b/iu
+const glossItems = (sense) => tidyGloss(sense.glosses.at(-1)).split(/\s*;\s*/u).filter(Boolean)
 
 const formToken = (form) => {
   if (typeof form.form !== 'string') return null
@@ -116,79 +81,66 @@ const formToken = (form) => {
   return WORD_PATTERN.test(value) ? value : null
 }
 
-const nounDetails = (entries) => {
-  const genders = new Set(entries.flatMap((entry) => (entry.senses ?? []).flatMap((sense) =>
-    (sense.tags ?? []).filter((tag) => Object.hasOwn(ARTICLE_BY_GENDER, tag)))))
-  if (genders.size !== 1) return {}
-  const gender = [...genders][0]
-  const forms = entries
-    .filter((entry) => entry.senses?.some((sense) => sense.tags?.includes(gender)))
-    .flatMap((entry) => entry.forms ?? [])
-  const plurals = forms.filter((form) => form.tags?.includes('plural')
-    && !form.tags.some((tag) => CASE_TAGS.has(tag)))
-  const nominativePlurals = forms.filter((form) => form.tags?.includes('plural')
-    && form.tags.includes('nominative')
-    && !form.tags.some((tag) => ['genitive', 'dative', 'accusative'].includes(tag)))
-  const bases = [...new Set((plurals.length ? plurals : nominativePlurals)
-    .map((form) => form.form.replace(/^(der|die|das)\s+/iu, '').trim())
-    .filter((value) => WORD_PATTERN.test(value)))]
-  return { article: ARTICLE_BY_GENDER[gender], ...(bases.length === 1 ? { plural: bases[0] } : {}) }
+const pluralOf = (forms) => {
+  for (const form of forms) {
+    const tags = form.tags ?? []
+    if (!tags.includes('plural') || tags.some((tag) => ['diminutive', 'genitive', 'dative', 'accusative', 'table-tags'].includes(tag))) continue
+    const value = (form.form ?? '').replace(/^(?:der|die|das)\s+/iu, '').trim()
+    if (WORD_PATTERN.test(value)) return value
+  }
+  return ''
 }
+
+const keptSenses = (entry) => (entry.senses ?? []).filter((sense) =>
+  Array.isArray(sense.glosses) && sense.glosses.length
+  && !sense.form_of && !sense.alt_of
+  && !sense.tags?.some((tag) => SKIPPED_SENSE_TAGS.has(tag))
+  && !ALTERNATIVE_GLOSS.test(sense.glosses.at(-1)))
 
 const pickExample = (senses) => {
-  const candidates = senses.flatMap((sense) => (sense.examples ?? []).map((example) => ({
-    text: cleanText(example.text),
-    translation: cleanText(example.target_lang_translations?.en),
-    level: sense.learner_level,
-  }))).filter((item) => item.text && item.translation
-    && item.text.length <= MAX_EXAMPLE_LENGTH && item.translation.length <= MAX_EXAMPLE_LENGTH)
-  const rank = (level) => (LEVEL_ORDER.includes(level) ? LEVEL_ORDER.indexOf(level) : LEVEL_ORDER.length)
-  return candidates.sort((a, b) => rank(a.level) - rank(b.level))[0] ?? null
-}
-
-const pickGloss = (senses) => {
-  const words = []
   for (const sense of senses) {
-    for (const item of sense.translations?.en ?? []) {
-      const word = cleanText(item.target_lang_word)
-      if (word && !words.some((existing) => existing.toLowerCase() === word.toLowerCase())) words.push(word)
+    for (const example of sense.examples ?? []) {
+      const text = cleanGloss(example.text ?? '')
+      const translation = cleanGloss(example.english ?? example.translation ?? '')
+      if (text && translation && text.length <= MAX_EXAMPLE_LENGTH && translation.length <= MAX_EXAMPLE_LENGTH) {
+        return { text: /[.!?]$/u.test(text) ? text : text, translation }
+      }
     }
   }
-  let gloss = ''
-  for (const word of words.slice(0, 4)) {
-    const next = gloss ? `${gloss}; ${word}` : word
-    if (next.length > MAX_GLOSS_LENGTH) break
-    gloss = next
-  }
-  return gloss
+  return null
 }
 
-await mkdir(CACHE_DIR, { recursive: true })
-const frequencyText = await fetchWithRetry('freqs/de_kaikki_words.txt', (response) => response.text())
-if (!frequencyText) throw new Error('The source German frequency list could not be downloaded.')
-const candidates = [...new Set(frequencyText.split(/\r?\n/).slice(1)
-  .map((row) => row.split('\t', 1)[0].trim())
-  .filter((word) => /^[\p{L}]{2,30}$/u.test(word)))].slice(0, CANDIDATE_LIMIT)
-console.log(`Looking up ${candidates.length} candidate words…`)
-
-let completed = 0
-const records = await mapWithLimit(candidates, WORKERS, async (word) => {
-  const wordData = await fetchJsonCached(`words/de/${word}.json`)
-  completed += 1
-  if (completed % 500 === 0) console.log(`${completed}/${candidates.length}`)
-  if (!Array.isArray(wordData?.entries) || !wordData.entries.length) return null
-  const extract = await fetchJsonCached(`db-extract/de/${word}.json`)
-  return { word, wordData, extract }
-})
+// Gather every kept entry per word and part of speech (Wiktionary splits some words by etymology).
+const groups = new Map()
+const input = createReadStream(await downloadKaikki().then((result) => result.path), { encoding: 'utf8' })
+let lines = 0
+for await (const line of createInterface({ input, crlfDelay: Infinity })) {
+  lines += 1
+  const posMatch = /^\{"pos": "([^"]+)"/u.exec(line)
+  const pos = posMatch ? POS_ALIASES[posMatch[1]] : undefined
+  if (!pos) continue
+  const entry = JSON.parse(line)
+  const word = entry.word
+  if (typeof word !== 'string' || !WORD_PATTERN.test(word) || word.length > 30) continue
+  // Hyphenated spellings such as "E-Mail" are ranked by how often people write them without the hyphen.
+  const rank = Math.min(ranks.get(formKey(word)) ?? Infinity, ranks.get(formKey(word).replaceAll('-', '')) ?? Infinity)
+  if (rank > MAX_RANK) continue
+  const senses = keptSenses(entry)
+  if (!senses.length) continue
+  const key = `${pos}|${word}`
+  const group = groups.get(key) ?? { pos, word, rank, senses: [], forms: [], heads: [] }
+  group.heads.push(entry.head_templates?.[0]?.expansion ?? '')
+  group.senses.push(...senses)
+  group.forms.push(...(entry.forms ?? []))
+  groups.set(key, group)
+}
+console.log(`Read ${lines} source entries; kept ${groups.size} words at or above rank ${MAX_RANK}.`)
 
 const lemmas = []
-const lemmaIndex = new Map()
 const headwords = new Map()
 const inflections = new Map()
 const closedInflections = new Map()
 const lemmaForms = []
-const closedClass = new Set(['pronoun', 'determiner', 'numeral'])
-const formKey = (token) => token.normalize('NFC').toLocaleLowerCase('de-DE')
 const addTo = (map, token, index) => {
   const key = formKey(token)
   const current = map.get(key) ?? []
@@ -196,56 +148,55 @@ const addTo = (map, token, index) => {
 }
 
 const posCounts = {}
-for (const record of records) {
-  if (!record) continue
-  const { word, wordData, extract } = record
-  const extractEntries = Object.values(extract?.source_file_to_entries ?? {}).flat()
-    .filter((entry) => entry.lang_code === 'de' && entry.word?.toLocaleLowerCase('de-DE') === word.toLocaleLowerCase('de-DE'))
-  const byPos = new Map()
-  for (const entry of wordData.entries) {
-    const pos = normalizePos(entry.pos)
-    if (!pos) continue
-    byPos.set(pos, [...(byPos.get(pos) ?? []), ...(entry.senses ?? [])])
-  }
-  for (const [pos, senses] of byPos) {
-    const gloss = pickGloss(senses)
-    if (!gloss) continue
-    const matching = extractEntries.filter((entry) => normalizePos(entry.pos) === pos)
-    // Inflected words such as "habe" or "kleiner" have their own source entries; their meaning is
-    // reached through the base word's inflection table instead of becoming separate headwords.
-    const inflectedOnly = matching.length > 0 && matching.every((entry) =>
-      (entry.senses ?? []).length > 0 && entry.senses.every((sense) => sense.tags?.includes('form-of')))
-    if (inflectedOnly) continue
-    const display = matching.find((entry) => entry.word)?.word
-      ?? (pos === 'noun' ? `${word[0].toLocaleUpperCase('de-DE')}${word.slice(1)}` : word)
-    const key = `${pos}|${display}`
-    if (lemmaIndex.has(key)) continue
-    const details = pos === 'noun' ? nounDetails(matching) : {}
-    const example = pickExample(senses)
-    const levels = senses.map((sense) => sense.learner_level).filter((level) => LEVEL_ORDER.includes(level))
-    const level = levels.sort((a, b) => LEVEL_ORDER.indexOf(a) - LEVEL_ORDER.indexOf(b))[0] ?? ''
-    const index = lemmas.length
-    lemmaIndex.set(key, index)
-    posCounts[pos] = (posCounts[pos] ?? 0) + 1
-    lemmas.push([
-      display, pos, gloss, details.article ?? '', details.plural ?? '',
-      example?.text ?? '', example?.translation ?? '', level,
-    ])
-    addTo(headwords, display, index)
-    lemmaForms[index] = new Set()
-    for (const entry of matching) {
-      for (const form of entry.forms ?? []) {
-        const token = formToken(form)
-        if (!token) continue
-        addTo(closedClass.has(pos) ? closedInflections : inflections, token, index)
-        lemmaForms[index].add(formKey(token))
-      }
+const ordered = [...groups.values()].sort((a, b) => a.rank - b.rank || a.pos.localeCompare(b.pos) || a.word.localeCompare(b.word, 'de'))
+for (const { pos, word, rank, senses, forms, heads } of ordered) {
+  const candidates = []
+  for (const sense of senses) {
+    for (const item of glossItems(sense)) {
+      if (!candidates.some((existing) => existing.toLowerCase() === item.toLowerCase())) candidates.push(item)
     }
+  }
+  // Short, plain meanings first; grammar notes only when nothing else is available.
+  const plain = candidates.filter((item) => !GRAMMAR_GLOSS.test(item))
+  const ranked = [...(plain.length ? plain : candidates)]
+    .map((item, position) => ({ item, position, long: item.length > 45 ? 1 : 0 }))
+    .sort((a, b) => a.long - b.long || a.position - b.position)
+    .map(({ item }) => item)
+  let gloss = ''
+  let count = 0
+  for (const item of ranked) {
+    const next = gloss ? `${gloss}; ${item}` : item
+    if (gloss && (count >= MAX_GLOSSES || next.length > MAX_GLOSS_LENGTH)) continue
+    gloss = next.length > MAX_GLOSS_LENGTH ? `${next.slice(0, MAX_GLOSS_LENGTH - 1).replace(/\s+\S*$/u, '')}…` : next
+    count += 1
+  }
+  if (!gloss) continue
+
+  // Wiktionary's headword line lists the main gender first ("Joghurt (predominant) m or n"); regional
+  // variants only appear in the sense tags, so they are the fallback.
+  const headGender = pos === 'noun'
+    ? heads.map((head) => /^\S+\s+([mfn])(?=\s|$)/u.exec(head.replace(/\s*\([^()]*\)/gu, ''))?.[1]).find(Boolean)
+    : undefined
+  const tagGender = senses.flatMap((sense) => sense.tags ?? []).find((tag) => Object.hasOwn(GENDER_ARTICLES, tag))
+  const article = pos === 'noun'
+    ? ({ m: 'der', f: 'die', n: 'das' }[headGender] ?? (tagGender ? GENDER_ARTICLES[tagGender] : ''))
+    : ''
+  const plural = pos === 'noun' ? pluralOf(forms) : ''
+  const example = rank <= EXAMPLE_RANK ? pickExample(senses) : null
+  const index = lemmas.length
+  posCounts[pos] = (posCounts[pos] ?? 0) + 1
+  lemmas.push([word, pos, gloss, article, plural, example?.text ?? '', example?.translation ?? '', ''])
+  addTo(headwords, word, index)
+  if (word.includes('-')) addTo(inflections, word.replaceAll('-', ''), index)
+  lemmaForms[index] = new Set()
+  for (const token of new Set(forms.map(formToken).filter(Boolean))) {
+    addTo(closedClass.has(pos) ? closedInflections : inflections, token, index)
+    lemmaForms[index].add(formKey(token))
   }
 }
 
-// Some source headwords are really an inflected form of a more basic word of the same kind
-// (for example "kleiner" for "klein"). Keep only the base word; its table already covers them.
+// A few source headwords are really an inflected form of a more basic word of the same kind that
+// escaped the form-of flag (for example "kleiner" for "klein"); the base word's table covers them.
 const sharedPrefix = (a, b) => {
   let length = 0
   while (length < a.length && length < b.length && a[length] === b[length]) length += 1
@@ -275,29 +226,28 @@ const reindex = (map) => new Map([...map].map(([key, indexes]) => [
   key,
   indexes.filter((index) => remap.has(index)).map((index) => remap.get(index)),
 ]).filter(([, indexes]) => indexes.length))
-const headwordsKept = reindex(headwords)
-const inflectionsKept = reindex(inflections)
-const closedKept = reindex(closedInflections)
 
 // Pronoun, numeral and determiner tables list unrelated common words (for example "sein" or
 // "zwei"), so they never override another word's own headword or inflection.
 const forms = new Map()
 const merge = (key, indexes) => forms.set(key, [...new Set([...(forms.get(key) ?? []), ...indexes])])
-for (const [key, indexes] of headwordsKept) merge(key, indexes)
-for (const [key, indexes] of inflectionsKept) merge(key, indexes)
-for (const [key, indexes] of closedKept) {
+for (const [key, indexes] of reindex(headwords)) merge(key, indexes)
+for (const [key, indexes] of reindex(inflections)) merge(key, indexes)
+for (const [key, indexes] of reindex(closedInflections)) {
   if (!forms.has(key)) merge(key, indexes)
 }
 for (const [key, indexes] of forms) forms.set(key, indexes.length === 1 ? indexes[0] : [...indexes].sort((a, b) => a - b))
 
+const { lastModified } = await downloadKaikki()
 const output = {
   format: 'deutsch-dictionary',
   version: 1,
-  source: 'slovymovy/words, derived from Wiktionary, Kaikki.org, and Wiktextract',
-  sourceUrl: `https://github.com/slovymovy/words/tree/${SOURCE_REVISION}`,
-  sourceRevision: SOURCE_REVISION,
+  source: 'English Wiktionary (German entries) as extracted by Wiktextract and published by Kaikki.org',
+  sourceUrl: 'https://kaikki.org/dictionary/German/',
+  sourceDate: lastModified,
+  frequencySource: `slovymovy/words German frequency list at revision ${FREQUENCY_REVISION}`,
   license: 'CC BY-SA 4.0',
-  modified: `Reduced to the ${candidates.length} most frequent source German words that have an English meaning; keeps a short English gloss, noun article and plural, one example sentence with translation, and inflected single-word forms for tap-to-translate lookup. Field order: word, part of speech, English gloss, article, plural, example, translation, learner level.`,
+  modified: `Reduced to the ${keptLemmas.length} most frequent single-word German entries (frequency rank ${MAX_RANK} or better) that have an English gloss; inflected-form entries and obsolete, archaic and historical senses are left out. Keeps up to ${MAX_GLOSSES} short English glosses, noun article and plural, one example sentence with its English translation where Wiktionary has one, and single-word inflected forms for tap-to-translate lookup. Field order: word, part of speech, English gloss, article, plural, example, translation, learner level (unused).`,
   lemmas: keptLemmas,
   forms: Object.fromEntries([...forms.entries()].sort(([a], [b]) => a.localeCompare(b, 'de'))),
 }
