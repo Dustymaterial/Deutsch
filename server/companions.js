@@ -34,6 +34,16 @@ const shareSchema = z.object({
   card: sharedCardSchema,
   note: z.string().trim().max(240).optional(),
 })
+const practiceCardSchema = sharedCardSchema.extend({ cardId: z.string().trim().min(1).max(200) })
+const practiceStartSchema = z.object({ cards: z.array(practiceCardSchema).min(1).max(5) }).superRefine(({ cards }, context) => {
+  const ids = new Set()
+  cards.forEach((card, index) => {
+    if (ids.has(card.cardId)) context.addIssue({ code: 'custom', path: ['cards', index, 'cardId'], message: 'Choose each word only once.' })
+    ids.add(card.cardId)
+  })
+})
+const practiceAnswerSchema = z.object({ answer: z.string().trim().min(1).max(1000) })
+const practiceDecisionSchema = z.object({ decision: z.enum(['accept', 'decline', 'end', 'try-again', 'correct', 'reveal', 'retry', 'next']) })
 const hour = 60 * 60 * 1000
 const searchableFields = (message) => [
   ...(message.card ? [] : [message.text]),
@@ -44,9 +54,10 @@ const editWindow = 10 * 60 * 1000
 const unsentText = 'Message unsent'
 const cooldown = 24 * hour
 const shareLifetime = 30 * 24 * hour
+const practiceLifetime = 24 * hour
 
 export function createCompanionRouter({
-  users, relationships, sharedWords, conversations, companionMessages, companionReports,
+  users, relationships, sharedWords, conversations, companionMessages, companionReports, practiceSessions,
   requireUser, mailer, renderAvatar, chatTyping, chatLive, chatReplay, groups, groupMembers,
 }) {
   const router = Router()
@@ -105,6 +116,32 @@ export function createCompanionRouter({
       } : {}),
       reactions: summarizeReactions(message.reactions, me),
       reported: message.reporterIds?.includes(me) ?? false,
+    }
+  }
+
+  const serializePractice = (session, me) => {
+    const helper = session.helperId === me
+    const active = session.status === 'active'
+    const card = active ? session.cards[session.cardIndex] : null
+    const feedback = session.round?.feedback
+    return {
+      id: session._id.toString(),
+      role: helper ? 'helper' : 'learner',
+      status: session.status,
+      total: session.total,
+      ...(active ? { position: session.cardIndex + 1 } : {}),
+      ...(card ? {
+        card: helper
+          ? card
+          : {
+              prompt: card.prompt,
+              ...(card.article ? { article: card.article } : {}),
+              category: card.category,
+              ...(feedback === 'reveal' ? { meaning: card.meaning, ...(card.plural ? { plural: card.plural } : {}) } : {}),
+            },
+        ...(session.round?.answer ? { answer: session.round.answer } : {}),
+        ...(feedback ? { feedback } : {}),
+      } : {}),
     }
   }
 
@@ -339,6 +376,134 @@ export function createCompanionRouter({
     )
     if (!conversation || !companion) return unavailable(res)
     res.json({ id: conversation._id.toString(), companion: profile(companion) })
+  })
+
+  async function activePractice(me, chatId) {
+    const active = await activeConversation(me, chatId)
+    if (!active) return null
+    const session = await practiceSessions.findOne({
+      conversationId: active.conversation._id.toString(),
+      participants: me,
+      status: { $in: ['pending', 'active'] },
+      expiresAt: { $gt: new Date() },
+    }, { sort: { updatedAt: -1 } })
+    return { active, session }
+  }
+
+  router.get('/chats/:id/practice', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    const found = await activePractice(me, req.params.id)
+    if (!found) return unavailable(res)
+    res.json({ practice: found.session ? serializePractice(found.session, me) : null })
+  })
+
+  router.post('/chats/:id/practice', async (req, res) => {
+    const result = practiceStartSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose one to five different active words to practise.' })
+    const me = req.accountUser._id.toString()
+    const found = await activePractice(me, req.params.id)
+    if (!found) return unavailable(res)
+    if (found.session) return res.status(409).json({ error: 'Finish the current practice session before starting another.' })
+    const now = new Date()
+    if (!await reserveMessageSlot(req.accountUser, now)) {
+      return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
+    }
+    const session = {
+      conversationId: found.active.conversation._id.toString(),
+      participants: found.active.conversation.participants,
+      learnerId: me,
+      helperId: found.active.them,
+      status: 'pending',
+      cards: result.data.cards,
+      total: result.data.cards.length,
+      cardIndex: 0,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + practiceLifetime),
+    }
+    const inserted = await practiceSessions.insertOne(session)
+    await companionMessages.insertOne({
+      conversationId: found.active.conversation._id.toString(),
+      senderId: me,
+      text: `Asked for help practising ${session.total} selected word${session.total === 1 ? '' : 's'}.`,
+      createdAt: now,
+    })
+    await conversations.updateOne({ _id: found.active.conversation._id }, { $set: { updatedAt: now } })
+    res.status(201).json({ practice: serializePractice({ ...session, _id: inserted.insertedId }, me) })
+  })
+
+  router.post('/chats/:id/practice/:practiceId/answer', async (req, res) => {
+    const result = practiceAnswerSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Write an answer up to 1,000 characters.' })
+    const me = req.accountUser._id.toString()
+    const found = await activePractice(me, req.params.id)
+    if (!found?.session || found.session._id.toString() !== req.params.practiceId || found.session.learnerId !== me || found.session.status !== 'active') return unavailable(res)
+    if (found.session.round?.answer || found.session.round?.feedback) return changed(res)
+    if ((found.session.attempts ?? 0) >= 5) return res.status(400).json({ error: 'Five answers have been tried. Ask your companion to reveal the answer or mark it correct.' })
+    const now = new Date()
+    const updated = await practiceSessions.updateOne({ _id: found.session._id, status: 'active', 'round.answer': { $exists: false } }, {
+      $set: { round: { answer: result.data.answer }, attempts: (found.session.attempts ?? 0) + 1, updatedAt: now },
+    })
+    if (!updated.modifiedCount) return changed(res)
+    const practice = { ...found.session, round: { answer: result.data.answer }, attempts: (found.session.attempts ?? 0) + 1, updatedAt: now }
+    res.json({ practice: serializePractice(practice, me) })
+  })
+
+  router.post('/chats/:id/practice/:practiceId/decision', async (req, res) => {
+    const result = practiceDecisionSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid practice action.' })
+    const me = req.accountUser._id.toString()
+    const found = await activePractice(me, req.params.id)
+    if (!found?.session || found.session._id.toString() !== req.params.practiceId) return unavailable(res)
+    const session = found.session
+    const { decision } = result.data
+    const isLearner = session.learnerId === me
+    const isHelper = session.helperId === me
+    if (!isLearner && !isHelper) return unavailable(res)
+    const now = new Date()
+
+    if (decision === 'accept' || decision === 'decline') {
+      if (!isHelper || session.status !== 'pending') return changed(res)
+      const status = decision === 'accept' ? 'active' : 'declined'
+      const values = { status, updatedAt: now, ...(status === 'declined' ? { cards: [], round: null } : {}) }
+      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'pending' }, { $set: values })
+      if (!updated.modifiedCount) return changed(res)
+      return res.json({ practice: serializePractice({ ...session, ...values }, me) })
+    }
+
+    if (decision === 'end') {
+      const values = { status: 'ended', cards: [], round: null, updatedAt: now, expiresAt: now }
+      await practiceSessions.updateOne({ _id: session._id }, { $set: values })
+      return res.json({ practice: serializePractice({ ...session, ...values }, me) })
+    }
+
+    if (session.status !== 'active') return changed(res)
+    if (decision === 'retry') {
+      if (!isLearner || session.round?.feedback !== 'try-again') return changed(res)
+      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.feedback': 'try-again' }, { $unset: { round: '' }, $set: { updatedAt: now } })
+      if (!updated.modifiedCount) return changed(res)
+      return res.json({ practice: serializePractice({ ...session, round: undefined, updatedAt: now }, me) })
+    }
+
+    if (decision === 'next') {
+      if (!isLearner || !['correct', 'reveal'].includes(session.round?.feedback)) return changed(res)
+      const complete = session.cardIndex + 1 >= session.total
+      const values = complete
+        ? { status: 'completed', cards: [], round: null, updatedAt: now, expiresAt: now }
+        : { cardIndex: session.cardIndex + 1, round: null, attempts: 0, updatedAt: now }
+      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.feedback': session.round.feedback }, { $set: values })
+      if (!updated.modifiedCount) return changed(res)
+      return res.json({ practice: serializePractice({ ...session, ...values }, me) })
+    }
+
+    if (!isHelper || !session.round?.answer || session.round.feedback) return changed(res)
+    const feedback = decision
+    if (!['try-again', 'correct', 'reveal'].includes(feedback)) return changed(res)
+    const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.answer': session.round.answer, 'round.feedback': { $exists: false } }, {
+      $set: { 'round.feedback': feedback, updatedAt: now },
+    })
+    if (!updated.modifiedCount) return changed(res)
+    res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback }, updatedAt: now }, me) })
   })
 
   router.get('/chats/:id/messages', async (req, res) => {

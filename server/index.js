@@ -173,6 +173,7 @@ let sharedWords
 let conversations
 let companionMessages
 let companionReports
+let practiceSessions
 let groups
 let groupMembers
 let groupMessages
@@ -247,6 +248,7 @@ if (mongoConnectionString) {
   conversations = db.collection('companionConversations')
   companionMessages = db.collection('companionMessages')
   companionReports = db.collection('companionReports')
+  practiceSessions = db.collection('practiceSessions')
   groups = db.collection('groups')
   groupMembers = db.collection('groupMembers')
   groupMessages = db.collection('groupMessages')
@@ -294,6 +296,8 @@ if (mongoConnectionString) {
     companionReports.createIndex({ reporterId: 1, messageId: 1 }, { unique: true }),
     companionReports.createIndex({ createdAt: -1 }),
     companionReports.createIndex({ deleteAfter: 1 }, { expireAfterSeconds: 0 }),
+    practiceSessions.createIndex({ conversationId: 1, status: 1, updatedAt: -1 }),
+    practiceSessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     groups.createIndex({ nameKey: 1 }, { unique: true }),
     groups.createIndex({ ownerId: 1 }),
     groups.createIndex({ ownerId: 1, ownerSlot: 1 }, { unique: true }),
@@ -509,7 +513,7 @@ app.patch('/api/auth/profile', requireUser, async (req, res) => {
 
 if (relationships) {
   app.use('/api/companions', createCompanionRouter({
-    users, relationships, sharedWords, conversations, companionMessages, companionReports,
+    users, relationships, sharedWords, conversations, companionMessages, companionReports, practiceSessions,
     requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng, chatTyping, chatLive, chatReplay, groups, groupMembers,
   }))
   const isModerator = createModeratorCheck((configuration.MODERATOR_USER_IDS ?? '').split(','))
