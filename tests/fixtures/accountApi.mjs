@@ -536,29 +536,33 @@ try {
   privateConversation.readAt[learnerId] = previousReadAt
   privateConversation.readThrough[learnerId] = previousReadThrough
   const practicePath = `/api/companions/chats/${openedChat.body.id}/practice`
-  const practiceCards = [{
-    cardId: 'practice-tisch', prompt: 'Tisch', article: 'der', plural: 'Tische', meaning: 'table',
-    example: 'Der Tisch ist groß.', translation: 'The table is big.', category: 'noun',
-  }, {
-    cardId: 'practice-lernen', prompt: 'lernen', meaning: 'to learn',
-    example: 'Wir lernen Deutsch.', translation: 'We learn German.', category: 'verb',
-  }]
+  const practiceCards = Array.from({ length: 5 }, (_, index) => ({
+    id: `practice-${index}`, prompt: index === 0 ? 'Tisch' : `lernen ${index}`,
+    ...(index === 0 ? { article: 'der', plural: 'Tische' } : {}),
+    meaning: index === 0 ? 'table' : `to learn ${index}`,
+    example: index === 0 ? 'Der Tisch ist groß.' : `Wir lernen ${index}.`,
+    translation: index === 0 ? 'The table is big.' : `We learn ${index}.`,
+    category: index === 0 ? 'noun' : 'verb', status: 'active', tags: ['Lektion 4'],
+    reviewHistory: [{ at: '2026-11-01T12:00:00.000Z' }], lastReviewedAt: '2026-11-01T12:00:00.000Z',
+  }))
   assert.equal((await request(practicePath, null, learner.cookie)).body.practice, null)
-  assert.equal((await request(practicePath, { cards: [] }, learner.cookie)).status, 400)
-  const startedPractice = await request(practicePath, { cards: practiceCards }, learner.cookie)
+  assert.equal((await request(practicePath, { tag: '' }, learner.cookie)).status, 400)
+  assert.equal((await request(practicePath, {}, learner.cookie)).status, 409)
+  records.progress.push({ userId: learnerId, cards: practiceCards })
+  const startedPractice = await request(practicePath, { tag: 'Lektion 4' }, learner.cookie)
   assert.equal(startedPractice.status, 201)
   assert.equal(startedPractice.body.practice.role, 'learner')
   assert.equal(startedPractice.body.practice.status, 'pending')
-  assert.equal((await request(practicePath, { cards: practiceCards }, learner.cookie)).status, 409)
+  assert.equal((await request(practicePath, { tag: 'Lektion 4' }, learner.cookie)).status, 409)
   const helperPractice = await request(practicePath, null, other.cookie)
   assert.equal(helperPractice.body.practice.role, 'helper')
-  assert.equal(helperPractice.body.practice.total, 2)
+  assert.equal(helperPractice.body.practice.total, 5)
   const practiceDecision = `${practicePath}/${startedPractice.body.practice.id}/decision`
   const practiceAnswer = `${practicePath}/${startedPractice.body.practice.id}/answer`
   assert.equal((await request(practiceDecision, { decision: 'accept' }, learner.cookie)).status, 409)
   const acceptedPractice = await request(practiceDecision, { decision: 'accept' }, other.cookie)
   assert.equal(acceptedPractice.status, 200)
-  assert.equal(acceptedPractice.body.practice.card.meaning, 'table')
+  assert.equal(typeof acceptedPractice.body.practice.card.meaning, 'string')
   const learnerPractice = await request(practicePath, null, learner.cookie)
   assert.equal(learnerPractice.body.practice.card.meaning, undefined)
   assert.equal((await request(practiceAnswer, { answer: 'table' }, other.cookie)).status, 404)
@@ -572,7 +576,7 @@ try {
   }
   assert.equal((await request(practiceAnswer, { answer: 'one more attempt' }, learner.cookie)).status, 400)
   assert.equal((await request(practiceDecision, { decision: 'end' }, other.cookie)).body.practice.status, 'ended')
-  const secondPractice = await request(practicePath, { cards: practiceCards }, learner.cookie)
+  const secondPractice = await request(practicePath, {}, learner.cookie)
   const secondDecision = `${practicePath}/${secondPractice.body.practice.id}/decision`
   const secondAnswer = `${practicePath}/${secondPractice.body.practice.id}/answer`
   assert.equal((await request(secondDecision, { decision: 'accept' }, other.cookie)).status, 200)
