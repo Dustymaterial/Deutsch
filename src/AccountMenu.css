@@ -677,6 +677,31 @@
   border: 0;
 }
 
+.companion-scroll-bottom {
+  position: sticky;
+  bottom: 8px;
+  align-self: flex-end;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  margin: -36px 0 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid #ddd7d2;
+  border-radius: 50%;
+  background: #fff;
+  color: #292529;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+
+.companion-typing {
+  margin: 0;
+  padding: 3px 24px;
+  color: #766e77;
+  font-size: 0.7rem;
+}
+
 .companion-load-older {
   align-self: flex-start;
   margin: 4px 0 8px;

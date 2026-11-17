@@ -8,6 +8,7 @@ export type GroupSummary = {
   name: string
   description: string
   state: 'open' | 'closed'
+  visibility: 'listed' | 'unlisted'
   memberCount: number
   owner: Profile
   isOwner: boolean
@@ -17,6 +18,7 @@ export type GroupSummary = {
   lastActivityAt: string
   lastMessage?: { text: string; sender: string; isMine: boolean; createdAt: string } | null
   unreadCount?: number
+  mentionCount?: number
 }
 
 export type GroupDirectory = {

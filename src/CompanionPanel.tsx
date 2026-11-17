@@ -22,6 +22,7 @@ import type { GroupMessage } from './groupsApi'
 import { ChatMemoryCache } from './chatMemoryCache'
 import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
+import { useChatTyping } from './useChatTyping'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -168,13 +169,17 @@ export function CompanionPanel({
   onAddDictionaryWord,
   onNotify,
   onBack,
+  invitationToken,
+  onInvitationHandled,
 }: {
   cards: Card[]
   onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
   onAddStarterWord: (entryId: string) => 'added' | 'already-present' | false
   onAddDictionaryWord: (entry: WordEntry) => 'added' | 'already-present' | false
   onNotify: (message: string) => void
-  onBack: () => void
+  onBack: (conversationEntry: boolean) => void
+  invitationToken: string | null
+  onInvitationHandled: () => void
 }) {
   const [companions, setCompanions] = useState<Companion[]>([])
   const [sharedWords, setSharedWords] = useState<SharedWordPreview[]>([])
@@ -183,7 +188,7 @@ export function CompanionPanel({
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [sidebarView, setSidebarView] = useState<'chats' | 'requests' | 'shared' | 'groups' | 'moderation'>('chats')
+  const [sidebarView, setSidebarView] = useState<'chats' | 'requests' | 'shared' | 'groups' | 'moderation'>(() => invitationToken ? 'groups' : 'chats')
   const [username, setUsername] = useState('')
   const [found, setFound] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -191,8 +196,10 @@ export function CompanionPanel({
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null)
   const [openingChat, setOpeningChat] = useState<Profile | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatTyping, setChatTyping] = useState<{ id: string; typing: boolean } | null>(null)
   const [chatError, setChatError] = useState<string | null>(null)
   const [chatLoading, setChatLoading] = useState(false)
+  const [awayFromBottom, setAwayFromBottom] = useState(false)
   const [chatUpdating, setChatUpdating] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
@@ -264,7 +271,7 @@ export function CompanionPanel({
     const query = before ? `?before=${encodeURIComponent(before.createdAt)}&beforeId=${encodeURIComponent(before.id)}` : '?read=0'
     const pending = before ? null : { id: chatId, sequence }
     if (pending) latestChatInFlight.current = pending
-    let data: { messages: ChatMessage[]; hasMore: boolean }
+    let data: { messages: ChatMessage[]; hasMore: boolean; typing: boolean }
     try {
       data = await request(`/chats/${chatId}/messages${query}`) as typeof data
     } catch (failure) {
@@ -276,10 +283,13 @@ export function CompanionPanel({
     }
     if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence
       || (requestSequence !== null && requestSequence !== latestChatRequest.current)) return null
-    if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean') {
+    if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean' || typeof data.typing !== 'boolean') {
       throw new Error('The chat service returned an incomplete response.')
     }
-    if (!before) privateCache.current.set(chatId, { messages: data.messages.map(normalizeMessage), hasMore: data.hasMore })
+    if (!before) {
+      privateCache.current.set(chatId, { messages: data.messages.map(normalizeMessage), hasMore: data.hasMore })
+      setChatTyping({ id: chatId, typing: data.typing })
+    }
     setChatMessages((current) => mode === 'replace' ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
     if (mode === 'replace' || before) setHasOlderMessages(data.hasMore)
     setChatError(null)
@@ -436,6 +446,10 @@ export function CompanionPanel({
   const onChatReadError = useCallback((failure: unknown) => {
     setChatError(failure instanceof Error ? failure.message : 'Could not mark messages as read.')
   }, [])
+  const publishTyping = useChatTyping(
+    useCallback(async (id: string, typing: boolean) => { await request(`/chats/${id}/typing`, { typing }) }, []),
+    useCallback((failure: unknown) => setChatError(failure instanceof Error ? failure.message : 'Could not update typing status.'), []),
+  )
   useVisibleChatRead({
     chatKey: selectedChat?.id ?? null,
     messageId: newestMessageId,
@@ -468,11 +482,13 @@ export function CompanionPanel({
       return
     }
     if (newestMessageId !== lastScrolledMessage.current) {
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      stream.scrollTo({ top: stream.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' })
+      if (!awayFromBottom || chatMessages.at(-1)?.isMine) {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        stream.scrollTo({ top: stream.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' })
+      }
       lastScrolledMessage.current = newestMessageId
     }
-  }, [newestMessageId, chatLoading])
+  }, [newestMessageId, chatLoading, awayFromBottom, chatMessages])
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true)
@@ -609,6 +625,7 @@ export function CompanionPanel({
     selectedChatId.current = existing?.id ?? null
     lastScrolledMessage.current = null
     scrollOnOpen.current = true
+    setAwayFromBottom(false)
     setSelectedChat(existing ? { id: existing.id, companion: user } : null)
     setOpeningChat(existing ? null : user)
     setChatMessages(cached?.messages ?? [])
@@ -693,8 +710,10 @@ export function CompanionPanel({
   }
 
   const backToDeck = () => {
+    const conversationEntry = conversationHistoryEntry.current
+    conversationHistoryEntry.current = false
     closeChat()
-    onBack()
+    onBack(conversationEntry)
   }
 
   const startReply = (chatMessage: ChatMessage) => {
@@ -857,6 +876,7 @@ export function CompanionPanel({
       if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
       setChatMessages((current) => mergeMessages(current, [data.message]))
       setMessageDraft('')
+      publishTyping(chatId, false)
       setReply(null)
       setChatError(replyToId && !data.message.replyTo
         ? 'Your message was sent, but replies need the latest server. Restart the API server to link replies.'
@@ -1164,7 +1184,7 @@ export function CompanionPanel({
                 })}</div>}
             </section>}
 
-            {sidebarView === 'groups' && <GroupsSidebar directory={groupDirectory} error={groupsError} selectedId={selectedGroup?.id ?? null} onOpen={openGroup} reload={reloadGroups} />}
+            {sidebarView === 'groups' && <GroupsSidebar directory={groupDirectory} error={groupsError} selectedId={selectedGroup?.id ?? null} onOpen={openGroup} reload={reloadGroups} invitationToken={invitationToken} onInvitationHandled={onInvitationHandled} />}
 
             {sidebarView === 'moderation' && groupDirectory?.canModerate && <ModerationQueue onNotify={onNotify} />}
 
@@ -1293,7 +1313,11 @@ export function CompanionPanel({
             </aside>
             {chatUpdating && <p className="companion-empty-note" role="status">Updating messages…</p>}
             {chatError && <p className="companion-alert" role="alert">{chatError}</p>}
-            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
+            {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-typing" role="status">{selectedChat.companion.username} is typing…</p>}
+            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating} onScroll={(event) => {
+              const element = event.currentTarget
+              setAwayFromBottom(element.scrollHeight - element.scrollTop - element.clientHeight >= 160)
+            }}>
               <ChatMessageList updating={chatUpdating}>
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
@@ -1404,6 +1428,10 @@ export function CompanionPanel({
                   </div>
                 </article>)}
               </ChatMessageList>
+              {awayFromBottom && <button className="companion-scroll-bottom" type="button" aria-label="Scroll to latest messages" onClick={() => {
+                const element = chatStream.current
+                if (element) element.scrollTo({ top: element.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+              }}><ChevronDown size={18} aria-hidden="true" /></button>}
             </div>
             <form className="companion-chat-composer" onSubmit={sendMessage} inert={chatUpdating}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
@@ -1412,7 +1440,7 @@ export function CompanionPanel({
                 <button type="button" aria-label="Cancel reply" onClick={() => setReply(null)}><X size={14} aria-hidden="true" /></button>
               </div>}
               <div className="companion-composer-input">
-                <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" disabled={busy} />
+                <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); publishTyping(selectedChat.id, Boolean(event.target.value.trim())) }} onBlur={() => publishTyping(selectedChat.id, false)} placeholder="Write a message…" disabled={busy} />
                 <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}>Send</button>
               </div>
               <div className="companion-composer-footer">

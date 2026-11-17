@@ -321,3 +321,55 @@
   .group-create-form .companion-field { gap: 4px; }
   .group-create-form .companion-field textarea { min-height: 56px; }
 }
+.group-mention-count {
+  flex: 0 0 auto;
+  color: #745313;
+  font-size: 0.65rem;
+}
+
+.group-mentions-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.group-mentions ul {
+  display: grid;
+  gap: 6px;
+  max-height: 232px;
+  margin: 8px 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.group-mentions li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-mention-message {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.group-mention-message span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.group-mention-message time {
+  color: var(--companion-muted);
+  font-size: 0.65rem;
+}
+
+.group-mention-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.group-mention-suggestions:empty { display: none; }

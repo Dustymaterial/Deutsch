@@ -1244,6 +1244,9 @@ function App() {
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [companionWorkspaceOpen, setCompanionWorkspaceOpen] = useState(false)
+  const [groupInvitation, setGroupInvitation] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('groupInvite'))
+  const groupInvitationRef = useRef(groupInvitation)
+  const companionWorkspaceEntry = useRef(false)
   const unreadMessages = useUnreadMessages(Boolean(accountUser?.emailVerified), companionWorkspaceOpen)
   const accountEmail = accountUser?.email
   const [accountSyncReady, setAccountSyncReady] = useState(false)
@@ -1355,6 +1358,25 @@ function App() {
   const importInput = useRef<HTMLInputElement>(null)
   const deckMenu = useRef<HTMLDetailsElement>(null)
   const addCardButton = useRef<HTMLButtonElement>(null)
+  const openCompanionWorkspace = useCallback(() => {
+    if (!companionWorkspaceEntry.current) {
+      window.history.pushState({ __deutschCompanionWorkspace: true }, '', window.location.href)
+      companionWorkspaceEntry.current = true
+    }
+    setAccountMenuOpen(false)
+    setCompanionWorkspaceOpen(true)
+    if (deckMenu.current) deckMenu.current.open = false
+  }, [])
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (companionWorkspaceEntry.current && !event.state?.__deutschCompanionWorkspace) {
+        companionWorkspaceEntry.current = false
+        setCompanionWorkspaceOpen(false)
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
   const restoreAddCardFocus = useRef(false)
   const restoreSettingsFocus = useRef(false)
   useEffect(() => {
@@ -1401,7 +1423,8 @@ function App() {
       accountRevision.current = 0
     }
     setAccountUser(user)
-  }, [])
+    if (groupInvitationRef.current && user?.emailVerified && !companionWorkspaceEntry.current) openCompanionWorkspace()
+  }, [openCompanionWorkspace])
   const intensitySettings = INTENSITY_SETTINGS[studyPlan.intensity]
   const goalEstimate = estimateGoalPace(studyPlan, new Date(now))
   const scopedCards = useMemo(
@@ -2258,11 +2281,6 @@ function App() {
     setAccountMenuOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
   }
-  const openCompanionWorkspace = () => {
-    setAccountMenuOpen(false)
-    setCompanionWorkspaceOpen(true)
-    if (deckMenu.current) deckMenu.current.open = false
-  }
   const openLearnSettings = () => {
     setLearnSettingsOpen(true)
     if (deckMenu.current) deckMenu.current.open = false
@@ -2350,7 +2368,25 @@ function App() {
       onAddStarterWord={addStarterWord}
       onAddDictionaryWord={addDictionaryWord}
       onNotify={showToast}
-      onBack={() => setCompanionWorkspaceOpen(false)}
+      onBack={(conversationEntry) => {
+        if (companionWorkspaceEntry.current) {
+          companionWorkspaceEntry.current = false
+          window.history.go(conversationEntry ? -2 : -1)
+        } else if (conversationEntry) {
+          window.history.back()
+        }
+        setCompanionWorkspaceOpen(false)
+      }}
+      invitationToken={groupInvitation}
+      onInvitationHandled={() => {
+        groupInvitationRef.current = null
+        setGroupInvitation(null)
+        const url = new URL(window.location.href)
+        const fragment = new URLSearchParams(url.hash.slice(1))
+        fragment.delete('groupInvite')
+        url.hash = fragment.toString()
+        window.history.replaceState(window.history.state, '', url)
+      }}
     />
   )
 
@@ -2410,6 +2446,7 @@ function App() {
             onChange={handleImportDeck}
           />
         </header>
+        {groupInvitation && !accountUser?.emailVerified && <div className="storage-warning" role="status">Sign in and verify your email to open your group invitation. <button type="button" className="quiet-button" onClick={openAccountMenu}>Account</button></div>}
         {(storageWarning || savingError || studyPlanWarning || loadedPause.warning) && (
           <div className="storage-warning" role="status">
             <p>{storageWarning ?? savingError ?? studyPlanWarning ?? loadedPause.warning}</p>
@@ -2563,6 +2600,7 @@ function App() {
           onChange={handleImportDeck}
         />
       </header>
+      {groupInvitation && !accountUser?.emailVerified && <div className="storage-warning" role="status">Sign in and verify your email to open your group invitation. <button type="button" className="quiet-button" onClick={openAccountMenu}>Account</button></div>}
 
       {(storageWarning || savingError || studyPlanWarning || loadedPause.warning) && (
         <div className="storage-warning" role="status">
