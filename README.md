@@ -42,6 +42,7 @@ npm start
 To try the production build locally, including the installable/offline app shell, use `npm run build` followed by `npm run preview`.
 
 The production service worker needs a secure context: HTTPS when hosted, or localhost during local development. The first online visit caches the app shell; it cannot provide content that was never downloaded.
+The starter vocabulary downloads when needed for a new deck, a starter-pack action, or the companion workspace; a returning learner with a valid saved deck does not need it for startup. Offline use of those features requires the starter pack to have been downloaded and cached previously.
 
 ## Deploy on Render
 
@@ -256,6 +257,7 @@ Companions are optional and need a verified, signed-in account and a connection 
 - **Saved chats on this device** are enabled by default to speed up reopening. The browser stores up to 50 recent messages for each of 20 private and 20 group conversations per account, and does not display saved pages older than 24 hours. Old pages may remain in browser storage until overwritten or cleared. Saved content may briefly be stale, including content later removed or access later revoked; opening a chat rechecks it with the server and clears the displayed copy if the initial check fails. The workspace and directory still require a network connection. In companion tools, turn off **Save recent chats on this device** on a shared device to clear these copies; signing out or switching accounts also clears that account's copies. Browser storage errors are shown, and clearing browser site data removes all saved copies. These copies are not encrypted against other people using the same browser profile.
 - The community interface is downloaded when first opened rather than on every app launch. If it has not been downloaded yet, opening it requires a connection; the app reports a loading failure and offers a return to the deck.
 - Device Back closes the account menu before going back through an open chat and the companion workspace.
+- Device Back also dismisses the add-word, session, goal, activity, app settings, About, and Learn settings panels. Other menus and study modes do not yet all have Back handling.
 - **Reply** to a message; the reply shows a quote of the original, color-coded per replied-to message. **React** with one of five emoji; each learner has at most one reaction per message and can remove it.
 - **Share a word** under the message box sends a word card from your deck (word, meaning, example, any plural) that the recipient can add with **Add to deck**.
 - For 10 minutes after sending you can **edit** a text message or **unsend** any message. Edited messages show “edited”; an unsent message becomes “Message unsent”, its text, word card, reactions and review are removed, and replies that quoted it show the same. A copy already retained in a moderation report is not removed.

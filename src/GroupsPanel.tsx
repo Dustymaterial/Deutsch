@@ -21,12 +21,10 @@ import type { ChatMemoryCache } from './chatMemoryCache'
 import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
+import { formatChatTime as formatTime } from './chatTime'
 import './Groups.css'
 
 const rulesText = 'Groups are open to every member, so anything you post can be read by all of them. Be kind and keep it about learning German. No spam, advertising, personal details or harassment. You must be at least 13. Group owners and moderators can hide messages and remove people, and you can report any message.'
-
-const formatTime = (value: string) =>
-  new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 
 const closePopover = (event: React.SyntheticEvent<HTMLElement>) => {
   const details = event.currentTarget.closest('details')

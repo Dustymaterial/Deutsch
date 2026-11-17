@@ -19,7 +19,6 @@ import {
 import {
   cardContentKey,
   isDeckCard,
-  normalizeDeckCard,
   parseDeckFile,
   type Card,
 } from './deckImport'
@@ -54,7 +53,6 @@ import {
   defaultPauseState, finishPause, isPauseState, recordPauseWord, restorePause,
   startPendingPause, updatePauseSettings, type PauseActivity, type PauseSettings, type PauseState,
 } from './studyPause'
-import starterPack from './data/german-starter-pack.json'
 import {
   getCardsForStudySet,
   getReviewedWords,
@@ -64,9 +62,11 @@ import {
 } from './studySets'
 import { useUnreadMessages } from './useUnreadMessages'
 import { clearChatCache } from './chatPersistentCache'
+import { cardFromStarterEntry, createSeedDeck, deckStorageKey as STORAGE_KEY, loadStarterPack, makeCard, type LoadedDeck, type StarterEntry, type StarterPack } from './starterDeck'
 import './App.css'
 
 const CompanionPanel = lazy(() => import('./CompanionPanel').then((module) => ({ default: module.CompanionPanel })))
+let panelHistorySequence = 0
 
 class CompanionLoadBoundary extends Component<{ children: ReactNode; onBack: () => void }, { failed: boolean }> {
   state = { failed: false }
@@ -84,12 +84,6 @@ class CompanionLoadBoundary extends Component<{ children: ReactNode; onBack: () 
     </div>
     return this.props.children
   }
-}
-
-type LoadedDeck = {
-  cards: Card[]
-  warning: string | null
-  canSave: boolean
 }
 
 type NewCardInput = {
@@ -116,7 +110,6 @@ type ProductionFeedback = {
   correct: boolean
 }
 
-const STORAGE_KEY = 'deutsch-deck-v1'
 const STUDY_PLAN_STORAGE_KEY = 'deutsch-study-plan-v1'
 const LOCAL_PROGRESS_UPDATED_AT_KEY = 'deutsch-progress-updated-at-v1'
 const LOCAL_STUDY_PLAN_UPDATED_AT_KEY = 'deutsch-study-plan-updated-at-v1'
@@ -143,83 +136,6 @@ const loadPauseState = (): { state: PauseState; warning: string | null; resumeAc
     }
   } catch {
     return { state: defaultPauseState(), warning: 'Pause settings could not be read or saved; defaults are in use.' }
-  }
-}
-
-const makeCard = (
-  id: string,
-  prompt: string,
-  meaning: string,
-  example: string,
-  translation: string,
-  category: string,
-  tags: string[],
-  forms: { article?: string; plural?: string } = {},
-): Card => ({
-  id,
-  prompt,
-  ...forms,
-  meaning,
-  example,
-  translation,
-  category,
-  tags,
-  status: 'active',
-  dueAt: nowIso(),
-  intervalDays: 0,
-  repetitions: 0,
-  easeFactor: 2.5,
-  lapses: 0,
-  lastReviewedAt: null,
-  lastRating: null,
-  correctCount: 0,
-  incorrectCount: 0,
-  reviewHistory: [],
-  createdAt: nowIso(),
-  updatedAt: nowIso(),
-})
-
-const cardFromStarterEntry = (entry: (typeof starterPack.cards)[number]) =>
-  makeCard(
-    entry.id,
-    entry.article ? `${entry.article} ${entry.word}` : entry.word,
-    entry.meaning,
-    entry.example,
-    entry.translation,
-    entry.category,
-    [...new Set([...entry.tags, entry.level])],
-    entry.article
-      ? { article: entry.article, ...(entry.plural ? { plural: entry.plural } : {}) }
-      : {},
-  )
-
-const createSeedDeck = (): Card[] => starterPack.cards.map(cardFromStarterEntry)
-
-const loadDeck = (): LoadedDeck => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { cards: createSeedDeck(), warning: null, canSave: true }
-
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.every(isDeckCard)) {
-      return {
-        cards: createSeedDeck(),
-        warning: 'The saved deck is invalid. Your saved data has not been overwritten.',
-        canSave: false,
-      }
-    }
-
-    return {
-      cards: parsed.length > 0 ? parsed.map(normalizeDeckCard) : createSeedDeck(),
-      warning: null,
-      canSave: true,
-    }
-  } catch {
-    return {
-      cards: createSeedDeck(),
-      warning: 'The saved deck could not be read. Your saved data has not been overwritten.',
-      canSave: false,
-    }
   }
 }
 
@@ -1242,9 +1158,9 @@ function AppFooter({ signedIn }: { signedIn: boolean }) {
   )
 }
 
-function App() {
+function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const confirm = useConfirm()
-  const [loaded] = useState(loadDeck)
+  const [loaded] = useState(initialDeck)
   const [loadedStudyPlan] = useState(loadStudyPlan)
   const [introduction] = useState(() => {
     try {
@@ -1268,7 +1184,7 @@ function App() {
   const [companionWorkspaceOpen, setCompanionWorkspaceOpen] = useState(false)
   const [groupInvitation, setGroupInvitation] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('groupInvite'))
   const groupInvitationRef = useRef(groupInvitation)
-  const companionWorkspaceEntry = useRef(false)
+  const companionWorkspaceEntry = useRef<string | null>(null)
   const unreadMessages = useUnreadMessages(Boolean(accountUser?.emailVerified), companionWorkspaceOpen)
   const accountEmail = accountUser?.email
   const [accountSyncReady, setAccountSyncReady] = useState(false)
@@ -1393,15 +1309,18 @@ function App() {
   }, [])
   const openCompanionWorkspace = useCallback(() => {
     if (!companionWorkspaceEntry.current) {
+      const token = `${Date.now()}-${Math.random()}`
+      const state = { ...window.history.state, __deutschCompanionWorkspace: token }
+      delete state.__deutschCompanionChat
+      delete state.__deutschCompanionGroup
       if (accountMenuEntry.current && window.history.state?.__deutschAccountMenu) {
         accountMenuEntry.current = false
-        const state = { ...window.history.state, __deutschCompanionWorkspace: true }
         delete state.__deutschAccountMenu
         window.history.replaceState(state, '', window.location.href)
       } else {
-        window.history.pushState({ ...window.history.state, __deutschCompanionWorkspace: true }, '', window.location.href)
+        window.history.pushState(state, '', window.location.href)
       }
-      companionWorkspaceEntry.current = true
+      companionWorkspaceEntry.current = token
       setAccountMenuOpen(false)
     } else {
       setAccountMenuVisible(false)
@@ -1415,8 +1334,8 @@ function App() {
         accountMenuEntry.current = false
         setAccountMenuOpen(false)
       }
-      if (companionWorkspaceEntry.current && !event.state?.__deutschCompanionWorkspace) {
-        companionWorkspaceEntry.current = false
+      if (companionWorkspaceEntry.current && event.state?.__deutschCompanionWorkspace !== companionWorkspaceEntry.current) {
+        companionWorkspaceEntry.current = null
         setCompanionWorkspaceOpen(false)
       }
     }
@@ -1980,9 +1899,7 @@ function App() {
     return 'added' as const
   }
 
-  const addStarterWord = (entryId: string) => {
-    const entry = starterPack.cards.find((item) => item.id === entryId)
-    if (!entry) return false
+  const addStarterWord = (entry: StarterEntry) => {
     const card = cardFromStarterEntry(entry)
     if (cards.some((item) => item.id === card.id || cardContentKey(item) === cardContentKey(card))) {
       return 'already-present' as const
@@ -2077,7 +1994,7 @@ function App() {
     )
   }
 
-  const addStarterPackToDeck = () => {
+  const addStarterPackToDeck = (starterPack: StarterPack) => {
     try {
       const { cards: incoming, kind } = parseDeckFile(
         JSON.stringify(starterPack),
@@ -2137,8 +2054,8 @@ function App() {
     setNow(nextNow.getTime())
   }
 
-  const startWithStarterPack = () => {
-    const fresh = createSeedDeck()
+  const startWithStarterPack = (starterPack: StarterPack) => {
+    const fresh = createSeedDeck(starterPack)
     setCards(fresh)
     setStudyTag('')
     setCanSave(true)
@@ -2171,6 +2088,12 @@ function App() {
   }
 
   const requestStartWithStarterPack = async () => {
+    let starterPack: StarterPack
+    try { starterPack = await loadStarterPack() }
+    catch {
+      showToast('Could not load the starter vocabulary. Check your connection and reload the app.', 'error')
+      return
+    }
     const hasCards = cards.length > 0
     const confirmed = await confirm({
       title: hasCards ? 'Replace your deck?' : 'Start with the starter vocabulary?',
@@ -2180,16 +2103,22 @@ function App() {
       confirmLabel: hasCards ? 'Replace deck' : 'Add starter words',
       tone: hasCards ? 'danger' : 'neutral',
     })
-    if (confirmed) startWithStarterPack()
+    if (confirmed) startWithStarterPack(starterPack)
   }
 
   const requestAddStarterPack = async () => {
+    let starterPack: StarterPack
+    try { starterPack = await loadStarterPack() }
+    catch {
+      showToast('Could not load the starter vocabulary. Check your connection and reload the app.', 'error')
+      return
+    }
     const confirmed = await confirm({
       title: `Add ${starterPack.cards.length.toLocaleString()} starter words?`,
       message: 'The open starter vocabulary is added alongside your cards. Existing cards and progress are kept.',
       confirmLabel: 'Add words',
     })
-    if (confirmed) addStarterPackToDeck()
+    if (confirmed) addStarterPackToDeck(starterPack)
   }
 
   const shortDueCard = scopedCards
@@ -2369,6 +2298,45 @@ function App() {
     if (restoreFocus) deckMenu.current?.querySelector('summary')?.focus()
   }, [])
 
+  const panelHistoryEntry = useRef<string | null>(null)
+  useEffect(() => {
+    const open = addCardOpen || sessionSettingsOpen || studyPlanOpen || aboutOpen
+      || activityOpen || appSettingsOpen || learnSettingsOpen
+    if (open && !panelHistoryEntry.current) {
+      const token = `${Date.now()}-${++panelHistorySequence}`
+      window.history.pushState({ ...window.history.state, __deutschPanel: token }, '', window.location.href)
+      panelHistoryEntry.current = token
+    } else if (!open && panelHistoryEntry.current) {
+      const token = panelHistoryEntry.current
+      panelHistoryEntry.current = null
+      if (window.history.state?.__deutschPanel === token
+        && !window.history.state?.__deutschAccountMenu
+        && !window.history.state?.__deutschCompanionWorkspace) window.history.back()
+    }
+  }, [addCardOpen, sessionSettingsOpen, studyPlanOpen, aboutOpen, activityOpen, appSettingsOpen, learnSettingsOpen])
+
+  useEffect(() => {
+    const handleBack = (event: PopStateEvent) => {
+      const token = panelHistoryEntry.current
+      if (!token || event.state?.__deutschPanel === token) return
+      panelHistoryEntry.current = null
+      if (learnSettingsOpen) closeLearnSettings(true)
+      else if (appSettingsOpen) closeAppSettings(true)
+      else if (activityOpen) closeActivity(true)
+      else if (aboutOpen) closeAbout(true)
+      else if (frontPanel === 'add' && addCardOpen) closeAddCard(true)
+      else if (frontPanel === 'session' && sessionSettingsOpen) closeSessionSettings(true)
+      else if (frontPanel === 'goal' && studyPlanOpen) closeStudyPlan(true)
+      else if (studyPlanOpen) closeStudyPlan(true)
+      else if (sessionSettingsOpen) closeSessionSettings(true)
+      else if (addCardOpen) closeAddCard(true)
+    }
+    window.addEventListener('popstate', handleBack)
+    return () => window.removeEventListener('popstate', handleBack)
+  }, [addCardOpen, sessionSettingsOpen, studyPlanOpen, aboutOpen, activityOpen, appSettingsOpen,
+    learnSettingsOpen, frontPanel, closeAddCard, closeSessionSettings, closeStudyPlan, closeAbout,
+    closeActivity, closeAppSettings, closeLearnSettings])
+
   const studyPlanSummary = `Goal: ${studyPlan.targetLevel} · ${goalEstimate.daysRemaining} days · ${intensitySettings.label} · up to ${intensitySettings.newCardsPerDay} new cards/day`
   const saveLearningCard = (id: string, notify = true) => {
     if (!canSave) return
@@ -2418,7 +2386,7 @@ function App() {
 
   const closeCompanionWorkspace = (conversationEntry: boolean) => {
     if (companionWorkspaceEntry.current) {
-      companionWorkspaceEntry.current = false
+      companionWorkspaceEntry.current = null
       window.history.go(conversationEntry ? -2 : -1)
     } else if (conversationEntry) {
       window.history.back()
@@ -2487,7 +2455,7 @@ function App() {
                   <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
                 )}
                 <button type="button" onClick={() => void requestAddStarterPack()}>
-                  Add {starterPack.cards.length} open starter words
+                  Add open starter words
                 </button>
                 <button type="button" onClick={() => importInput.current?.click()}>
                   Import vocabulary or backup
@@ -2641,7 +2609,7 @@ function App() {
                 <button type="button" onClick={stopTodayReviewLoop}>Stop today’s review loop</button>
               )}
               <button type="button" onClick={() => void requestAddStarterPack()}>
-                Add {starterPack.cards.length} open starter words
+                Add open starter words
               </button>
               <button type="button" onClick={() => importInput.current?.click()}>
                 Import vocabulary or backup
