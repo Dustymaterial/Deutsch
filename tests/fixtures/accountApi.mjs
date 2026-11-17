@@ -44,6 +44,9 @@ const records = {
 const applyUpdate = (record, update) => {
   for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
   for (const [path, value] of Object.entries(update.$inc ?? {})) set(record, path, (get(record, path) ?? 0) + value)
+  for (const [path, value] of Object.entries(update.$max ?? {})) {
+    if (get(record, path) === undefined || get(record, path) < value) set(record, path, value)
+  }
   for (const [path, value] of Object.entries(update.$addToSet ?? {})) {
     const current = get(record, path) ?? []
     if (!current.includes(value)) set(record, path, [...current, value])
@@ -82,6 +85,7 @@ const collection = (name) => ({
   async insertOne(value) {
     if (records[name].some((item) => (value.emailKey && item.emailKey === value.emailKey)
       || (value.nameKey && item.nameKey === value.nameKey)
+      || (name === 'groups' && item.ownerId === value.ownerId && item.ownerSlot === value.ownerSlot)
       || (name === 'groupMembers' && item.groupId === value.groupId && item.userId === value.userId)
       || (value.usernameKey && item.usernameKey === value.usernameKey)
       || (value.pairKey && item.pairKey === value.pairKey
@@ -130,7 +134,7 @@ process.env.MAILJET_SECRET_KEY = 'test-secret'
 process.env.SENDER_EMAIL = 'sender@example.test'
 process.env.PORT = '0'
 process.env.TRUST_PROXY = '1'
-process.env.MODERATOR_USERNAMES = 'Moderator'
+process.env.MODERATOR_USER_IDS = 'aaaaaaaaaaaaaaaaaaaaaaaa'
 process.env.GROUP_MIN_ACCOUNT_AGE_HOURS = '1'
 const deliveries = []
 let failCompanionDelivery = false
@@ -463,7 +467,7 @@ try {
   // Groups and moderation
   const makeUser = async (username) => {
     const record = {
-      _id: new ObjectId(), email: `${username.toLowerCase()}@example.test`, emailKey: `${username.toLowerCase()}@example.test`,
+      _id: username === 'Moderator' ? new ObjectId('aaaaaaaaaaaaaaaaaaaaaaaa') : new ObjectId(), email: `${username.toLowerCase()}@example.test`, emailKey: `${username.toLowerCase()}@example.test`,
       username, usernameKey: username.toLowerCase(), avatarSeed: 'pixel-blue',
       emailVerifiedAt: new Date(), passwordHash: await bcrypt.hash(password, 4),
     }
@@ -479,6 +483,9 @@ try {
   const third = await makeUser('Third')
   const fourth = await makeUser('Fourth')
   const moderator = await makeUser('Moderator')
+  third.record.username = 'Moderator'
+  assert.equal((await request('/api/moderation/reports', null, third.cookie)).status, 404)
+  third.record.username = 'Third'
   const learnerRecord = records.users.find((item) => item.email === email)
   const learnerUser = { record: learnerRecord, cookie: learner.cookie }
   const otherUser = { record: companion, cookie: other.cookie }
@@ -528,6 +535,13 @@ try {
   assert.equal(listed.memberCount, 4)
   assert.equal(listed.joined, true)
   assert.equal(listed.owner.username, 'learner')
+  const browseGroups = Array.from({ length: 101 }, (_, index) => ({
+    _id: new ObjectId(), name: `Browse ${index}`, ownerId: moderator.id, ownerSlot: index,
+    state: 'open', memberCount: 1, createdAt: new Date(), lastActivityAt: new Date(Date.now() + 60_000),
+  }))
+  records.groups.push(...browseGroups)
+  assert.ok((await request('/api/groups', null, other.cookie)).body.groups.some((item) => item.id === groupId))
+  records.groups = records.groups.filter((item) => !browseGroups.includes(item))
 
   const outsider = await makeUser('Outsider')
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, outsider.cookie)).status, 404)
@@ -575,7 +589,10 @@ try {
   assert.equal((await request(`/api/moderation/reports/private/${privateReport.id}/resolve`, { action: 'dismiss' }, moderator.cookie)).status, 200)
   assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'suspend' }, moderator.cookie)).status, 400)
   assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'suspend', days: 3 }, learner.cookie)).status, 404)
+  const longerSuspension = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  companion.groupsSuspendedUntil = longerSuspension
   assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'suspend', days: 3 }, moderator.cookie)).status, 200)
+  assert.equal(companion.groupsSuspendedUntil.getTime(), longerSuspension.getTime())
   assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'dismiss' }, moderator.cookie)).status, 404)
   assert.equal((await request('/api/moderation/reports', null, moderator.cookie)).body.reports.length, 0)
   assert.ok(records.groupReports.every((item) => item.status === 'resolved' && item.deleteAfter > new Date()))
@@ -603,6 +620,10 @@ try {
   assert.equal(records.groupMessages.filter((item) => item.groupId === groupId).length, 0)
   assert.equal((await request('/api/groups', { name: 'Neue Gruppe' }, learner.cookie)).status, 201)
   assert.equal((await request(`/api/groups/${thirdGroup.body.group.id}/delete`, {}, moderator.cookie)).status, 200)
+  const concurrentCreates = await Promise.all(Array.from({ length: 5 }, (_, index) =>
+    request('/api/groups', { name: `Concurrent ${index}` }, fourth.cookie)))
+  assert.equal(concurrentCreates.filter((result) => result.status === 201).length, 3)
+  assert.equal(records.groups.filter((item) => item.ownerId === fourth.id).length, 3)
 
   console.log('Account API integration passed')
 } finally {

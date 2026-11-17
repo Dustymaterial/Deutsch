@@ -19,7 +19,7 @@ Local study works without an account server. To enable account creation and clou
 
 Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and `SENDER_EMAIL` on the server to send account codes and optional companion request notifications. Verify the sender or domain with Mailjet. Without these settings, existing accounts can still sign in, but new registrations and code requests are unavailable; companion requests remain visible in the app. Mailjet receives the recipient address and email content, including the recipient's avatar and, as applicable, the one-time code or sender's username. Never put credentials in the client or commit them.
 
-Optionally set `MODERATOR_USERNAMES` (comma-separated, case-insensitive) to give those accounts the **Moderation** view in the companion workspace. `GROUP_MIN_ACCOUNT_AGE_HOURS` sets how long a new account waits before it can create, join or post in groups (default 24; 0 in local development).
+Set `MODERATOR_USER_IDS` to a comma-separated list of trusted accounts' MongoDB user IDs to give them the **Moderation** view. Do not use usernames: they can change. `GROUP_MIN_ACCOUNT_AGE_HOURS` sets how long a new account waits before it can create, join or post in groups (default 24; 0 in local development).
 
 The development command starts both the Vite app and account API:
 
@@ -286,7 +286,7 @@ Groups are open spaces for any verified learner, separate from private chat. Ope
 - **Rules first.** Before a learner's first create or join, they read and agree to short group rules. Creating, joining and posting need an account at least 24 hours old (`GROUP_MIN_ACCOUNT_AGE_HOURS`).
 - **Messages.** Plain text up to 1,000 characters with replies. Messages are visible to every member, so a note in the group says so. Learners can unsend their own messages. At most two links per message, no repeated message within a minute, a short pause between messages and 60 messages per hour.
 - **Owners.** A group's creator can hide a message, remove a member (who cannot rejoin), close or open the group, or delete it.
-- **Reporting and moderation.** Any member can report another member's message. Three reports from different members hide it automatically. Reports from groups and from private chats appear in the **Moderation** view for the accounts listed in `MODERATOR_USERNAMES`, who can dismiss, hide the message or suspend the learner from groups for 1 to 90 days. Closed reports are deleted 90 days later, and group messages are deleted after one year.
+- **Reporting and moderation.** Any member can report another member's message. Three reports from different members hide it automatically. Reports from groups and from private chats appear in the **Moderation** view for the accounts listed in `MODERATOR_USER_IDS`, who can dismiss, hide the message or suspend the learner from groups for 1 to 90 days. Closed reports are deleted 90 days later, and group messages are deleted after one year.
 - **Privacy.** Members see only usernames and avatars. Group messages are never sent to a third-party or AI service. Tap-to-translate and sentence check are not yet available in groups.
 
 ### Confirmation, limits and email

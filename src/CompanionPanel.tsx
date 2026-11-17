@@ -231,8 +231,7 @@ export function CompanionPanel({
   const shareTools = useRef<HTMLDetailsElement>(null)
   const wordPicker = useRef<HTMLDetailsElement>(null)
   const selectedChatId = useRef<string | null>(null)
-  const chatHistoryEntry = useRef(false)
-  const groupHistoryEntry = useRef(false)
+  const conversationHistoryEntry = useRef(false)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory()
   const lastScrolledMessage = useRef<string | null>(null)
@@ -318,13 +317,9 @@ export function CompanionPanel({
 
   useEffect(() => {
     const handlePopState = () => {
-      if (groupHistoryEntry.current) {
-        groupHistoryEntry.current = false
-        setSelectedGroupId(null)
-        return
-      }
-      if (!chatHistoryEntry.current) return
-      chatHistoryEntry.current = false
+      if (!conversationHistoryEntry.current) return
+      conversationHistoryEntry.current = false
+      setSelectedGroupId(null)
       selectedChatId.current = null
       setSelectedChat(null)
       setChatMessages([])
@@ -541,10 +536,11 @@ export function CompanionPanel({
     void run(async () => {
       const data = await request('/chats/open', { id: user.id }) as { id: string; companion: Profile }
       if (typeof data.id !== 'string' || !data.companion) throw new Error('The chat service returned an incomplete response.')
-      if (!chatHistoryEntry.current) {
+      if (!conversationHistoryEntry.current) {
         window.history.pushState({ __deutschCompanionChat: true }, '', window.location.href)
-        chatHistoryEntry.current = true
+        conversationHistoryEntry.current = true
       }
+      setSelectedGroupId(null)
       selectedChatId.current = data.id
       lastScrolledMessage.current = null
       scrollOnOpen.current = true
@@ -562,10 +558,11 @@ export function CompanionPanel({
   }
 
   const closeChat = () => {
-    if (chatHistoryEntry.current) {
-      chatHistoryEntry.current = false
+    if (conversationHistoryEntry.current) {
+      conversationHistoryEntry.current = false
       window.history.back()
     }
+    setSelectedGroupId(null)
     selectedChatId.current = null
     setSelectedChat(null)
     setChatMessages([])
@@ -573,16 +570,19 @@ export function CompanionPanel({
 
   const openGroup = (id: string) => {
     setSidebarView('groups')
-    if (!groupHistoryEntry.current) {
+    if (!conversationHistoryEntry.current) {
       window.history.pushState({ __deutschCompanionGroup: true }, '', window.location.href)
-      groupHistoryEntry.current = true
+      conversationHistoryEntry.current = true
     }
+    selectedChatId.current = null
+    setSelectedChat(null)
+    setChatMessages([])
     setSelectedGroupId(id)
   }
 
   const closeGroup = () => {
-    if (groupHistoryEntry.current) {
-      groupHistoryEntry.current = false
+    if (conversationHistoryEntry.current) {
+      conversationHistoryEntry.current = false
       window.history.back()
     }
     setSelectedGroupId(null)
@@ -590,7 +590,6 @@ export function CompanionPanel({
 
   const backToDeck = () => {
     closeChat()
-    closeGroup()
     onBack()
   }
 
@@ -1121,7 +1120,7 @@ export function CompanionPanel({
           </div>
           <div className="companion-chat-surface">
           {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} />
-          : selectedChat ? <>
+          : sidebarView === 'chats' && selectedChat ? <>
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>

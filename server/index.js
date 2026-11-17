@@ -245,6 +245,24 @@ if (mongoConnectionString) {
   groupMembers = db.collection('groupMembers')
   groupMessages = db.collection('groupMessages')
   groupReports = db.collection('groupReports')
+  const existingGroups = await groups.find({}).toArray()
+  const slotsByOwner = new Map()
+  for (const group of existingGroups) {
+    const slots = slotsByOwner.get(group.ownerId) ?? new Set()
+    if (Number.isInteger(group.ownerSlot) && group.ownerSlot >= 0 && group.ownerSlot < 3) {
+      if (slots.has(group.ownerSlot)) throw new Error('Duplicate group ownership slot; resolve group data before starting.')
+      slots.add(group.ownerSlot)
+    }
+    slotsByOwner.set(group.ownerId, slots)
+  }
+  for (const group of existingGroups) {
+    if (Number.isInteger(group.ownerSlot) && group.ownerSlot >= 0 && group.ownerSlot < 3) continue
+    const slots = slotsByOwner.get(group.ownerId)
+    const slot = [0, 1, 2].find((candidate) => !slots.has(candidate))
+    if (slot === undefined) throw new Error('An account owns more than three groups; resolve group data before starting.')
+    await groups.updateOne({ _id: group._id }, { $set: { ownerSlot: slot } })
+    slots.add(slot)
+  }
   accountSecurity = createAccountSecurity({
     users,
     secret: configuration.SESSION_SECRET,
@@ -267,6 +285,7 @@ if (mongoConnectionString) {
     companionReports.createIndex({ deleteAfter: 1 }, { expireAfterSeconds: 0 }),
     groups.createIndex({ nameKey: 1 }, { unique: true }),
     groups.createIndex({ ownerId: 1 }),
+    groups.createIndex({ ownerId: 1, ownerSlot: 1 }, { unique: true }),
     groups.createIndex({ lastActivityAt: -1 }),
     groupMembers.createIndex({ groupId: 1, userId: 1 }, { unique: true }),
     groupMembers.createIndex({ userId: 1, state: 1 }),
@@ -479,8 +498,8 @@ if (relationships) {
     users, relationships, sharedWords, conversations, companionMessages, companionReports,
     requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
   }))
-  const isModerator = createModeratorCheck((configuration.MODERATOR_USERNAMES ?? '').split(','))
-  const minAccountAgeHours = Number(configuration.GROUP_MIN_ACCOUNT_AGE_HOURS ?? (isLocalDevelopment ? 0 : 24))
+  const isModerator = createModeratorCheck((configuration.MODERATOR_USER_IDS ?? '').split(','))
+  const minAccountAgeHours = Number(configuration.GROUP_MIN_ACCOUNT_AGE_HOURS || (isLocalDevelopment ? 0 : 24))
   app.use('/api/groups', createGroupsRouter({
     users, groups, groupMembers, groupMessages, groupReports, requireUser, isModerator,
     minAccountAgeHours: Number.isFinite(minAccountAgeHours) ? minAccountAgeHours : 24,

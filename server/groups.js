@@ -43,9 +43,9 @@ const linkCount = (text) => (text.match(/https?:\/\/|www\./gi) ?? []).length
 
 export const groupRetention = { groupMessageRetention, resolvedReportRetention }
 
-export function createModeratorCheck(moderatorUsernames) {
-  const names = new Set(moderatorUsernames.map((name) => name.trim().toLowerCase()).filter(Boolean))
-  return (user) => names.has(String(user.username ?? '').toLowerCase())
+export function createModeratorCheck(moderatorUserIds) {
+  const ids = new Set(moderatorUserIds.map((id) => id.trim().toLowerCase()).filter(ObjectId.isValid))
+  return (user) => ids.has(user._id.toString().toLowerCase())
 }
 
 function guard({ requireUser, limiter }) {
@@ -163,19 +163,25 @@ export function createGroupsRouter({
 
   router.get('/', async (req, res) => {
     const me = req.accountUser._id.toString()
-    const [found, mine, account] = await Promise.all([
+    const [found, mine, owned, account] = await Promise.all([
       groups.find({}, { sort: { lastActivityAt: -1 }, limit: 100 }).toArray(),
       groupMembers.find({ userId: me }).toArray(),
+      groups.find({ ownerId: me }).toArray(),
       users.findOne({ _id: req.accountUser._id }, { projection: { groupRulesAcceptedAt: 1, groupsSuspendedUntil: 1 } }),
     ])
     const memberships = new Map(mine.map((item) => [item.groupId, item]))
     const lookup = profileCache()
+    const allGroups = new Map([...found, ...owned].map((group) => [group._id.toString(), group]))
+    for (const membership of mine) {
+      if (membership.state !== 'active' || allGroups.has(membership.groupId)) continue
+      const group = await loadGroup(membership.groupId)
+      if (group) allGroups.set(membership.groupId, group)
+    }
     const items = []
-    for (const group of found) {
+    for (const group of allGroups.values()) {
       const owner = await lookup(group.ownerId)
       if (owner) items.push(serializeGroup(group, me, owner, memberships.get(group._id.toString())))
     }
-    const owned = await groups.find({ ownerId: me }).toArray()
     res.json({
       groups: items,
       ownedCount: owned.length,
@@ -198,10 +204,6 @@ export function createGroupsRouter({
     if (!result.success) return res.status(400).json({ error: 'Name the group with 3 to 40 characters and keep the description under 200.' })
     if (!await requireGroupAccess(req, res)) return undefined
     const me = req.accountUser._id.toString()
-    const owned = await groups.find({ ownerId: me }).toArray()
-    if (owned.length >= maxGroupsPerOwner) {
-      return res.status(409).json({ error: `You can run up to ${maxGroupsPerOwner} groups. Delete one to create another.` })
-    }
     const now = new Date()
     const group = {
       name: result.data.name.replace(/\s+/g, ' '),
@@ -214,13 +216,24 @@ export function createGroupsRouter({
       lastActivityAt: now,
     }
     let insertedId
-    try {
-      ({ insertedId } = await groups.insertOne(group))
-    } catch (error) {
-      if (error?.code !== 11000) throw error
-      return res.status(409).json({ error: 'A group with that name already exists.' })
+    for (let slot = 0; slot < maxGroupsPerOwner; slot++) {
+      try {
+        ({ insertedId } = await groups.insertOne({ ...group, ownerSlot: slot }))
+        break
+      } catch (error) {
+        if (error?.code !== 11000) throw error
+        if (await groups.findOne({ nameKey: group.nameKey })) {
+          return res.status(409).json({ error: 'A group with that name already exists.' })
+        }
+      }
     }
-    await groupMembers.insertOne({ groupId: insertedId.toString(), userId: me, state: 'active', role: 'owner', joinedAt: now })
+    if (!insertedId) return res.status(409).json({ error: `You can run up to ${maxGroupsPerOwner} groups. Delete one to create another.` })
+    try {
+      await groupMembers.insertOne({ groupId: insertedId.toString(), userId: me, state: 'active', role: 'owner', joinedAt: now })
+    } catch (error) {
+      await groups.deleteOne({ _id: insertedId })
+      throw error
+    }
     const owner = profile(req.accountUser)
     res.status(201).json({
       group: serializeGroup({ ...group, _id: insertedId }, me, owner, { state: 'active' }),
@@ -258,8 +271,8 @@ export function createGroupsRouter({
     const groupId = group._id.toString()
     const membership = await activeMember(groupId, me)
     if (!membership) return res.json({ ok: true })
-    await groupMembers.deleteOne({ groupId, userId: me, state: 'active' })
-    await groups.updateOne({ _id: group._id }, { $inc: { memberCount: -1 } })
+    const removed = await groupMembers.deleteOne({ groupId, userId: me, state: 'active' })
+    if (removed.deletedCount === 1) await groups.updateOne({ _id: group._id }, { $inc: { memberCount: -1 } })
     res.json({ ok: true })
   })
 
@@ -307,7 +320,8 @@ export function createGroupsRouter({
     if (result.data.id === group.ownerId) return res.status(409).json({ error: 'The owner cannot be removed.' })
     const membership = await activeMember(groupId, result.data.id)
     if (!membership) return notFound(res)
-    await groupMembers.updateOne({ groupId, userId: result.data.id }, { $set: { state: 'removed', removedAt: new Date() } })
+    const removed = await groupMembers.updateOne({ groupId, userId: result.data.id, state: 'active' }, { $set: { state: 'removed', removedAt: new Date() } })
+    if (removed.modifiedCount !== 1) return notFound(res)
     await groups.updateOne({ _id: group._id }, { $inc: { memberCount: -1 } })
     res.json({ ok: true })
   })
@@ -520,7 +534,7 @@ export function createModerationRouter({
     }
     if (action === 'suspend' && ObjectId.isValid(report.reportedUserId)) {
       await users.updateOne({ _id: new ObjectId(report.reportedUserId) }, {
-        $set: { groupsSuspendedUntil: new Date(now.getTime() + days * day) },
+        $max: { groupsSuspendedUntil: new Date(now.getTime() + days * day) },
         $inc: { moderationStrikes: 1 },
       })
     }
