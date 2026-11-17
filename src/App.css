@@ -2552,3 +2552,11 @@ input[aria-invalid="true"]:focus,
     animation: none;
   }
 }
+
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
