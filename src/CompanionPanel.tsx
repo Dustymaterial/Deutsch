@@ -251,6 +251,22 @@ export function CompanionPanel({
   const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory(accountId)
   const lastScrolledMessage = useRef<string | null>(null)
   const { errors, validate, handleInput } = useFormValidation()
+
+  useEffect(() => {
+    const viewport = window.visualViewport
+    const element = workspace.current
+    if (!viewport || !element) return
+    const updateHeight = () => element.style.setProperty('--companion-viewport-height', `${Math.round(viewport.height)}px`)
+    updateHeight()
+    viewport.addEventListener('resize', updateHeight)
+    viewport.addEventListener('scroll', updateHeight)
+    return () => {
+      viewport.removeEventListener('resize', updateHeight)
+      viewport.removeEventListener('scroll', updateHeight)
+      element.style.removeProperty('--companion-viewport-height')
+    }
+  }, [])
+
   const privateOverlay = sidebarView === 'chats' && selectedChat ? [
     reportingMessageId && 'report', savingCorrection && 'save', correcting && 'correct',
     editing && 'edit', reactionPickerFor && 'reaction', messageMenu && 'message-menu', chatDetailsMenuOpen && 'details-menu', activeWord && 'word',

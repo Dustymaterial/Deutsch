@@ -2209,3 +2209,21 @@
 .chat-report-form .menu-select-trigger { width: 100%; background: #fffefa; }
 .chat-report-form .companion-card-actions button:first-child { background: #292a2d; color: #fffefa; }
 .chat-report-form .companion-card-actions button:not(:first-child) { background: transparent; color: #504a53; }
+
+@media (max-width: 760px) and (hover: none) and (pointer: coarse) {
+  .companion-workspace-view {
+    height: calc(var(--companion-viewport-height, 100dvh) - 112px);
+    min-height: 0;
+  }
+
+  .companion-workspace,
+  .companion-workspace.chat-active,
+  .companion-chat-panel,
+  .companion-chat-surface {
+    min-height: 0;
+  }
+
+  .companion-chat-composer {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}
