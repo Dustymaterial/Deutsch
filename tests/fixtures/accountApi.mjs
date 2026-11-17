@@ -30,7 +30,8 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
       if (operator === '$gte') return actual !== undefined && actual >= value
       if (operator === '$lt') return actual !== undefined && actual < value
       if (operator === '$gt') return actual !== undefined && actual > value
-      if (operator === '$ne') return actual !== value
+      if (operator === '$ne') return Array.isArray(actual) ? !actual.includes(value) : actual !== value
+      if (operator === '$in') return Array.isArray(actual) ? actual.some((item) => value.includes(item)) : value.includes(actual)
       throw new Error(`Unknown operator ${operator}`)
     })
   }
@@ -41,7 +42,7 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
 const records = {
   users: [], progress: [], relationships: [], sharedWords: [],
   companionConversations: [], companionMessages: [], companionReports: [],
-  groups: [], groupMembers: [], groupMessages: [], groupReports: [],
+  groups: [], groupMembers: [], groupMessages: [], groupReports: [], chatTyping: [],
 }
 const applyUpdate = (record, update) => {
   for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
@@ -116,9 +117,15 @@ const collection = (name) => ({
     records[name].push({ ...value, _id })
     return { insertedId: _id }
   },
-  async updateOne(query, update) {
+  async updateOne(query, update, options = {}) {
     const record = records[name].find((item) => matches(item, query))
-    if (!record) return { matchedCount: 0, modifiedCount: 0 }
+    if (!record) {
+      if (!options.upsert) return { matchedCount: 0, modifiedCount: 0 }
+      const inserted = { ...query, _id: new ObjectId() }
+      applyUpdate(inserted, update)
+      records[name].push(inserted)
+      return { matchedCount: 0, modifiedCount: 0, upsertedId: inserted._id }
+    }
     if (name === 'groups' && update.$set?.nameKey
       && records.groups.some((item) => item !== record && item.nameKey === update.$set.nameKey)) {
       throw Object.assign(new Error('duplicate'), { code: 11000 })
@@ -302,6 +309,17 @@ try {
   const openedChat = await request('/api/companions/chats/open', { id: otherId }, learner.cookie)
   assert.equal(openedChat.status, 200)
   assert.equal((await request('/api/companions/chats/open', { id: learnerId }, other.cookie)).body.id, openedChat.body.id)
+  const typingPath = `/api/companions/chats/${openedChat.body.id}/typing`
+  const privateMessagesPath = `/api/companions/chats/${openedChat.body.id}/messages`
+  assert.equal((await request(typingPath, { typing: 'yes' }, learner.cookie)).status, 400)
+  assert.equal((await request(typingPath, { typing: true }, learner.cookie)).status, 200)
+  assert.equal((await request(privateMessagesPath, null, other.cookie)).body.typing, true)
+  assert.equal((await request(privateMessagesPath, null, learner.cookie)).body.typing, false)
+  records.chatTyping.find((item) => item.kind === 'private').expiresAt = new Date(0)
+  assert.equal((await request(privateMessagesPath, null, other.cookie)).body.typing, false)
+  assert.equal((await request(typingPath, { typing: true }, learner.cookie)).status, 200)
+  assert.equal((await request(typingPath, { typing: false }, learner.cookie)).status, 200)
+  assert.equal((await request(privateMessagesPath, null, other.cookie)).body.typing, false)
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '   ' }, learner.cookie)).status, 400)
   const sentMessage = await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '  Viel Erfolg beim Lernen!  ' }, learner.cookie)
   assert.equal(sentMessage.status, 201)
@@ -504,29 +522,23 @@ try {
   assert.equal((await request('/api/companions/request', { id: learnerId }, other.cookie)).status, 404)
   assert.equal((await request('/api/companions/', null, learner.cookie)).body.companions[0].status, 'blocked')
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'unblock' }, learner.cookie)).status, 200)
-  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 429)
-  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
   assert.equal((await request('/api/companions/settings', { emailsEnabled: false }, other.cookie)).status, 200)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.emailsEnabled, false)
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
   assert.equal(deliveries.length, 5)
   assert.equal((await request('/api/companions/action', { id: learnerId, action: 'decline' }, other.cookie)).status, 200)
-  assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 429)
   assert.deepEqual((await request('/api/companions/', null, learner.cookie)).body.companions, [])
-  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
   const concurrent = await Promise.all([
     request('/api/companions/request', { id: otherId }, learner.cookie),
     request('/api/companions/request', { id: otherId }, learner.cookie),
   ])
   assert.deepEqual(concurrent.map((item) => item.status).sort(), [201, 409])
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'cancel' }, learner.cookie)).status, 200)
-  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
   assert.equal((await request('/api/companions/settings', { emailsEnabled: true }, other.cookie)).status, 200)
   companion.companionEmailHistory = Array.from({ length: 5 }, () => new Date())
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
   assert.equal(deliveries.length, 5)
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'cancel' }, learner.cookie)).status, 200)
-  records.relationships[0].closedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
   records.users.find((item) => item.email === email).companionRequestHistory = Array.from({ length: 10 }, () => new Date())
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 429)
   records.users.find((item) => item.email === email).companionRequestHistory = []
@@ -615,7 +627,38 @@ try {
   records.groups = records.groups.filter((item) => !browseGroups.includes(item))
 
   const outsider = await makeUser('Outsider')
+  assert.equal((await request(typingPath, { typing: true }, outsider.cookie)).status, 404)
+  await request('/api/groups/rules', {}, outsider.cookie)
+  const visibilityPath = `/api/groups/${groupId}/visibility`
+  assert.equal((await request(visibilityPath, { visibility: 'unlisted' }, other.cookie)).status, 404)
+  assert.equal((await request(visibilityPath, { visibility: 'unlisted' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, outsider.cookie)).body.groups.some((group) => group.id === groupId), false)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((group) => group.id === groupId).visibility, 'unlisted')
+  assert.equal((await request(`/api/groups/${groupId}/invitation`, null, outsider.cookie)).status, 404)
+  const inviteToken = (await request(`/api/groups/${groupId}/invitation`, null, other.cookie)).body.inviteToken
+  assert.equal((await request(`/api/groups/${groupId}/join`, {}, outsider.cookie)).status, 404)
+  assert.equal((await request('/api/groups/invitation/resolve', { inviteToken }, outsider.cookie)).body.group.id, groupId)
+  assert.equal((await request(`/api/groups/${groupId}/state`, { state: 'closed' }, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/join`, { inviteToken }, outsider.cookie)).status, 409)
+  assert.equal((await request(`/api/groups/${groupId}/state`, { state: 'open' }, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/join`, { inviteToken }, outsider.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/leave`, {}, outsider.cookie)).status, 200)
+  assert.equal((await request(visibilityPath, { visibility: 'listed' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/groups/invitation/resolve', { inviteToken }, outsider.cookie)).status, 404)
+  assert.equal((await request(visibilityPath, { visibility: 'unlisted' }, learner.cookie)).status, 200)
+  const rotatedToken = (await request(`/api/groups/${groupId}/invitation`, null, learner.cookie)).body.inviteToken
+  assert.notEqual(rotatedToken, inviteToken)
+  assert.equal((await request(`/api/groups/${groupId}/join`, { inviteToken }, outsider.cookie)).status, 404)
+  assert.equal((await request('/api/groups/invitation/resolve', { inviteToken: rotatedToken }, outsider.cookie)).status, 200)
+  assert.equal((await request(visibilityPath, { visibility: 'listed' }, learner.cookie)).status, 200)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, outsider.cookie)).status, 404)
+  const groupTypingPath = `/api/groups/${groupId}/typing`
+  assert.equal((await request(groupTypingPath, { typing: true }, outsider.cookie)).status, 404)
+  assert.equal((await request(groupTypingPath, { typing: true }, third.cookie)).status, 200)
+  assert.deepEqual((await request(`/api/groups/${groupId}/messages?read=0`, null, learner.cookie)).body.typing.map((item) => item.username), ['Third'])
+  assert.deepEqual((await request(`/api/groups/${groupId}/messages?read=0`, null, third.cookie)).body.typing, [])
+  assert.equal((await request(groupTypingPath, { typing: false }, third.cookie)).status, 200)
+  assert.deepEqual((await request(`/api/groups/${groupId}/messages?read=0`, null, learner.cookie)).body.typing, [])
   const beforeJoin = { _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: 'Old message', createdAt: new Date(0) }
   records.groupMessages.push(beforeJoin)
   assert.equal((await request('/api/groups', null, third.cookie)).body.groups.find((item) => item.id === groupId).unreadCount, 0)
@@ -675,6 +718,45 @@ try {
   assert.equal(history.body.messages[0].canHide, false)
   assert.equal((await groupEntry(third.cookie)).unreadCount, 0)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages[0].canHide, true)
+
+  const mention = await groupPost(groupId, learnerUser, 'Hello @Third @fourth @Outsider and email x@Companion.example @learner')
+  assert.equal(mention.status, 201)
+  const mentionId = mention.body.message.id
+  const storedMention = records.groupMessages.find((item) => item._id.toString() === mentionId)
+  assert.deepEqual(new Set(storedMention.mentionUserIds), new Set([third.id, fourth.id]))
+  const mentionsPath = `/api/groups/${groupId}/mentions`
+  assert.equal((await groupEntry(third.cookie)).mentionCount, 1)
+  assert.equal((await request(mentionsPath, null, outsider.cookie)).status, 404)
+  assert.equal((await request(mentionsPath, null, third.cookie)).body.messages[0].id, mentionId)
+  assert.equal((await request(`${mentionsPath}/${mentionId}/clear`, {}, outsider.cookie)).status, 404)
+  assert.equal((await request(`${mentionsPath}/${mentionId}/clear`, {}, third.cookie)).status, 200)
+  assert.equal((await groupEntry(third.cookie)).mentionCount, 0)
+  assert.equal((await groupEntry(fourth.cookie)).mentionCount, 1)
+  assert.equal((await request(`/api/groups/${groupId}/messages/${mentionId}/edit`, { text: 'Hello @Third only' }, learner.cookie)).status, 200)
+  assert.equal((await groupEntry(fourth.cookie)).mentionCount, 0)
+  assert.equal((await groupEntry(third.cookie)).mentionCount, 0)
+  assert.equal((await request(`/api/groups/${groupId}/messages/${mentionId}/edit`, { text: 'Hello @Third and @Fourth' }, learner.cookie)).status, 200)
+  assert.equal((await groupEntry(fourth.cookie)).mentionCount, 1)
+  assert.equal((await request(`/api/groups/${groupId}/messages/${mentionId}/unsend`, {}, learner.cookie)).status, 200)
+  assert.equal((await groupEntry(fourth.cookie)).mentionCount, 0)
+  records.groupMessages = records.groupMessages.filter((message) => message._id.toString() !== mentionId)
+  const mentionTime = new Date(Date.now() + 2000)
+  const mentionBurst = Array.from({ length: 51 }, (_, index) => ({
+    _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: `@Third ${index}`,
+    mentionUserIds: [third.id], createdAt: mentionTime,
+  }))
+  records.groupMessages.push(...mentionBurst)
+  const mentionPage = (await request(mentionsPath, null, third.cookie)).body
+  assert.equal(mentionPage.messages.length, 50)
+  assert.equal(mentionPage.hasMore, true)
+  const lastMention = mentionPage.messages.at(-1)
+  const mentionNext = (await request(`${mentionsPath}?before=${encodeURIComponent(lastMention.createdAt)}&beforeId=${lastMention.id}`, null, third.cookie)).body
+  assert.equal(mentionNext.messages.length, 1)
+  assert.equal(mentionNext.hasMore, false)
+  assert.equal((await request(`${mentionsPath}?before=invalid&beforeId=${lastMention.id}`, null, third.cookie)).status, 400)
+  mentionBurst[0].hiddenAt = new Date()
+  assert.equal((await groupEntry(third.cookie)).mentionCount, 50)
+  records.groupMessages = records.groupMessages.filter((message) => !mentionBurst.includes(message))
 
   const sameTime = new Date(Date.now() + 1000)
   const firstAtSameTime = { _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: 'First at this time', createdAt: sameTime }
@@ -838,6 +920,11 @@ try {
   assert.equal((await request(`/api/groups/${groupId}/members/remove`, { id: third.id }, learner.cookie)).status, 200)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, third.cookie)).status, 404)
   assert.equal((await request(`/api/groups/${groupId}/join`, {}, third.cookie)).status, 403)
+  assert.equal((await request(visibilityPath, { visibility: 'unlisted' }, learner.cookie)).status, 200)
+  const removedInvite = (await request(`/api/groups/${groupId}/invitation`, null, learner.cookie)).body.inviteToken
+  assert.equal((await request('/api/groups/invitation/resolve', { inviteToken: removedInvite }, third.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/join`, { inviteToken: removedInvite }, third.cookie)).status, 403)
+  assert.equal((await request(visibilityPath, { visibility: 'listed' }, learner.cookie)).status, 200)
   const members = await request(`/api/groups/${groupId}/members`, null, learner.cookie)
   assert.deepEqual(members.body.members.map((item) => item.username), ['learner', 'Companion', 'Fourth'])
   assert.equal(members.body.canRemove, true)

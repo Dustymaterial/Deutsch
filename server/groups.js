@@ -1,12 +1,14 @@
 import { Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { ObjectId } from 'mongodb'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import { foldText, searchResultLimit, searchScanLimit } from './messageSearch.js'
 import { reactionSchema, summarizeReactions } from './chatReactions.js'
 import { sharedCardSchema } from './sharedCard.js'
 import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
 import { mapInBatches } from './mapInBatches.js'
+import { setTyping, typingFilter, typingRateLimit, typingSchema } from './chatTyping.js'
 
 export const maxGroupsPerOwner = 3
 const maxMembers = 100
@@ -35,6 +37,9 @@ const messageSchema = z.object({
 }).refine((message) => Boolean(message.text) !== Boolean(message.card))
 const editSchema = z.object({ text: z.string().trim().min(1).max(1000) })
 const stateSchema = z.object({ state: z.enum(['open', 'closed']) })
+const visibilitySchema = z.object({ visibility: z.enum(['listed', 'unlisted']) })
+const inviteTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{32}$/)
+const joinSchema = z.object({ inviteToken: inviteTokenSchema.optional() })
 const memberSchema = z.object({ id: objectIdSchema })
 const reportSchema = z.object({
   reason: z.enum(['spam', 'harassment', 'inappropriate', 'other']),
@@ -68,7 +73,7 @@ const createLimiter = () => rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
   keyGenerator: (req) => req.accountUser._id.toString(),
-  skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/[^/]+\/read$/.test(req.path)),
+  skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/[^/]+\/(?:read|typing)$/.test(req.path)),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Too many group actions. Please try again later.' },
@@ -76,7 +81,7 @@ const createLimiter = () => rateLimit({
 
 export function createGroupsRouter({
   users, groups, groupMembers, groupMessages, groupReports,
-  requireUser, isModerator,
+  requireUser, isModerator, chatTyping,
 }) {
   const router = Router()
   router.use(...guard({ requireUser, limiter: createLimiter() }))
@@ -85,6 +90,26 @@ export function createGroupsRouter({
   const notFound = (res) => res.status(404).json({ error: 'That group is unavailable.' })
   const canModerate = (group, req) => group.ownerId === req.accountUser._id.toString() || isModerator(req.accountUser)
   const activeMember = (groupId, userId) => groupMembers.findOne({ groupId, userId, state: 'active' })
+
+  async function mentionedMembers(groupId, text, senderId) {
+    const names = [...new Set([...text.matchAll(/(?<![A-Za-z0-9_@.-])@([A-Za-z0-9_-]{3,20})(?![A-Za-z0-9_-])/g)]
+      .map((match) => match[1].toLowerCase()))]
+    if (!names.length) return []
+    const candidates = await users.find({ usernameKey: { $in: names } }).toArray()
+    const ids = candidates.map((user) => user._id.toString()).filter((id) => id !== senderId)
+    if (!ids.length) return []
+    const members = await groupMembers.find({ groupId, state: 'active', userId: { $in: ids } }).toArray()
+    return members.map((member) => member.userId)
+  }
+
+  const mentionsFor = (groupId, userId, joinedAt) => ({
+    groupId,
+    mentionUserIds: userId,
+    clearedMentionUserIds: { $ne: userId },
+    unsentAt: { $exists: false },
+    hiddenAt: { $exists: false },
+    createdAt: { $gte: joinedAt > new Date(Date.now() - groupMessageRetention) ? joinedAt : new Date(Date.now() - groupMessageRetention) },
+  })
 
   // Blocks creating, joining and posting until the learner accepts the rules, and while suspended.
   async function requireGroupAccess(req, res) {
@@ -127,6 +152,7 @@ export function createGroupsRouter({
     name: group.name,
     description: group.description ?? '',
     state: group.state,
+    visibility: group.visibility ?? 'listed',
     memberCount: group.memberCount,
     owner,
     isOwner: group.ownerId === me,
@@ -184,7 +210,7 @@ export function createGroupsRouter({
   router.get('/', async (req, res) => {
     const me = req.accountUser._id.toString()
     const [found, mine, owned, account] = await Promise.all([
-      groups.find({}, { sort: { lastActivityAt: -1 }, limit: 100 }).toArray(),
+      groups.find({ visibility: { $ne: 'unlisted' } }, { sort: { lastActivityAt: -1 }, limit: 100 }).toArray(),
       groupMembers.find({ userId: me }).toArray(),
       groups.find({ ownerId: me }).toArray(),
       users.findOne({ _id: req.accountUser._id }, { projection: { groupRulesAcceptedAt: 1, groupsSuspendedUntil: 1 } }),
@@ -203,7 +229,7 @@ export function createGroupsRouter({
       const item = serializeGroup(group, me, owner, membership)
       if (membership?.state === 'active') {
         const visible = { groupId, unsentAt: { $exists: false }, hiddenAt: { $exists: false } }
-        const [lastMessage, unread] = await Promise.all([
+        const [lastMessage, unread, mentionCount] = await Promise.all([
           groupMessages.findOne(visible, { sort: { createdAt: -1, _id: -1 } }),
           groupMessages.find({
             ...visible,
@@ -215,6 +241,7 @@ export function createGroupsRouter({
               ],
             } : { createdAt: { $gte: membership.joinedAt } }),
           }, { limit: 100 }).toArray(),
+          groupMessages.countDocuments(mentionsFor(groupId, me, membership.joinedAt)),
         ])
         const sender = lastMessage ? await lookup(lastMessage.senderId) : null
         item.lastMessage = lastMessage ? {
@@ -224,6 +251,7 @@ export function createGroupsRouter({
           createdAt: lastMessage.createdAt.toISOString(),
         } : null
         item.unreadCount = unread.length
+        item.mentionCount = mentionCount
       }
       return item
     })).filter(Boolean)
@@ -256,6 +284,7 @@ export function createGroupsRouter({
       description: result.data.description ?? '',
       ownerId: me,
       state: 'open',
+      visibility: 'listed',
       memberCount: 1,
       createdAt: now,
       lastActivityAt: now,
@@ -286,6 +315,8 @@ export function createGroupsRouter({
   })
 
   router.post('/:id/join', async (req, res) => {
+    const result = joinSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid group invitation.' })
     const group = await loadGroup(req.params.id)
     if (!group) return notFound(res)
     if (!await requireGroupAccess(req, res)) return undefined
@@ -294,10 +325,15 @@ export function createGroupsRouter({
     const existing = await groupMembers.findOne({ groupId, userId: me })
     if (existing?.state === 'active') return res.json({ ok: true })
     if (existing?.state === 'removed') return res.status(403).json({ error: 'You cannot join this group.' })
+    if (group.visibility === 'unlisted' && (!result.data.inviteToken || !inviteTokenSchema.safeParse(group.inviteToken).success
+      || !timingSafeEqual(Buffer.from(result.data.inviteToken), Buffer.from(group.inviteToken)))) return notFound(res)
     if (group.state !== 'open') return res.status(409).json({ error: 'This group is closed to new members.' })
     const joined = await groupMembers.find({ userId: me, state: 'active' }).toArray()
     if (joined.length >= maxJoinedGroups) return res.status(409).json({ error: `You can be in up to ${maxJoinedGroups} groups. Leave one first.` })
-    const reserved = await groups.updateOne({ _id: group._id, state: 'open', memberCount: { $lt: maxMembers } }, { $inc: { memberCount: 1 } })
+    const reserved = await groups.updateOne({
+      _id: group._id, state: 'open', memberCount: { $lt: maxMembers },
+      ...(group.visibility === 'unlisted' ? { visibility: 'unlisted', inviteToken: group.inviteToken } : { visibility: { $ne: 'unlisted' } }),
+    }, { $inc: { memberCount: 1 } })
     if (reserved.modifiedCount !== 1) return res.status(409).json({ error: 'This group is full or closed.' })
     try {
       await groupMembers.insertOne({ groupId, userId: me, state: 'active', role: 'member', joinedAt: new Date() })
@@ -328,6 +364,42 @@ export function createGroupsRouter({
     if (!group || !canModerate(group, req)) return notFound(res)
     await groups.updateOne({ _id: group._id }, { $set: { state: result.data.state } })
     res.json({ state: result.data.state })
+  })
+
+  router.post('/:id/visibility', async (req, res) => {
+    const result = visibilitySchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose whether the group appears in Discover.' })
+    const group = await loadGroup(req.params.id)
+    if (!group || !canModerate(group, req)) return notFound(res)
+    const visibility = group.visibility ?? 'listed'
+    if (visibility === result.data.visibility) return res.json({ visibility })
+    const filter = { _id: group._id, visibility: group.visibility ?? { $exists: false } }
+    const update = result.data.visibility === 'unlisted'
+      ? { $set: { visibility: 'unlisted', inviteToken: randomBytes(24).toString('base64url') } }
+      : { $set: { visibility: 'listed' }, $unset: { inviteToken: '' } }
+    const updated = await groups.updateOne(filter, update)
+    if (!updated.matchedCount) return res.status(409).json({ error: 'The group visibility changed. Refresh and try again.' })
+    res.json({ visibility: result.data.visibility })
+  })
+
+  router.get('/:id/invitation', async (req, res) => {
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    if (group.visibility !== 'unlisted' || !group.inviteToken) return res.status(409).json({ error: 'This group is not unlisted.' })
+    res.set('Cache-Control', 'no-store')
+    res.json({ inviteToken: group.inviteToken })
+  })
+
+  router.post('/invitation/resolve', async (req, res) => {
+    const result = z.object({ inviteToken: inviteTokenSchema }).safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid group invitation.' })
+    const group = await groups.findOne({ visibility: 'unlisted', inviteToken: result.data.inviteToken })
+    if (!group) return notFound(res)
+    const me = req.accountUser._id.toString()
+    const [membership, owner] = await Promise.all([groupMembers.findOne({ groupId: group._id.toString(), userId: me }), profileCache()(group.ownerId)])
+    if (!owner || membership?.state === 'removed') return notFound(res)
+    res.set('Cache-Control', 'no-store')
+    res.json({ group: serializeGroup(group, me, owner, membership) })
   })
 
   async function updateDetails(req, res, nameInput, descriptionInput) {
@@ -498,7 +570,23 @@ export function createGroupsRouter({
         )
       }
     }
-    res.json({ hasMore: messages.length > pageSize, messages: page.reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }) })
+    const typingRecords = before ? [] : await chatTyping.find(typingFilter('group', group._id.toString(), me), { limit: maxMembers }).toArray()
+    const typing = (await mapInBatches(typingRecords, async (entry) => {
+      if (!await activeMember(group._id.toString(), entry.userId)) return null
+      return lookup(entry.userId)
+    }, 5)).filter(Boolean)
+    res.json({ hasMore: messages.length > pageSize, messages: page.reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }), typing })
+  })
+
+  router.post('/:id/typing', typingRateLimit(), async (req, res) => {
+    const result = typingSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid typing status.' })
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    if (result.data.typing && !await requireGroupAccess(req, res)) return undefined
+    await setTyping(chatTyping, 'group', group._id.toString(), me, result.data.typing)
+    res.json({ ok: true })
   })
 
   router.post('/:id/read', rateLimit({
@@ -518,6 +606,43 @@ export function createGroupsRouter({
       { groupId: group._id.toString(), userId: me, state: 'active' },
       { $max: { readThrough: `${message.createdAt.toISOString()}/${message._id.toString()}` } },
     )
+    if (!updated.matchedCount) return notFound(res)
+    res.json({ ok: true })
+  })
+
+  router.get('/:id/mentions', async (req, res) => {
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    const membership = await activeMember(group._id.toString(), me)
+    if (!membership) return notFound(res)
+    const before = req.query.before ? new Date(String(req.query.before)) : null
+    const beforeId = req.query.beforeId
+    if ((before && !Number.isFinite(before.getTime()))
+      || (beforeId !== undefined && (!before || typeof beforeId !== 'string' || !objectIdSchema.safeParse(beforeId).success))
+      || (before && !beforeId)) return res.status(400).json({ error: 'Choose a valid mention cursor.' })
+    const found = await groupMessages.find({
+      ...mentionsFor(group._id.toString(), me, membership.joinedAt),
+      ...(before ? { $or: [{ createdAt: { $lt: before } }, { createdAt: before, _id: { $lt: new ObjectId(beforeId) } }] } : {}),
+    }, { sort: { createdAt: -1, _id: -1 }, limit: pageSize + 1 }).toArray()
+    const lookup = profileCache()
+    const messages = await mapInBatches(found.slice(0, pageSize), async (message) =>
+      serializeMessage(message, me, await lookup(message.senderId), canModerate(group, req), lookup), 5)
+    res.set('Cache-Control', 'no-store')
+    res.json({ messages, hasMore: found.length > pageSize })
+  })
+
+  router.post('/:id/mentions/:mid/clear', async (req, res) => {
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    if (!objectIdSchema.safeParse(req.params.mid).success) return notFound(res)
+    const me = req.accountUser._id.toString()
+    const membership = await activeMember(group._id.toString(), me)
+    if (!membership) return notFound(res)
+    const updated = await groupMessages.updateOne({
+      ...mentionsFor(group._id.toString(), me, membership.joinedAt),
+      _id: new ObjectId(req.params.mid),
+    }, { $addToSet: { clearedMentionUserIds: me } })
     if (!updated.matchedCount) return notFound(res)
     res.json({ ok: true })
   })
@@ -566,6 +691,7 @@ export function createGroupsRouter({
       text,
       ...(result.data.card ? { card: result.data.card } : {}),
       ...(replyTo ? { replyTo } : {}),
+      mentionUserIds: result.data.text ? await mentionedMembers(groupId, text, me) : [],
       createdAt: now,
     }
     const { insertedId } = await groupMessages.insertOne(message)
@@ -714,10 +840,11 @@ export function createGroupsRouter({
     if (Date.now() - message.createdAt.getTime() > editWindow) return res.status(403).json({ error: 'Messages can be edited for 10 minutes after sending.' })
     if (message.corrections && Object.keys(message.corrections).length) return res.status(409).json({ error: 'This message has been reviewed, so it can no longer be edited.' })
     const editedAt = new Date()
+    const mentionUserIds = await mentionedMembers(group._id.toString(), result.data.text, me)
     const updated = await groupMessages.updateOne({
       _id: message._id, unsentAt: { $exists: false }, hiddenAt: { $exists: false }, corrections: { $exists: false },
       createdAt: { $gte: new Date(editedAt.getTime() - editWindow) },
-    }, { $set: { text: result.data.text, editedAt } })
+    }, { $set: { text: result.data.text, editedAt, mentionUserIds } })
     if (!updated.matchedCount) return res.status(409).json({ error: 'This message changed or can no longer be edited.' })
     await groupMessages.updateMany({ groupId: group._id.toString(), 'replyTo.id': message._id.toString() },
       { $set: { 'replyTo.text': previewText(result.data.text) } })

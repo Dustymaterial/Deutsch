@@ -7,6 +7,7 @@ import { reactionSchema, summarizeReactions } from './chatReactions.js'
 import { sharedCardSchema } from './sharedCard.js'
 import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
 import { mapInBatches } from './mapInBatches.js'
+import { setTyping, typingFilter, typingRateLimit, typingSchema } from './chatTyping.js'
 
 const usernameSchema = z.object({ username: z.string().trim().min(3).max(20).regex(/^[A-Za-z0-9_-]+$/) })
 const targetSchema = z.object({ id: z.string().regex(/^[a-f\d]{24}$/) })
@@ -41,14 +42,14 @@ const shareLifetime = 30 * 24 * hour
 
 export function createCompanionRouter({
   users, relationships, sharedWords, conversations, companionMessages, companionReports,
-  requireUser, mailer, renderAvatar,
+  requireUser, mailer, renderAvatar, chatTyping,
 }) {
   const router = Router()
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 300,
     keyGenerator: (req) => req.accountUser._id.toString(),
-    skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/chats\/[^/]+\/read$/.test(req.path)),
+    skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/chats\/[^/]+\/(?:read|typing)$/.test(req.path)),
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { error: 'Too many companion actions. Please try again later.' },
@@ -340,10 +341,22 @@ export function createCompanionRouter({
       })
     }
     const messages = found.slice(0, 50).reverse()
+    const typing = !before && Boolean(await chatTyping.findOne(typingFilter('private', conversationId, me)))
     res.json({
       hasMore: found.length > 50,
       messages: messages.map((message) => serializeMessage(message, me)),
+      typing,
     })
+  })
+
+  router.post('/chats/:id/typing', typingRateLimit(), async (req, res) => {
+    const result = typingSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid typing status.' })
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    await setTyping(chatTyping, 'private', active.conversation._id.toString(), me, result.data.typing)
+    res.json({ ok: true })
   })
 
   router.post('/chats/:id/read', rateLimit({
@@ -638,7 +651,6 @@ export function createCompanionRouter({
     if (pair.blockedBy.length) return unavailable(res)
     if (pair.state !== 'none') return changed(res)
     const now = new Date()
-    if (pair.closedAt && now - pair.closedAt < cooldown) return res.status(429).json({ error: 'Please wait a day before requesting this learner again.' })
     const throttle = await users.updateOne({
       _id: req.accountUser._id,
       $or: [

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { BookOpen, Check, Ellipsis, Languages, Plus, Reply, Search, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
+import { BookOpen, Check, ChevronDown, Ellipsis, Languages, Plus, Reply, Search, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useConfirm } from './confirmContext'
 import { useFormValidation } from './formValidation'
@@ -20,6 +20,7 @@ import {
 import type { ChatMemoryCache } from './chatMemoryCache'
 import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
+import { useChatTyping } from './useChatTyping'
 import './Groups.css'
 
 const rulesText = 'Groups are open to every member, so anything you post can be read by all of them. Be kind and keep it about learning German. No spam, advertising, personal details or harassment. You must be at least 13. Group owners and moderators can hide messages and remove people, and you can report any message.'
@@ -32,12 +33,14 @@ const closePopover = (event: React.SyntheticEvent<HTMLElement>) => {
   if (details) details.open = false
 }
 
-export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: {
+export function GroupsSidebar({ directory, error, selectedId, onOpen, reload, invitationToken, onInvitationHandled }: {
   directory: GroupDirectory | null
   error: string | null
   selectedId: string | null
   onOpen: (id: string) => void
   reload: () => Promise<void>
+  invitationToken: string | null
+  onInvitationHandled: () => void
 }) {
   const confirmDialog = useConfirm()
   const { errors, validate, handleInput } = useFormValidation()
@@ -47,9 +50,24 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const [invitation, setInvitation] = useState<GroupSummary | null>(null)
   const createPopoverId = useId()
   const createTriggerRef = useRef<HTMLButtonElement>(null)
   const createPopoverRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!invitationToken) return
+    let active = true
+    void groupsRequest<{ group: GroupSummary }>('/invitation/resolve', { inviteToken: invitationToken })
+      .then((data) => {
+        if (!data.group?.id) throw new Error('The group service returned an incomplete invitation.')
+        if (active) setInvitation(data.group)
+      })
+      .catch((failure: unknown) => {
+        if (active) setProblem(errorMessage(failure, 'Could not open this invitation.'))
+      })
+    return () => { active = false }
+  }, [invitationToken])
 
   useEffect(() => {
     if (!creating) return
@@ -105,6 +123,17 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
     onOpen(group.id)
   })
 
+  const joinInvitation = (group: GroupSummary) => run(async () => {
+    if (!invitationToken) throw new Error('This invitation is no longer available.')
+    if (!group.joined) {
+      if (!await acceptRules()) return
+      await groupsRequest(`/${group.id}/join`, { inviteToken: invitationToken })
+    }
+    await reload()
+    onInvitationHandled()
+    onOpen(group.id)
+  })
+
   const create = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!validate(event.currentTarget)) return
@@ -128,7 +157,7 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
   const atLimit = directory ? directory.ownedCount >= directory.ownedLimit : true
 
   const card = (group: GroupSummary) => <article className={`group-card companion-contact-card${selectedId === group.id ? ' selected' : ''}`} key={group.id}>
-    <button className="group-card-open companion-contact-open" type="button" disabled={!group.joined} onClick={() => onOpen(group.id)} aria-label={group.joined ? `Open ${group.name}${group.unreadCount ? `, ${group.unreadCount > 99 ? 'more than 99' : group.unreadCount} unread messages` : ''}` : undefined}>
+    <button className="group-card-open companion-contact-open" type="button" disabled={!group.joined} onClick={() => onOpen(group.id)} aria-label={group.joined ? `Open ${group.name}${group.unreadCount ? `, ${group.unreadCount > 99 ? 'more than 99' : group.unreadCount} unread messages` : ''}${group.mentionCount ? `, ${group.mentionCount} pending mentions` : ''}` : undefined}>
       <span className="group-avatar" aria-hidden="true">{group.name.slice(0, 1).toLocaleUpperCase()}</span>
       <span className="group-card-copy">
         <span className="group-card-heading">
@@ -139,6 +168,7 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
           <span>{group.joined
             ? group.lastMessage ? `${group.lastMessage.isMine ? 'You' : group.lastMessage.sender}: ${group.lastMessage.text}` : 'No messages yet'
             : group.description || `Run by ${group.owner.username}`}</span>
+          {group.joined && Boolean(group.mentionCount) && <b className="group-mention-count" aria-label={`${group.mentionCount} mentions`}>@{group.mentionCount}</b>}
           {group.joined && Boolean(group.unreadCount) && <b className="group-unread-count" aria-hidden="true">{group.unreadCount && group.unreadCount > 99 ? '99+' : group.unreadCount}</b>}
         </span>
         {group.state === 'closed' && <small className="group-card-closed">Closed to new members</small>}
@@ -154,6 +184,17 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
   return <>
     {directory?.suspendedUntil && <p className="companion-alert" role="alert">Your group access is paused until {new Date(directory.suspendedUntil).toLocaleDateString()}.</p>}
     {(error || problem) && <p className="companion-alert" role="alert">{problem ?? error}</p>}
+    {invitationToken && <section className="companion-list-section" aria-label="Group invitation">
+      {invitation ? <>
+        <h2>Invitation to {invitation.name}</h2>
+        {invitation.description && <p className="companion-empty-note">{invitation.description}</p>}
+        <div className="companion-card-actions">
+          <button type="button" className="companion-primary-button" disabled={busy || (!invitation.joined && invitation.state === 'closed')} onClick={() => void joinInvitation(invitation)}>{invitation.joined ? 'Open group' : invitation.state === 'closed' ? 'Group closed' : 'Join group'}</button>
+          <button type="button" disabled={busy} onClick={onInvitationHandled}>Dismiss</button>
+        </div>
+      </> : !problem && <p className="companion-empty-note" role="status">Loading invitation…</p>}
+      {problem && <button type="button" onClick={onInvitationHandled}>Dismiss invitation</button>}
+    </section>}
     <div className="group-toolbar">
       <div className="group-search">
         <Search size={13} aria-hidden="true" />
@@ -223,6 +264,8 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const confirmDialog = useConfirm()
   const [cachedPage] = useState(() => cache.get(group.id))
   const [messages, setMessages] = useState<GroupMessage[]>(cachedPage?.messages ?? [])
+  const [typing, setTyping] = useState<Profile[]>([])
+  const [awayFromBottom, setAwayFromBottom] = useState(false)
   const [loaded, setLoaded] = useState(Boolean(cachedPage))
   const [updating, setUpdating] = useState(Boolean(cachedPage))
   const [unavailable, setUnavailable] = useState(false)
@@ -234,6 +277,9 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const [busy, setBusy] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [members, setMembers] = useState<{ list: (Profile & { role: string })[]; canRemove: boolean } | null>(null)
+  const [mentionsOpen, setMentionsOpen] = useState(false)
+  const [mentions, setMentions] = useState<{ messages: GroupMessage[]; hasMore: boolean; cursor: GroupMessage | null } | null>(null)
+  const [mentionsLoading, setMentionsLoading] = useState(false)
   const [reporting, setReporting] = useState<{ messageId: string; authorId?: string } | null>(null)
   const reportAnchor = useRef<HTMLButtonElement | null>(null)
   const closeReport = useCallback(() => setReporting(null), [])
@@ -267,6 +313,23 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const directorySignature = useRef<string | null>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const searchTerm = searchQuery.trim()
+  const publishTyping = useChatTyping(
+    useCallback(async (id: string, value: boolean) => { await groupsRequest(`/${id}/typing`, { typing: value }) }, []),
+    useCallback((failure: unknown) => setError(errorMessage(failure, 'Could not update typing status.')), []),
+  )
+  const mentionQuery = draft.match(/(?:^|[\s([{])@([A-Za-z0-9_-]{0,20})$/)?.[1]
+
+  useEffect(() => {
+    if (mentionQuery === undefined || members) return
+    let active = true
+    void groupsRequest<{ members: (Profile & { role: string })[]; canRemove: boolean }>(`/${group.id}/members`)
+      .then((data) => {
+        if (!Array.isArray(data.members)) throw new Error('The group service returned an incomplete member list.')
+        if (active) setMembers({ list: data.members, canRemove: data.canRemove })
+      })
+      .catch((failure: unknown) => { if (active) setError(errorMessage(failure, 'Could not load members for mentions.')) })
+    return () => { active = false }
+  }, [group.id, mentionQuery, members])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15000)
@@ -303,11 +366,12 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     const sequence = ++loadSequence.current
     loadingRef.current = true
     try {
-      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary }>(`/${group.id}/messages?read=0`)
-      if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean' || !data.group) {
+      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[] }>(`/${group.id}/messages?read=0`)
+      if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean' || !data.group || !Array.isArray(data.typing)) {
         throw new Error('The group service returned an incomplete response.')
       }
       if (sequence !== loadSequence.current) return
+      setTyping(data.typing)
       cache.set(group.id, { messages: data.messages, hasMore: data.hasMore })
       const initialLoad = firstLoad.current
       setMessages((current) => initialLoad ? data.messages : mergeMessages(current, data.messages))
@@ -440,6 +504,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       stickToBottom.current = true
       setMessages((current) => mergeMessages(current, [data.message]))
       setDraft('')
+      publishTyping(group.id, false)
       setReplyTo(null)
       await load()
     })
@@ -594,6 +659,33 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       .catch((failure: unknown) => setError(errorMessage(failure, 'Could not load members.')))
   }
 
+  const loadMentions = async (older = false) => {
+    setMentionsLoading(true)
+    setError(null)
+    try {
+      const cursor = older ? mentions?.cursor : null
+      if (older && !cursor) throw new Error('Could not find the next mentions page.')
+      const query = cursor ? `?before=${encodeURIComponent(cursor.createdAt)}&beforeId=${encodeURIComponent(cursor.id)}` : ''
+      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(`/${group.id}/mentions${query}`)
+      if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean') throw new Error('The group service returned an incomplete mention list.')
+      setMentions((current) => ({
+        messages: older ? [...(current?.messages ?? []), ...data.messages] : data.messages,
+        hasMore: data.hasMore,
+        cursor: data.messages.at(-1) ?? null,
+      }))
+    } catch (failure) {
+      setError(errorMessage(failure, 'Could not load mentions.'))
+    } finally {
+      setMentionsLoading(false)
+    }
+  }
+
+  const clearMention = (message: GroupMessage) => run(async () => {
+    await groupsRequest(`/${group.id}/mentions/${message.id}/clear`, {})
+    setMentions((current) => current && { ...current, messages: current.messages.filter((item) => item.id !== message.id) })
+    await reload()
+  })
+
   const removeMember = async (member: Profile) => {
     const ok = await confirmDialog({ title: `Remove ${member.username}?`, message: 'They leave the group and cannot join it again.', confirmLabel: 'Remove', tone: 'danger' })
     if (!ok) return
@@ -614,6 +706,22 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       await reload()
     })
   }
+
+  const setVisibility = (visibility: GroupSummary['visibility']) => run(async () => {
+    await groupsRequest(`/${group.id}/visibility`, { visibility })
+    await reload()
+    onNotify(visibility === 'unlisted' ? 'Group hidden from Discover.' : 'Group visible in Discover.')
+  })
+
+  const copyInvitation = () => run(async () => {
+    const data = await groupsRequest<{ inviteToken: string }>(`/${group.id}/invitation`)
+    if (!data.inviteToken) throw new Error('The group service returned an incomplete invitation.')
+    const url = new URL(window.location.pathname, window.location.origin)
+    url.hash = new URLSearchParams({ groupInvite: data.inviteToken }).toString()
+    if (!navigator.clipboard?.writeText) throw new Error('Copying is not available in this browser.')
+    await navigator.clipboard.writeText(url.toString())
+    onNotify('Invitation copied. Anyone with the link can join while the group is open.')
+  })
 
   const openInfo = () => {
     setPopover('info')
@@ -729,6 +837,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
         return
       }
       setSearchOpen(false)
+      setMentionsOpen(false)
       setHighlightId(result.id)
       window.setTimeout(() => jumpTo(result.id), 60)
       window.setTimeout(() => setHighlightId((current) => current === result.id ? null : current), 2600)
@@ -750,12 +859,15 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       </div>
       <div className="companion-chat-header-actions">
         <button className="companion-header-pill" type="button" aria-label="Search this group" aria-pressed={searchOpen} disabled={updating} onClick={() => { setSearchOpen((open) => !open); setSearchError(null) }}><Search size={14} aria-hidden="true" /><span>Search</span></button>
+        <button className="companion-header-pill" type="button" aria-pressed={mentionsOpen} aria-label={`Mentions, ${group.mentionCount ?? 0} pending`} onClick={() => { const next = !mentionsOpen; setMentionsOpen(next); if (next) void loadMentions() }}><span>@ {group.mentionCount ?? 0}</span></button>
         <button className="companion-header-pill" type="button" aria-pressed={membersOpen} onClick={toggleMembers}><Users size={14} aria-hidden="true" /><span>{group.memberCount}</span></button>
         <details className="companion-row-menu companion-chat-menu">
           <summary className="companion-header-pill" aria-label="Group actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
           <div className="companion-row-popover">
             {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); openEditor() }}>Edit group details</button>}
             {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); void setState(group.state === 'open' ? 'closed' : 'open') }}>{group.state === 'open' ? 'Close to new members' : 'Open to new members'}</button>}
+            {(group.isOwner || canModerate) && <button type="button" disabled={busy} onClick={(event) => { closePopover(event); void setVisibility(group.visibility === 'unlisted' ? 'listed' : 'unlisted') }}>{group.visibility === 'unlisted' ? 'Show in Discover' : 'Hide from Discover'}</button>}
+            {group.visibility === 'unlisted' && <button type="button" disabled={busy} onClick={(event) => { closePopover(event); void copyInvitation() }}>Copy invitation link</button>}
             {(group.isOwner || canModerate) && <button className="danger" type="button" onClick={(event) => { closePopover(event); void deleteGroup() }}>Delete group</button>}
             {!group.isOwner && <button className="danger" type="button" onClick={(event) => { closePopover(event); void leave() }}>Leave group</button>}
           </div>
@@ -820,6 +932,20 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       )}
       <p className="companion-search-note">Searches the latest 1,000 group messages.</p>
     </div>}
+    {mentionsOpen && <div className="companion-search-panel group-mentions" aria-label="Your mentions">
+      <div className="group-mentions-heading"><strong>Your mentions</strong><button type="button" disabled={mentionsLoading} onClick={() => void loadMentions()}>Refresh</button></div>
+      {mentionsLoading && !mentions ? <p className="companion-search-note" role="status">Loading mentions…</p>
+        : !mentions ? <p className="companion-search-note">Mentions are unavailable. Try Refresh.</p>
+        : !mentions?.messages.length ? <p className="companion-search-note">No mentions to show.</p>
+        : <ul>{mentions.messages.map((message) => <li key={message.id}>
+          <button type="button" className="group-mention-message" disabled={loadingOlder} onClick={() => void showSearchResult(message)}>
+            <strong>{message.sender?.username ?? 'Former member'}</strong> <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
+            <span>{message.text}</span>
+          </button>
+          <button type="button" disabled={busy} onClick={() => void clearMention(message)}>Clear</button>
+        </li>)}</ul>}
+      {mentions?.hasMore && <button type="button" disabled={mentionsLoading} onClick={() => void loadMentions(true)}>{mentionsLoading ? 'Loading…' : 'Load earlier mentions'}</button>}
+    </div>}
     {membersOpen && <div className="companion-search-panel group-members">
       {group.description && <p className="group-description">{group.description}</p>}
       {!members ? <p className="companion-search-note">Loading members…</p> : <ul>
@@ -835,7 +961,11 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     </aside>
     {updating && <p className="companion-empty-note" role="status">Updating messages…</p>}
     {error && <p className="companion-alert" role="alert">{error}</p>}
-    <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating}>
+    {typing.length > 0 && <p className="companion-typing" role="status">{typing.slice(0, 3).map((person) => person.username).join(', ')}{typing.length > 3 ? ` and ${typing.length - 3} more` : ''} {typing.length === 1 ? 'is' : 'are'} typing…</p>}
+    <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating} onScroll={(event) => {
+      const element = event.currentTarget
+      setAwayFromBottom(element.scrollHeight - element.scrollTop - element.clientHeight >= 160)
+    }}>
       <ChatMessageList updating={updating}>
       {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
       {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0
@@ -939,6 +1069,10 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
           </div>
         </article>)}
       </ChatMessageList>
+      {awayFromBottom && <button className="companion-scroll-bottom" type="button" aria-label="Scroll to latest messages" onClick={() => {
+        const element = stream.current
+        if (element) element.scrollTo({ top: element.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+      }}><ChevronDown size={18} aria-hidden="true" /></button>}
     </div>
     <form className="companion-chat-composer" onSubmit={send} inert={updating}>
       <label className="companion-visually-hidden" htmlFor="group-message">Message {group.name}</label>
@@ -947,11 +1081,18 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
         <button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}><X size={14} aria-hidden="true" /></button>
       </div>}
       <div className="companion-composer-input">
-        <textarea ref={composer} id="group-message" rows={1} maxLength={1000} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => {
+        <textarea ref={composer} id="group-message" rows={1} maxLength={1000} value={draft} onChange={(event) => { setDraft(event.target.value); publishTyping(group.id, Boolean(event.target.value.trim())) }} onBlur={() => publishTyping(group.id, false)} onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) event.currentTarget.form?.requestSubmit()
         }} placeholder="Write to the group…" disabled={busy} />
         <button className="companion-send-button" type="submit" disabled={busy || !draft.trim()}>Send</button>
       </div>
+      {mentionQuery !== undefined && members && <div className="group-mention-suggestions" role="group" aria-label="Mention a group member">
+        {members.list.filter((member) => member.username.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 8).map((member) =>
+          <button key={member.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+            setDraft((current) => current.replace(/@([A-Za-z0-9_-]{0,20})$/, `@${member.username} `))
+            composer.current?.focus()
+          }}>@{member.username}</button>)}
+      </div>}
       <div className="companion-composer-footer">
         <details className="companion-word-picker" ref={wordPicker}>
           <summary><BookOpen size={13} aria-hidden="true" /><span>Share a word</span></summary>
