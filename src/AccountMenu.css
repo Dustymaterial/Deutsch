@@ -1527,6 +1527,12 @@
 .companion-message-text .companion-word.known { text-decoration: underline dotted #8fb9e6 2px; text-underline-offset: 3px; }
 .companion-message-text .companion-word:hover,
 .companion-message-text .companion-word.active { background: var(--companion-blue-bg); }
+.companion-message-text a { color: #3569a6; text-decoration: underline; text-underline-offset: 2px; }
+.companion-send-status { display: inline-flex; align-items: center; color: #858b88; }
+.companion-send-status.read { color: #3b9c68; }
+.companion-send-failed { color: #a33333; }
+.companion-send-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; color: #a33333; font-size: 0.75rem; }
+.companion-send-error button { color: #3569a6; background: transparent; border: 0; padding: 2px; cursor: pointer; text-decoration: underline; }
 .companion-word-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .companion-word-chips button {
   min-height: 24px;

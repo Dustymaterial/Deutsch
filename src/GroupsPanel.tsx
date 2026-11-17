@@ -27,6 +27,10 @@ import { replayUpdatesInRange } from './chatReplay'
 import { useChatScrollState } from './useChatScrollState'
 import { useChatOverlayHistory } from './useChatOverlayHistory'
 import './Groups.css'
+import { PendingChatMessages } from './PendingChatMessages'
+import type { ChatOutbox } from './useChatOutbox'
+import { MessageReceipt } from './MessageReceipt'
+import { useChatDelivery } from './useChatDelivery'
 
 const rulesText = 'Groups are open to every member, so anything you post can be read by all of them. Be kind and keep it about learning German. No spam, advertising, personal details or harassment. You must be at least 13. Group owners and moderators can hide messages and remove people, and you can report any message.'
 
@@ -35,7 +39,7 @@ const closePopover = (event: React.SyntheticEvent<HTMLElement>) => {
   if (details) details.open = false
 }
 
-export function GroupsSidebar({ directory, error, selectedId, onOpen, reload, invitationToken, onInvitationHandled }: {
+export function GroupsSidebar({ directory, error, selectedId, onOpen, reload, invitationToken, onInvitationHandled, onNotify }: {
   directory: GroupDirectory | null
   error: string | null
   selectedId: string | null
@@ -43,6 +47,7 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload, in
   reload: () => Promise<void>
   invitationToken: string | null
   onInvitationHandled: () => void
+  onNotify: (message: string, kind?: 'success' | 'error') => void
 }) {
   const confirmDialog = useConfirm()
   const { errors, validate, handleInput } = useFormValidation()
@@ -66,10 +71,16 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload, in
         if (active) setInvitation(data.group)
       })
       .catch((failure: unknown) => {
-        if (active) setProblem(errorMessage(failure, 'Could not open this invitation.'))
+        if (!active) return
+        if (failure instanceof GroupsApiError && failure.status === 404) {
+          onInvitationHandled()
+          onNotify('That group is unavailable.', 'error')
+        } else {
+          setProblem(errorMessage(failure, 'Could not open this invitation.'))
+        }
       })
     return () => { active = false }
-  }, [invitationToken])
+  }, [invitationToken, onInvitationHandled, onNotify])
 
   useEffect(() => {
     if (!creating) return
@@ -195,7 +206,7 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload, in
           <button type="button" disabled={busy} onClick={onInvitationHandled}>Dismiss</button>
         </div>
       </> : !problem && <p className="companion-empty-note" role="status">Loading invitation…</p>}
-      {problem && <button type="button" onClick={onInvitationHandled}>Dismiss invitation</button>}
+      {problem && <button className="companion-primary-button" type="button" onClick={onInvitationHandled}>Dismiss invitation</button>}
     </section>}
     <div className="group-toolbar">
       <div className="group-search">
@@ -250,9 +261,10 @@ const mergeMessages = (current: GroupMessage[], incoming: GroupMessage[]) => {
   return [...map.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))
 }
 
-export function GroupConversation({ group, cache, canModerate, onClose, reload, wordTools, shareableCards, cardPayload, cardInDeck, onReceiveWord, onNotify }: {
+export function GroupConversation({ group, cache, outbox, canModerate, onClose, reload, wordTools, shareableCards, cardPayload, cardInDeck, onReceiveWord, onNotify }: {
   group: GroupSummary
   cache: ChatMemoryCache<GroupMessage>
+  outbox: ChatOutbox
   canModerate: boolean
   onClose: () => void
   reload: () => Promise<void>
@@ -325,6 +337,14 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const directorySignature = useRef<string | null>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const searchTerm = searchQuery.trim()
+  const reconcileOutbox = outbox.reconcile
+  const pendingMessages = outbox.items.filter((item) => item.kind === 'group' && item.chatId === group.id
+    && !messages.some((message) => message.id === item.id))
+  const sentPendingKey = pendingMessages.filter((item) => item.status === 'sent').map((item) => item.id).join(',')
+  const refreshedSends = useRef(new Set<string>())
+  useEffect(() => {
+    reconcileOutbox('group', group.id, messages.map((message) => message.id))
+  }, [group.id, messages, reconcileOutbox])
   const overlay = [
     reporting && 'report', savingCorrection && 'save', correcting && 'correct', editing && 'edit',
     reactionPickerFor && 'reaction', messageMenu && 'message-menu', chatDetailsMenuOpen && 'details-menu', popover && 'details', wordTools.activeWord && 'word',
@@ -472,6 +492,14 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     }
   }, [cache, group.id, reload])
 
+  useEffect(() => {
+    if (!loaded || updating || !sentPendingKey) return
+    const ids = sentPendingKey.split(',').filter((id) => !refreshedSends.current.has(id))
+    if (!ids.length) return
+    ids.forEach((id) => refreshedSends.current.add(id))
+    void load()
+  }, [loaded, updating, sentPendingKey, load])
+
   const beginOlderMessages = () => {
     const operation = { cursor: cache.get(group.id)?.cursor }
     olderInFlight.current = operation
@@ -486,21 +514,41 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     }
   }
 
+  const incomingMessageIds = messages.filter((message) => message.kind !== 'system' && !message.isMine).map((message) => message.id)
+  const incomingIdsKey = incomingMessageIds.join(',')
   const markGroupRead = useCallback(async (id: string) => {
-    await groupsRequest(`/${group.id}/read`, { id })
-  }, [group.id])
+    const ids = incomingIdsKey ? incomingIdsKey.split(',') : []
+    if (!ids.length) await groupsRequest(`/${group.id}/read`, { id, ids: [] })
+    for (let offset = 0; offset < ids.length; offset += 50) {
+      await groupsRequest(`/${group.id}/read`, { id, ids: ids.slice(offset, offset + 50) })
+    }
+  }, [group.id, incomingIdsKey])
   const onGroupRead = useCallback(() => { void reload() }, [reload])
   const onGroupReadError = useCallback((failure: unknown) => {
     setError(errorMessage(failure, 'Could not mark messages as read.'))
   }, [])
+  const deliverGroup = useCallback(async (ids: string[]) => {
+    await groupsRequest(`/${group.id}/delivered`, { id: ids[ids.length - 1], ids })
+  }, [group.id])
+  const onGroupDeliveryError = useCallback((failure: unknown) => {
+    setError(errorMessage(failure, 'Could not acknowledge message delivery.'))
+  }, [])
   useVisibleChatRead({
     chatKey: group.id,
     messageId: messages.findLast((message) => message.kind !== 'system')?.id ?? null,
+    receiptKey: incomingIdsKey,
     enabled: loaded && !updating && !unavailable,
     stream,
     markRead: markGroupRead,
     onRead: onGroupRead,
     onError: onGroupReadError,
+  })
+  useChatDelivery({
+    chatKey: group.id,
+    messageIds: incomingMessageIds,
+    enabled: loaded && !updating && !unavailable,
+    deliver: deliverGroup,
+    onError: onGroupDeliveryError,
   })
 
   useEffect(() => {
@@ -589,15 +637,19 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     event.preventDefault()
     const text = draft.trim()
     if (!text) return
-    void run(async () => {
-      const data = await groupsRequest<{ message: GroupMessage }>(`/${group.id}/messages`, { text, ...(replyTo ? { replyToId: replyTo.id } : {}) })
+    try {
+      outbox.enqueue({ kind: 'group', chatId: group.id, text, ...(replyTo ? {
+        replyTo: { id: replyTo.id, isMine: replyTo.isMine, text: replyTo.text },
+      } : {}) })
       stickToBottom.current = true
-      setMessages((current) => mergeMessages(current, [data.message]))
       setDraft('')
       publishTyping(group.id, false)
       setReplyTo(null)
-      await load()
-    })
+      setError(null)
+      requestAnimationFrame(() => { if (stream.current) stream.current.scrollTop = stream.current.scrollHeight })
+    } catch (failure) {
+      setError(errorMessage(failure, 'Could not send this message.'))
+    }
   }
 
   const toggleReaction = (message: GroupMessage, emoji: string) => {
@@ -1057,7 +1109,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating}>
       <ChatMessageList updating={updating}>
       {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder || updating} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
-      {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0
+      {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0 && pendingMessages.length === 0
         ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Say hello to the group.</p><span>Ask a question, share a tip, or welcome someone new.</span></div>
         : messages.map((message) => message.kind === 'system'
           ? <p className="group-system-message" key={message.id}>{message.text}</p>
@@ -1070,6 +1122,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
               {message.sender && <img className="group-message-avatar" src={avatarDataUri(message.sender.avatarSeed)} alt="" />}
               <strong>{message.isMine ? 'You' : message.sender?.username ?? 'Former member'}</strong>
               <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
+              {message.isMine && (message.kind === 'text' || message.kind === 'word') && <MessageReceipt status={message.receipt ?? 'sent'} />}
               {message.editedAt && <span className="companion-edited">edited</span>}
             </div>
             {message.kind === 'word' && message.card
@@ -1158,16 +1211,16 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
           </div>
         </article>)}
       </ChatMessageList>
+      <PendingChatMessages items={pendingMessages} outbox={outbox} />
       {awayFromBottom && <button className="companion-scroll-bottom" type="button" aria-label="Scroll to latest messages" onClick={() => {
         const element = stream.current
         if (element) element.scrollTo({ top: element.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
       }}><ChevronDown size={18} aria-hidden="true" /></button>}
     </div>
-    {(updating || typing.length > 0) && <div className="companion-chat-statuses">
-      {updating && <p className="companion-chat-status updating" role="status">Updating messages…</p>}
+    {typing.length > 0 && <div className="companion-chat-statuses">
       {typing.length > 0 && <p className="companion-chat-status typing" role="status">{typing.slice(0, 3).map((person) => person.username).join(', ')}{typing.length > 3 ? ` and ${typing.length - 3} more` : ''} {typing.length === 1 ? 'is' : 'are'} typing…</p>}
     </div>}
-    <form className="companion-chat-composer" onSubmit={send} inert={updating}>
+    <form className="companion-chat-composer" onSubmit={send}>
       <label className="companion-visually-hidden" htmlFor="group-message">Message {group.name}</label>
       {replyTo && <div className="companion-reply-bar" style={replyColor(replyTo.id)}>
         <span>Replying to <strong>{replyTo.isMine ? 'yourself' : replyTo.sender?.username ?? 'a member'}</strong><em>{replyTo.text}</em></span>
@@ -1176,8 +1229,8 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       <div className="companion-composer-input">
         <textarea ref={composer} id="group-message" rows={1} maxLength={1000} value={draft} onChange={(event) => { setDraft(event.target.value); publishTyping(group.id, Boolean(event.target.value.trim())) }} onBlur={() => publishTyping(group.id, false)} onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) event.currentTarget.form?.requestSubmit()
-        }} placeholder="Write to the group…" disabled={busy} />
-        <button className="companion-send-button" type="submit" disabled={busy || !draft.trim()}>Send</button>
+        }} placeholder="Write to the group…" />
+        <button className="companion-send-button" type="submit" disabled={!draft.trim()}>Send</button>
       </div>
       {mentionQuery !== undefined && members && <div className="group-mention-suggestions" role="group" aria-label="Mention a group member">
         {members.list.filter((member) => member.username.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 8).map((member) =>

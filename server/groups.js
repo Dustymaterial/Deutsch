@@ -10,6 +10,8 @@ import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
 import { mapInBatches } from './mapInBatches.js'
 import { setTyping, typingFilter, typingRateLimit, typingSchema } from './chatTyping.js'
 import { liveSessionValid } from './chatLive.js'
+import { findSentMessage, insertChatMessage, sendIdentity } from './chatSend.js'
+import { acknowledgeMessages, receiptRateLimit, receiptStatus } from './chatReceipts.js'
 
 export const maxGroupsPerOwner = 3
 const maxMembers = 100
@@ -26,6 +28,7 @@ const groupMessageRetention = 365 * day
 const editWindow = 10 * 60 * 1000
 
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/)
+const receiptSchema = z.object({ id: objectIdSchema, ids: z.array(objectIdSchema).max(50).optional() })
 const createSchema = z.object({
   name: z.string().trim().min(3).max(40),
   description: z.string().trim().max(200).optional(),
@@ -35,6 +38,7 @@ const messageSchema = z.object({
   text: z.string().trim().min(1).max(1000).optional(),
   card: sharedCardSchema.optional(),
   replyToId: objectIdSchema.optional(),
+  clientId: objectIdSchema.optional(),
 }).refine((message) => Boolean(message.text) !== Boolean(message.card))
 const editSchema = z.object({ text: z.string().trim().min(1).max(1000) })
 const stateSchema = z.object({ state: z.enum(['open', 'closed']) })
@@ -74,7 +78,7 @@ const createLimiter = () => rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
   keyGenerator: (req) => req.accountUser._id.toString(),
-  skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/[^/]+\/(?:read|typing)$/.test(req.path)),
+  skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/[^/]+\/(?:read|delivered|typing)$/.test(req.path)),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Too many group actions. Please try again later.' },
@@ -170,6 +174,7 @@ export function createGroupsRouter({
       isMine: message.senderId === me,
       createdAt: message.createdAt.toISOString(),
       canHide: moderating,
+      ...(message.senderId === me ? { receipt: receiptStatus(message) } : {}),
     }
     if (message.unsentAt) return { ...base, kind: 'unsent', text: 'Message unsent', reactions: [], reported: false }
     if (message.hiddenAt) return { ...base, kind: 'hidden', text: 'Hidden by a moderator', reactions: [], reported: false }
@@ -631,13 +636,21 @@ export function createGroupsRouter({
     res.json({ ok: true })
   })
 
-  router.post('/:id/read', rateLimit({
-    windowMs: 60 * 1000, limit: 120,
-    keyGenerator: (req) => req.accountUser._id.toString(),
-    standardHeaders: 'draft-8', legacyHeaders: false,
-    message: { error: 'Too many read updates. Please try again later.' },
-  }), async (req, res) => {
-    const result = memberSchema.safeParse(req.body)
+  router.post('/:id/delivered', receiptRateLimit(), async (req, res) => {
+    const result = receiptSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid message.' })
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    const groupId = group._id.toString()
+    const me = req.accountUser._id.toString()
+    const message = await groupMessages.findOne({ _id: new ObjectId(result.data.id), groupId })
+    if (!message || message.senderId === me) return notFound(res)
+    await acknowledgeMessages(groupMessages, { groupId }, me, message, result.data.ids ?? [result.data.id], false)
+    res.json({ ok: true })
+  })
+
+  router.post('/:id/read', receiptRateLimit(), async (req, res) => {
+    const result = receiptSchema.safeParse(req.body)
     if (!result.success) return res.status(400).json({ error: 'Choose a valid message.' })
     const group = await readableGroup(req, res)
     if (!group) return undefined
@@ -649,6 +662,7 @@ export function createGroupsRouter({
       { $max: { readThrough: `${message.createdAt.toISOString()}/${message._id.toString()}` } },
     )
     if (!updated.matchedCount) return notFound(res)
+    await acknowledgeMessages(groupMessages, { groupId: group._id.toString() }, me, message, result.data.ids ?? [result.data.id], true)
     res.json({ ok: true })
   })
 
@@ -700,6 +714,12 @@ export function createGroupsRouter({
     if (!await requireGroupAccess(req, res)) return undefined
     const me = req.accountUser._id.toString()
     const groupId = group._id.toString()
+    const identity = sendIdentity(result.data, groupId, me)
+    const existing = await findSentMessage(groupMessages, identity)
+    if (existing === false) return res.status(409).json({ error: 'This message identifier is already in use.' })
+    if (existing) return res.status(200).json({
+      message: await serializeMessage(existing, me, profile(req.accountUser), canModerate(group, req)),
+    })
     const now = new Date()
     const last = await groupMessages.findOne({ groupId, senderId: me }, { sort: { createdAt: -1 } })
     if (last && !last.unsentAt && last.text === text && now - last.createdAt < duplicateWindow) {
@@ -736,10 +756,11 @@ export function createGroupsRouter({
       mentionUserIds: result.data.text ? await mentionedMembers(groupId, text, me) : [],
       createdAt: now,
     }
-    const { insertedId } = await groupMessages.insertOne(message)
-    await groups.updateOne({ _id: group._id }, { $set: { lastActivityAt: now } })
+    const inserted = await insertChatMessage(groupMessages, message, identity)
+    if (!inserted) return res.status(409).json({ error: 'This message identifier is already in use.' })
+    await groups.updateOne({ _id: group._id }, { $max: { lastActivityAt: inserted.createdAt } })
     res.status(201).json({
-      message: await serializeMessage({ ...message, _id: insertedId }, me, profile(req.accountUser), canModerate(group, req)),
+      message: await serializeMessage(inserted, me, profile(req.accountUser), canModerate(group, req)),
     })
   })
 

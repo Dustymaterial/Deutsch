@@ -31,7 +31,9 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
       if (operator === '$lt') return actual !== undefined && actual < value
       if (operator === '$gt') return actual !== undefined && actual > value
       if (operator === '$ne') return Array.isArray(actual) ? !actual.includes(value) : actual !== value
-      if (operator === '$in') return Array.isArray(actual) ? actual.some((item) => value.includes(item)) : value.includes(actual)
+      if (operator === '$in') return Array.isArray(actual) ? actual.some((item) => value.includes(item))
+        : actual instanceof ObjectId ? value.some((item) => item instanceof ObjectId && item.toString() === actual.toString())
+        : value.includes(actual)
       throw new Error(`Unknown operator ${operator}`)
     })
   }
@@ -103,7 +105,8 @@ const collection = (name) => ({
     return record ? { ...record, otp: record.otp ? structuredClone(record.otp) : undefined } : null
   },
   async insertOne(value) {
-    if (records[name].some((item) => (value.emailKey && item.emailKey === value.emailKey)
+    if (records[name].some((item) => (value._id && item._id.toString() === value._id.toString())
+      || (value.emailKey && item.emailKey === value.emailKey)
       || (value.nameKey && item.nameKey === value.nameKey)
       || (name === 'groups' && item.ownerId === value.ownerId && item.ownerSlot === value.ownerSlot)
       || (name === 'groupMembers' && item.groupId === value.groupId && item.userId === value.userId)
@@ -113,7 +116,7 @@ const collection = (name) => ({
       || (value.reporterId && item.reporterId === value.reporterId && item.messageId === value.messageId))) {
       throw Object.assign(new Error('duplicate'), { code: 11000 })
     }
-    const _id = new ObjectId()
+    const _id = value._id ?? new ObjectId()
     records[name].push({ ...value, _id })
     return { insertedId: _id }
   },
@@ -328,9 +331,18 @@ try {
   assert.equal((await request(typingPath, { typing: false }, learner.cookie)).status, 200)
   assert.equal((await request(privateMessagesPath, null, other.cookie)).body.typing, false)
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '   ' }, learner.cookie)).status, 400)
-  const sentMessage = await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: '  Viel Erfolg beim Lernen!  ' }, learner.cookie)
+  const privateClientId = new ObjectId().toString()
+  const sentMessage = await request(privateMessagesPath, { text: '  Viel Erfolg beim Lernen!  ', clientId: privateClientId }, learner.cookie)
   assert.equal(sentMessage.status, 201)
+  assert.equal(sentMessage.body.message.id, privateClientId)
   assert.equal(sentMessage.body.message.text, 'Viel Erfolg beim Lernen!')
+  assert.equal(sentMessage.body.message.receipt, 'sent')
+  const retriedPrivate = await request(privateMessagesPath, { text: 'Viel Erfolg beim Lernen!', clientId: privateClientId }, learner.cookie)
+  assert.equal(retriedPrivate.status, 200)
+  assert.equal(retriedPrivate.body.message.id, privateClientId)
+  assert.equal((await request(privateMessagesPath, { text: 'Different content', clientId: privateClientId }, learner.cookie)).status, 409)
+  assert.equal((await request(privateMessagesPath, { text: 'Viel Erfolg beim Lernen!', clientId: privateClientId }, other.cookie)).status, 409)
+  assert.equal(records.companionMessages.filter((message) => message._id.toString() === privateClientId).length, 1)
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'x'.repeat(2001) }, learner.cookie)).status, 400)
   records.users.find((item) => item.email === email).companionMessageHistory = Array.from({ length: 60 }, () => new Date())
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'Rate limit check.' }, learner.cookie)).status, 429)
@@ -338,6 +350,16 @@ try {
   const receivedMessages = await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, other.cookie)
   assert.equal(receivedMessages.body.messages.length, 1)
   assert.equal(receivedMessages.body.messages[0].isMine, false)
+  assert.equal(receivedMessages.body.messages[0].receipt, undefined)
+  const privateDelivered = `/api/companions/chats/${openedChat.body.id}/delivered`
+  assert.equal((await request(privateDelivered, { id: privateClientId, ids: Array(51).fill(privateClientId) }, other.cookie)).status, 400)
+  assert.equal((await request(privateDelivered, { id: privateClientId }, learner.cookie)).status, 404)
+  assert.equal((await request(privateDelivered, { id: privateClientId }, other.cookie)).status, 200)
+  assert.equal((await request(`${privateMessagesPath}?read=0`, null, learner.cookie)).body.messages[0].receipt, 'delivered')
+  assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/read`, { id: privateClientId }, other.cookie)).status, 200)
+  assert.equal((await request(`${privateMessagesPath}?read=0`, null, learner.cookie)).body.messages[0].receipt, 'read')
+  assert.equal((await request(privateDelivered, { id: privateClientId }, other.cookie)).status, 200)
+  assert.equal((await request(`${privateMessagesPath}?read=0`, null, learner.cookie)).body.messages[0].receipt, 'read')
   const unreadChat = (await request('/api/companions/chats', null, learner.cookie)).body.chats[0]
   assert.equal(unreadChat.lastMessage.text, 'Viel Erfolg beim Lernen!')
   assert.equal(unreadChat.unread, false)
@@ -673,8 +695,17 @@ try {
   assert.equal((await request('/api/groups', null, third.cookie)).body.groups.find((item) => item.id === groupId).unreadCount, 0)
   records.groupMessages = records.groupMessages.filter((message) => message !== beforeJoin)
   assert.equal((await groupPost(groupId, learnerUser, 'Hallo zusammen!')).status, 201)
-  const first = await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?')
+  const groupClientId = new ObjectId().toString()
+  const first = await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?', { clientId: groupClientId })
   assert.equal(first.status, 201)
+  assert.equal(first.body.message.id, groupClientId)
+  assert.equal(first.body.message.receipt, 'sent')
+  const retriedGroup = await request(`/api/groups/${groupId}/messages`, { text: 'Wie sagt man "thanks"?', clientId: groupClientId }, other.cookie)
+  assert.equal(retriedGroup.status, 200)
+  assert.equal(retriedGroup.body.message.id, groupClientId)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, { text: 'Different content', clientId: groupClientId }, other.cookie)).status, 409)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, { text: 'Wie sagt man "thanks"?', clientId: groupClientId }, learner.cookie)).status, 409)
+  assert.equal(records.groupMessages.filter((message) => message._id.toString() === groupClientId).length, 1)
   assert.equal(first.body.message.sender.username, 'Companion')
   assert.equal((await request(`/api/groups/${groupId}/search?q=thanks`, null, outsider.cookie)).status, 404)
   assert.equal((await request(`/api/groups/${groupId}/search?q=x`, null, learner.cookie)).status, 400)
@@ -682,6 +713,12 @@ try {
   assert.equal((await request(`/api/groups/${groupId}/messages`, { text: 'Too fast' }, other.cookie)).status, 429)
   assert.equal((await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?')).status, 429)
   assert.equal((await groupPost(groupId, otherUser, 'a http://a.example http://b.example http://c.example')).status, 400)
+  const groupDelivered = `/api/groups/${groupId}/delivered`
+  assert.equal((await request(groupDelivered, { id: groupClientId }, outsider.cookie)).status, 404)
+  assert.equal((await request(groupDelivered, { id: groupClientId }, other.cookie)).status, 404)
+  assert.equal((await request(groupDelivered, { id: groupClientId }, third.cookie)).status, 200)
+  const ownFirst = async () => (await request(`/api/groups/${groupId}/messages?read=0`, null, other.cookie)).body.messages.find((message) => message.id === groupClientId)
+  assert.equal((await ownFirst()).receipt, 'delivered')
   const answer = await groupPost(groupId, learnerUser, 'Danke!', { replyToId: first.body.message.id })
   assert.equal(answer.status, 201)
   assert.equal(answer.body.message.replyTo.text, 'Wie sagt man "thanks"?')
@@ -716,7 +753,8 @@ try {
   assert.equal((await groupEntry(third.cookie)).unreadCount, 3)
   assert.equal((await request(groupReadPath, { id: 'invalid' }, third.cookie)).status, 400)
   assert.equal((await request(groupReadPath, { id: answer.body.message.id }, outsider.cookie)).status, 404)
-  assert.equal((await request(groupReadPath, { id: answer.body.message.id }, third.cookie)).status, 200)
+  assert.equal((await request(groupReadPath, { id: answer.body.message.id, ids: [first.body.message.id, answer.body.message.id] }, third.cookie)).status, 200)
+  assert.equal((await ownFirst()).receipt, 'read')
   assert.equal((await groupEntry(third.cookie)).unreadCount, 0)
   const thirdMembership = records.groupMembers.find((item) => item.groupId === groupId && item.userId === third.id)
   const readThrough = thirdMembership.readThrough

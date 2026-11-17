@@ -52,6 +52,7 @@ test('replica set delivers scoped hints across instances and rechecks access', {
       const server = await new Promise((resolve) => {
         const instance = app.listen(0, '127.0.0.1', () => resolve(instance))
       })
+
       servers.push(server)
       const response = await fetch(`http://127.0.0.1:${server.address().port}/groups/${groupId}/live`)
       assert.equal(response.status, 200)
@@ -94,5 +95,68 @@ test('replica set delivers scoped hints across instances and rechecks access', {
     await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))))
     await dbs[0].dropDatabase()
     await Promise.all(clients.map((client) => client.close()))
+  }
+})
+
+test('message sound stream delivers incoming private and group messages and rechecks the session', { skip: !uri, timeout: 20000 }, async () => {
+  const client = new MongoClient(uri)
+  await client.connect()
+  const db = client.db(`deutsch_sound_live_test_${process.pid}`)
+  const [me, sender] = [new ObjectId(), new ObjectId()]
+  const groupId = new ObjectId()
+  const conversationId = new ObjectId()
+  const participants = [me.toString(), sender.toString()].sort()
+  const connectionId = new ObjectId().toString()
+  let session = { userId: me.toString(), sessionVersion: 0 }
+  let server
+  let reader
+  try {
+    await db.collection('users').insertOne({ _id: me, emailVerifiedAt: new Date(), groupRulesAcceptedAt: new Date() })
+    await db.collection('groups').insertOne({ _id: groupId })
+    await db.collection('groupMembers').insertOne({
+      groupId: groupId.toString(), userId: me.toString(), state: 'active', joinedAt: new Date(Date.now() - 1000),
+    })
+    await db.collection('relationships').insertOne({ pairKey: participants.join(':'), participants, state: 'connected', blockedBy: [], connectionId })
+    await db.collection('companionConversations').insertOne({ _id: conversationId, pairKey: participants.join(':'), participants, connectionId })
+    const app = express()
+    const requireUser = (req, _res, next) => {
+      req.accountUser = { _id: me, emailVerifiedAt: new Date() }
+      req.sessionID = 'session'
+      req.sessionStore = { get: (_id, cb) => cb(null, session) }
+      next()
+    }
+    app.use('/companions', createCompanionRouter({
+      users: db.collection('users'), relationships: db.collection('relationships'), sharedWords: db.collection('sharedWords'),
+      conversations: db.collection('companionConversations'), companionMessages: db.collection('companionMessages'),
+      companionReports: db.collection('companionReports'), chatTyping: db.collection('chatTyping'),
+      groups: db.collection('groups'), groupMembers: db.collection('groupMembers'),
+      requireUser, chatLive: createChatLiveHub(db),
+    }))
+    server = await new Promise((resolve) => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance))
+    })
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/companions/message-sounds/live`)
+    assert.equal(response.status, 200)
+    reader = response.body.getReader()
+    assert.match(new TextDecoder().decode((await reader.read()).value), /retry:/)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    const pending = reader.read()
+    let received = false
+    void pending.then(() => { received = true })
+    await db.collection('groupMessages').insertOne({ groupId: groupId.toString(), senderId: me.toString(), createdAt: new Date() })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    assert.equal(received, false)
+    await db.collection('groupMessages').insertOne({ groupId: groupId.toString(), senderId: sender.toString(), createdAt: new Date() })
+    assert.match(new TextDecoder().decode((await pending).value), /event: message/)
+    await db.collection('companionMessages').insertOne({ conversationId: conversationId.toString(), senderId: sender.toString(), createdAt: new Date() })
+    assert.match(new TextDecoder().decode((await reader.read()).value), /event: message/)
+    session = null
+    await db.collection('companionMessages').insertOne({ conversationId: conversationId.toString(), senderId: sender.toString(), createdAt: new Date() })
+    assert.equal((await reader.read()).done, true)
+  } finally {
+    if (reader) await reader.cancel().catch(() => {})
+    if (server) await new Promise((resolve) => server.close(resolve))
+    await db.dropDatabase()
+    await client.close()
   }
 })

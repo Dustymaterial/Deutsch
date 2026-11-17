@@ -510,7 +510,7 @@ app.patch('/api/auth/profile', requireUser, async (req, res) => {
 if (relationships) {
   app.use('/api/companions', createCompanionRouter({
     users, relationships, sharedWords, conversations, companionMessages, companionReports,
-    requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng, chatTyping, chatLive, chatReplay,
+    requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng, chatTyping, chatLive, chatReplay, groups, groupMembers,
   }))
   const isModerator = createModeratorCheck((configuration.MODERATOR_USER_IDS ?? '').split(','))
   app.use('/api/groups', createGroupsRouter({

@@ -1,10 +1,11 @@
 import { useEffect, useRef, type RefObject } from 'react'
 
 export function useVisibleChatRead({
-  chatKey, messageId, enabled, stream, markRead, onRead, onError,
+  chatKey, messageId, receiptKey = '', enabled, stream, markRead, onRead, onError,
 }: {
   chatKey: string | null
   messageId: string | null
+  receiptKey?: string
   enabled: boolean
   stream: RefObject<HTMLDivElement | null>
   markRead: (messageId: string) => Promise<void>
@@ -18,7 +19,7 @@ export function useVisibleChatRead({
     if (!enabled || !chatKey || !messageId || !element) return
     let active = true
     let inFlight = false
-    const key = `${chatKey}:${messageId}`
+    const key = `${chatKey}:${messageId}:${receiptKey}`
     const check = () => {
       if (document.visibilityState !== 'visible' || acknowledged.current === key || inFlight
         || element.scrollHeight - element.scrollTop - element.clientHeight >= 160) return
@@ -43,5 +44,5 @@ export function useVisibleChatRead({
       element.removeEventListener('scroll', check)
       document.removeEventListener('visibilitychange', check)
     }
-  }, [chatKey, messageId, enabled, stream, markRead, onRead, onError])
+  }, [chatKey, messageId, receiptKey, enabled, stream, markRead, onRead, onError])
 }

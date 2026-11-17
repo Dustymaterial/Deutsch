@@ -61,6 +61,8 @@ import {
   getStudySetTags,
 } from './studySets'
 import { useUnreadMessages } from './useUnreadMessages'
+import { useMessageSound } from './useMessageSound'
+import { useChatOutbox } from './useChatOutbox'
 import { chatCacheClearedKey, clearChatCache } from './chatPersistentCache'
 import { clearCommunityDirectoryCache, setCommunityCacheOwner } from './communityDirectoryCache'
 import { isChatOverlayEntry, withoutChatOverlay } from './conversationHistory'
@@ -294,10 +296,12 @@ function AboutPanel({ onClose }: { onClose: (restoreFocus?: boolean) => void }) 
   )
 }
 
-function AppSettingsPanel({ settings, onChange, onClose }: {
+function AppSettingsPanel({ settings, onChange, onClose, messageSound, signedIn }: {
   settings: PauseSettings
   onChange: (settings: PauseSettings) => void
   onClose: (restoreFocus?: boolean) => void
+  messageSound: ReturnType<typeof useMessageSound>
+  signedIn: boolean
 }) {
   const panelRef = useRef<HTMLElement>(null)
   useEffect(() => { panelRef.current?.focus() }, [])
@@ -331,6 +335,17 @@ function AppSettingsPanel({ settings, onChange, onClose }: {
           onChange={(value) => onChange({ ...settings, seconds: value === '30' ? 30 : value === '60' ? 60 : 120 })} />
       </div>
       <p>Changing these settings resets the current word count. Settings stay on this device.</p>
+      <h3>Messages</h3>
+      <div className="pause-setting-toggle">
+        <span>Sound for new messages</span>
+        <button className="app-toggle" type="button" role="switch" aria-label="Sound for new messages" aria-checked={messageSound.enabled}
+          onClick={() => messageSound.setEnabled(!messageSound.enabled)}>
+          <span aria-hidden="true" />
+        </button>
+      </div>
+      <p>Play a quiet hum for new private and group messages while the app is open. This setting stays on this device.</p>
+      {messageSound.error && <p role="alert">{messageSound.error}</p>}
+      {signedIn && messageSound.enabled && messageSound.connection === 'offline' && <p role="status">Live message sounds are unavailable. Check your connection.</p>}
     </section>
   )
 }
@@ -1200,6 +1215,9 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const groupInvitationRef = useRef(groupInvitation)
   const companionWorkspaceEntry = useRef<string | null>(null)
   const unreadMessages = useUnreadMessages(Boolean(accountUser?.emailVerified), companionWorkspaceOpen)
+  const messageSound = useMessageSound(accountUser?.emailVerified ? accountUser.id : null)
+  const chatOutbox = useChatOutbox()
+  const setChatOutboxOwner = chatOutbox.setOwner
   const accountEmail = accountUser?.email
   const [accountSyncReady, setAccountSyncReady] = useState(false)
   const [accountSyncStatus, setAccountSyncStatus] = useState<string | null>(null)
@@ -1423,6 +1441,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     }
   }, [sessionSettingsOpen, studyPlanOpen])
   const handleAccountUserChange = useCallback((user: AccountUser | null) => {
+    setChatOutboxOwner(user?.emailVerified ? user.id : null)
     setCommunityCacheOwner(user?.id ?? null)
     const nextIdentity = user?.email ?? null
     if (accountIdentity.current !== nextIdentity) {
@@ -1444,7 +1463,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       showToast(failure instanceof Error ? `Could not update saved chat storage: ${failure.message}` : 'Could not update saved chat storage on this device.', 'error')
     })
     if (groupInvitationRef.current && user?.emailVerified && !companionWorkspaceEntry.current) openCompanionWorkspace()
-  }, [openCompanionWorkspace, showToast])
+  }, [openCompanionWorkspace, showToast, setChatOutboxOwner])
   useEffect(() => {
     if (!accountUser?.emailVerified) return
     let active = true
@@ -2500,6 +2519,15 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     }
     setCompanionWorkspaceOpen(false)
   }
+  const handleInvitationHandled = useCallback(() => {
+    groupInvitationRef.current = null
+    setGroupInvitation(null)
+    const url = new URL(window.location.href)
+    const fragment = new URLSearchParams(url.hash.slice(1))
+    fragment.delete('groupInvite')
+    url.hash = fragment.toString()
+    window.history.replaceState(window.history.state, '', url)
+  }, [])
   const companionWorkspace = (
     <CompanionLoadBoundary onBack={() => closeCompanionWorkspace(
       Boolean(window.history.state?.__deutschCompanionChat || window.history.state?.__deutschCompanionGroup),
@@ -2510,21 +2538,14 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       key={accountUser?.id ?? 'signed-out'}
       cards={cards}
       accountId={accountUser?.id ?? null}
+      outbox={chatOutbox}
       onReceiveWord={receiveSharedWord}
       onAddStarterWord={addStarterWord}
       onAddDictionaryWord={addDictionaryWord}
       onNotify={showToast}
       onBack={closeCompanionWorkspace}
       invitationToken={groupInvitation}
-      onInvitationHandled={() => {
-        groupInvitationRef.current = null
-        setGroupInvitation(null)
-        const url = new URL(window.location.href)
-        const fragment = new URLSearchParams(url.hash.slice(1))
-        fragment.delete('groupInvite')
-        url.hash = fragment.toString()
-        window.history.replaceState(window.history.state, '', url)
-      }}
+      onInvitationHandled={handleInvitationHandled}
     />
     </Suspense>
     </CompanionLoadBoundary>
@@ -3136,6 +3157,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       {activityOpen && <ActivityDialog days={activityDays} today={new Date(now)} onClose={closeActivity} />}
       {appSettingsOpen && <AppSettingsPanel settings={pauseState.settings}
         onChange={(settings) => changePause((state) => updatePauseSettings(state, settings))}
+        messageSound={messageSound} signedIn={Boolean(accountUser?.emailVerified)}
         onClose={closeAppSettings} />}
       <div className="toast-region">
         {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />)}
