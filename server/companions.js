@@ -9,6 +9,8 @@ import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
 import { mapInBatches } from './mapInBatches.js'
 import { setTyping, typingFilter, typingRateLimit, typingSchema } from './chatTyping.js'
 import { liveSessionValid } from './chatLive.js'
+import { findSentMessage, insertChatMessage, sendIdentity } from './chatSend.js'
+import { acknowledgeMessages, receiptRateLimit, receiptStatus } from './chatReceipts.js'
 
 const usernameSchema = z.object({ username: z.string().trim().min(3).max(20).regex(/^[A-Za-z0-9_-]+$/) })
 const targetSchema = z.object({ id: z.string().regex(/^[a-f\d]{24}$/) })
@@ -19,10 +21,12 @@ const reportSchema = z.object({
   details: z.string().trim().max(500).optional(),
 })
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/)
+const receiptSchema = targetSchema.extend({ ids: z.array(objectIdSchema).max(50).optional() })
 const chatMessageSchema = z.object({
   text: z.string().trim().min(1).max(2000).optional(),
   card: sharedCardSchema.optional(),
   replyToId: objectIdSchema.optional(),
+  clientId: objectIdSchema.optional(),
 }).refine((message) => Boolean(message.text) !== Boolean(message.card))
 const messageEditSchema = z.object({ text: z.string().trim().min(1).max(2000) })
 const shareSchema = z.object({
@@ -43,14 +47,14 @@ const shareLifetime = 30 * 24 * hour
 
 export function createCompanionRouter({
   users, relationships, sharedWords, conversations, companionMessages, companionReports,
-  requireUser, mailer, renderAvatar, chatTyping, chatLive, chatReplay,
+  requireUser, mailer, renderAvatar, chatTyping, chatLive, chatReplay, groups, groupMembers,
 }) {
   const router = Router()
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 300,
     keyGenerator: (req) => req.accountUser._id.toString(),
-    skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/chats\/[^/]+\/(?:read|typing)$/.test(req.path)),
+    skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/chats\/[^/]+\/(?:read|delivered|typing)$/.test(req.path)),
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { error: 'Too many companion actions. Please try again later.' },
@@ -75,6 +79,7 @@ export function createCompanionRouter({
       senderId: message.senderId,
       isMine: message.senderId === me,
       createdAt: message.createdAt.toISOString(),
+      ...(message.senderId === me ? { receipt: receiptStatus(message) } : {}),
     }
     if (message.unsentAt) return { ...base, kind: 'unsent', text: unsentText, reactions: [], reported: false }
     return {
@@ -219,6 +224,29 @@ export function createCompanionRouter({
     if (!await activeConversation(me, req.params.id)) return unavailable(res)
     return chatLive.subscribe(req, res, 'private', req.params.id, async () =>
       await liveSessionValid(req, users) && Boolean(await activeConversation(me, req.params.id)))
+  })
+
+  router.get('/message-sounds/live', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    return chatLive.subscribeNotifications(req, res, me, async (event) => {
+      if (!await liveSessionValid(req, users)) return { session: false, allowed: false }
+      if (event.kind === 'private') {
+        const active = await activeConversation(me, event.chatId)
+        const hiddenAt = active?.conversation.hiddenAt?.[me]
+        return { session: true, allowed: Boolean(active && (!hiddenAt || hiddenAt < event.createdAt)) }
+      }
+      const account = await users.findOne({ _id: req.accountUser._id }, {
+        projection: { groupRulesAcceptedAt: 1, groupsSuspendedUntil: 1 },
+      })
+      if (!account?.groupRulesAcceptedAt || (account.groupsSuspendedUntil && account.groupsSuspendedUntil > new Date())) {
+        return { session: true, allowed: false }
+      }
+      const [group, member] = await Promise.all([
+        groups.findOne({ _id: new ObjectId(event.chatId) }),
+        groupMembers.findOne({ groupId: event.chatId, userId: me, state: 'active', joinedAt: { $lte: event.createdAt } }),
+      ])
+      return { session: true, allowed: Boolean(group && member) }
+    })
   })
 
   const unreadLimit = 99
@@ -398,13 +426,22 @@ export function createCompanionRouter({
     res.json({ ok: true })
   })
 
-  router.post('/chats/:id/read', rateLimit({
-    windowMs: 60 * 1000, limit: 120,
-    keyGenerator: (req) => req.accountUser._id.toString(),
-    standardHeaders: 'draft-8', legacyHeaders: false,
-    message: { error: 'Too many read updates. Please try again later.' },
-  }), async (req, res) => {
-    const result = targetSchema.safeParse(req.body)
+  router.post('/chats/:id/delivered', receiptRateLimit(), async (req, res) => {
+    const result = receiptSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid message.' })
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    const conversationId = active.conversation._id.toString()
+    const message = await companionMessages.findOne({ _id: new ObjectId(result.data.id), conversationId })
+    const hiddenAt = active.conversation.hiddenAt?.[me]
+    if (!message || message.senderId === me || (hiddenAt && message.createdAt <= hiddenAt)) return unavailable(res)
+    await acknowledgeMessages(companionMessages, { conversationId }, me, message, result.data.ids ?? [result.data.id], false, hiddenAt)
+    res.json({ ok: true })
+  })
+
+  router.post('/chats/:id/read', receiptRateLimit(), async (req, res) => {
+    const result = receiptSchema.safeParse(req.body)
     if (!result.success) return res.status(400).json({ error: 'Choose a valid message.' })
     const me = req.accountUser._id.toString()
     const active = await activeConversation(me, req.params.id)
@@ -418,6 +455,7 @@ export function createCompanionRouter({
         [`readThrough.${me}`]: `${message.createdAt.toISOString()}/${message._id.toString()}`,
       },
     })
+    await acknowledgeMessages(companionMessages, { conversationId: active.conversation._id.toString() }, me, message, result.data.ids ?? [result.data.id], true, hiddenAt)
     res.json({ ok: true })
   })
 
@@ -448,6 +486,14 @@ export function createCompanionRouter({
     const active = await activeConversation(me, req.params.id)
     if (!active) return unavailable(res)
     const conversationId = active.conversation._id.toString()
+    const identity = sendIdentity(result.data, conversationId, me)
+    const existing = await findSentMessage(companionMessages, identity)
+    if (existing === false) return res.status(409).json({ error: 'This message identifier is already in use.' })
+    if (existing) {
+      const hiddenAt = active.conversation.hiddenAt?.[me]
+      if (hiddenAt && existing.createdAt <= hiddenAt) return unavailable(res)
+      return res.status(200).json({ message: serializeMessage(existing, me) })
+    }
     let replyTo
     if (result.data.replyToId) {
       const target = await companionMessages.findOne({ _id: new ObjectId(result.data.replyToId), conversationId })
@@ -469,15 +515,18 @@ export function createCompanionRouter({
       ...(replyTo ? { replyTo } : {}),
       createdAt: now,
     }
-    const { insertedId } = await companionMessages.insertOne(message)
+    const inserted = await insertChatMessage(companionMessages, message, identity)
+    if (!inserted) return res.status(409).json({ error: 'This message identifier is already in use.' })
+    const insertedId = inserted._id
     await conversations.updateOne({ _id: active.conversation._id }, {
-      $set: {
-        updatedAt: now,
-        lastMessageAt: now,
+      $max: {
+        updatedAt: inserted.createdAt,
+        lastMessageAt: inserted.createdAt,
+        [`readAt.${me}`]: inserted.createdAt,
+        [`readThrough.${me}`]: `${inserted.createdAt.toISOString()}/${insertedId.toString()}`,
       },
-      $max: { [`readAt.${me}`]: now, [`readThrough.${me}`]: `${now.toISOString()}/${insertedId.toString()}` },
     })
-    res.status(201).json({ message: serializeMessage({ ...message, _id: insertedId }, me) })
+    res.status(201).json({ message: serializeMessage(inserted, me) })
   })
 
   router.post('/chats/:id/delete', async (req, res) => {

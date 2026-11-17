@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SharedWordPreview } from './CompanionPanel'
+import type { MessageReceiptStatus } from './MessageReceipt'
 import { clearCommunityDirectoryCache, getCommunityDirectory, loadCommunityDirectory } from './communityDirectoryCache'
 
 export type Profile = { id: string; username: string; avatarSeed: string }
@@ -48,6 +49,7 @@ export type GroupMessage = {
   corrections?: GroupReview[]
   replyTo?: { id: string; isMine: boolean; text: string }
   reported: boolean
+  receipt?: MessageReceiptStatus
 }
 export type GroupReview = {
   authorId: string

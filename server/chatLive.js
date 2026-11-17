@@ -1,3 +1,5 @@
+import { ObjectId } from 'mongodb'
+
 const collections = ['companionMessages', 'groupMessages', 'chatTyping', 'groups', 'groupMembers']
 
 function destination(change) {
@@ -23,12 +25,46 @@ function destination(change) {
 
 export function createChatLiveHub(db) {
   const subscribers = new Map()
+  const notificationSubscribers = new Map()
   let available = false
 
   function closeAll() {
     available = false
-    for (const listeners of subscribers.values()) {
-      for (const listener of listeners) listener.close()
+    for (const registry of [subscribers, notificationSubscribers]) {
+      for (const listeners of registry.values()) {
+        for (const listener of listeners) listener.close()
+      }
+    }
+  }
+
+  async function notifyMessage(change) {
+    if (!notificationSubscribers.size || change.operationType !== 'insert') return
+    const message = change.fullDocument
+    if (!message?.senderId || !message.createdAt) return
+    let recipients = []
+    if (change.ns?.coll === 'companionMessages' && ObjectId.isValid(message.conversationId)) {
+      const conversation = await db.collection('companionConversations').findOne({ _id: new ObjectId(message.conversationId) })
+      if (!conversation) return
+      const pair = await db.collection('relationships').findOne({
+        pairKey: conversation.pairKey, connectionId: conversation.connectionId, state: 'connected', blockedBy: [],
+      })
+      if (!pair) return
+      recipients = conversation.participants.filter((id) => id !== message.senderId
+        && (!conversation.hiddenAt?.[id] || conversation.hiddenAt[id] < message.createdAt))
+    } else if (change.ns?.coll === 'groupMessages' && ObjectId.isValid(message.groupId)) {
+      if (!await db.collection('groups').findOne({ _id: new ObjectId(message.groupId) })) return
+      const members = await db.collection('groupMembers').find({
+        groupId: message.groupId, state: 'active', joinedAt: { $lte: message.createdAt }, userId: { $ne: message.senderId },
+      }).toArray()
+      recipients = members.map((member) => member.userId)
+    }
+    for (const id of recipients) {
+      const listeners = notificationSubscribers.get(id)
+      if (listeners) for (const listener of listeners) listener.notify({
+        kind: change.ns.coll === 'groupMessages' ? 'group' : 'private',
+        chatId: change.ns.coll === 'groupMessages' ? message.groupId : message.conversationId,
+        createdAt: message.createdAt,
+      })
     }
   }
 
@@ -47,6 +83,7 @@ export function createChatLiveHub(db) {
       }
       stream.on('change', (change) => {
         if (failed) return
+        void notifyMessage(change).catch((error) => console.error('Could not deliver a message sound hint:', error.message))
         const target = destination(change)
         if (!target) return
         const listeners = subscribers.get(`${target[0]}:${target[1]}`)
@@ -63,6 +100,63 @@ export function createChatLiveHub(db) {
   start()
 
   return {
+    subscribeNotifications(req, res, userId, authorize) {
+      if (!available) return res.status(503).json({ error: 'Live message sounds are unavailable.' })
+      const listeners = notificationSubscribers.get(userId) ?? new Set()
+      notificationSubscribers.set(userId, listeners)
+      let closed = false
+      let pending = new Map()
+      let checking = false
+      let blocked = false
+      const close = () => {
+        if (closed) return
+        closed = true
+        clearInterval(heartbeat)
+        listeners.delete(listener)
+        if (!listeners.size) notificationSubscribers.delete(userId)
+        res.end()
+      }
+      const flush = async () => {
+        if (closed || checking || blocked || !pending.size) return
+        checking = true
+        const events = pending
+        pending = new Map()
+        try {
+          for (const event of events.values()) {
+            const access = await authorize(event)
+            if (!access.session) { close(); return }
+            if (!closed && access.allowed) {
+              blocked = !res.write('event: message\ndata: {}\n\n')
+              break
+            }
+          }
+        } catch (error) {
+          console.error('Message sound authorization failed:', error.message)
+          close()
+        } finally {
+          checking = false
+          if (pending.size && !blocked) void flush()
+        }
+      }
+      const listener = { close, notify: (event) => {
+        if (pending.size >= 100 && !pending.has(`${event.kind}:${event.chatId}`)) {
+          console.warn('Message sound hints exceeded the pending limit.')
+          return
+        }
+        pending.set(`${event.kind}:${event.chatId}`, event)
+        void flush()
+      } }
+      const heartbeat = setInterval(() => {
+        if (!blocked && !closed) blocked = !res.write(': heartbeat\n\n')
+      }, 25000)
+      res.on('drain', () => { blocked = false; void flush() })
+      req.on('close', close)
+      listeners.add(listener)
+      res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store, no-transform', 'X-Accel-Buffering': 'no' })
+      res.flushHeaders()
+      blocked = !res.write('retry: 15000\n\n')
+      return undefined
+    },
     subscribe(req, res, kind, id, authorize) {
       if (!available) return res.status(503).json({ error: 'Live chat is unavailable; periodic refresh remains active.' })
       const key = `${kind}:${id}`

@@ -32,6 +32,10 @@ import { leaveChatHistory } from './chatHistoryNavigation'
 import { clearCommunityDirectoryCache, getCommunityDirectory, loadCommunityDirectory } from './communityDirectoryCache'
 import { CompanionApiError, fetchCompanionDirectory, request } from './companionsApi'
 import { loadStarterPack, type StarterEntry, type StarterPack } from './starterDeck'
+import { PendingChatMessages } from './PendingChatMessages'
+import type { ChatOutbox } from './useChatOutbox'
+import { MessageReceipt, type MessageReceiptStatus } from './MessageReceipt'
+import { useChatDelivery } from './useChatDelivery'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -57,6 +61,7 @@ type ChatMessage = {
   reactions: Reaction[]
   createdAt: string
   reported: boolean
+  receipt?: MessageReceiptStatus
 }
 type ChatSummary = {
   id: string
@@ -125,6 +130,7 @@ function CompanionLoader({ label, compact = false }: { label: string; compact?: 
 export function CompanionPanel({
   cards,
   accountId,
+  outbox,
   onReceiveWord,
   onAddStarterWord,
   onAddDictionaryWord,
@@ -135,10 +141,11 @@ export function CompanionPanel({
 }: {
   cards: Card[]
   accountId: string | null
+  outbox: ChatOutbox
   onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
   onAddStarterWord: (entry: StarterEntry) => 'added' | 'already-present' | false
   onAddDictionaryWord: (entry: WordEntry) => 'added' | 'already-present' | false
-  onNotify: (message: string) => void
+  onNotify: (message: string, kind?: 'success' | 'error') => void
   onBack: (conversationEntry: boolean, viewDepth: number) => void
   invitationToken: string | null
   onInvitationHandled: () => void
@@ -512,6 +519,26 @@ export function CompanionPanel({
   }
 
   const replyingTo = reply && reply.chatId === selectedChat?.id ? reply.message : null
+  const reconcileOutbox = outbox.reconcile
+  const pendingMessages = outbox.items.filter((item) => item.kind === 'private'
+    && (item.chatId === selectedChat?.id || (item.recipientId && item.recipientId === (selectedChat?.companion.id ?? openingChat?.id)))
+    && !chatMessages.some((message) => message.id === item.id))
+  const sentPendingKey = pendingMessages.filter((item) => item.status === 'sent').map((item) => item.id).join(',')
+  const refreshedSends = useRef(new Set<string>())
+
+  useEffect(() => {
+    if (selectedChat) reconcileOutbox('private', selectedChat.id, chatMessages.map((message) => message.id))
+  }, [selectedChat, chatMessages, reconcileOutbox])
+
+  useEffect(() => {
+    if (!selectedChat || chatLoading || chatUpdating || !sentPendingKey) return
+    const ids = sentPendingKey.split(',').filter((id) => !refreshedSends.current.has(id))
+    if (!ids.length) return
+    ids.forEach((id) => refreshedSends.current.add(id))
+    void loadMessages(selectedChat.id, 'merge').catch((failure: unknown) => {
+      setChatError(failure instanceof Error ? failure.message : 'Could not refresh sent messages.')
+    })
+  }, [selectedChat, chatLoading, chatUpdating, sentPendingKey, loadMessages])
 
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
@@ -581,15 +608,28 @@ export function CompanionPanel({
   }, [searchFor, searchTerm])
 
   const newestMessageId = chatMessages.at(-1)?.id ?? null
+  const incomingMessageIds = chatMessages.filter((message) => !message.isMine).map((message) => message.id)
+  const incomingIdsKey = incomingMessageIds.join(',')
   const markChatRead = useCallback(async (id: string) => {
-    if (selectedChat) await request(`/chats/${selectedChat.id}/read`, { id })
-  }, [selectedChat])
+    if (!selectedChat) return
+    const ids = incomingIdsKey ? incomingIdsKey.split(',') : []
+    if (!ids.length) await request(`/chats/${selectedChat.id}/read`, { id, ids: [] })
+    for (let offset = 0; offset < ids.length; offset += 50) {
+      await request(`/chats/${selectedChat.id}/read`, { id, ids: ids.slice(offset, offset + 50) })
+    }
+  }, [selectedChat, incomingIdsKey])
   const onChatRead = useCallback(() => {
     if (selectedChat) setChats((current) => current.map((chat) =>
       chat.id === selectedChat.id && chat.lastMessage?.id === newestMessageId ? { ...chat, unread: false } : chat))
   }, [newestMessageId, selectedChat])
   const onChatReadError = useCallback((failure: unknown) => {
     setChatError(failure instanceof Error ? failure.message : 'Could not mark messages as read.')
+  }, [])
+  const deliverChat = useCallback(async (ids: string[]) => {
+    if (selectedChat) await request(`/chats/${selectedChat.id}/delivered`, { id: ids[ids.length - 1], ids })
+  }, [selectedChat])
+  const onChatDeliveryError = useCallback((failure: unknown) => {
+    setChatError(failure instanceof Error ? failure.message : 'Could not acknowledge message delivery.')
   }, [])
   const publishTyping = useChatTyping(
     useCallback(async (id: string, typing: boolean) => { await request(`/chats/${id}/typing`, { typing }) }, []),
@@ -598,11 +638,19 @@ export function CompanionPanel({
   useVisibleChatRead({
     chatKey: selectedChat?.id ?? null,
     messageId: newestMessageId,
+    receiptKey: incomingIdsKey,
     enabled: sidebarView === 'chats' && !chatLoading && !chatUpdating,
     stream: chatStream,
     markRead: markChatRead,
     onRead: onChatRead,
     onError: onChatReadError,
+  })
+  useChatDelivery({
+    chatKey: selectedChat?.id ?? null,
+    messageIds: incomingMessageIds,
+    enabled: sidebarView === 'chats' && !chatLoading && !chatUpdating,
+    deliver: deliverChat,
+    onError: onChatDeliveryError,
   })
   useEffect(() => {
     const composer = messageComposer.current
@@ -1058,22 +1106,21 @@ export function CompanionPanel({
 
   const sendMessage = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!selectedChat || !messageDraft.trim()) return
+    if ((!selectedChat && !openingChat) || !messageDraft.trim()) return
     const text = messageDraft.trim()
-    const chatId = selectedChat.id
-    const replyToId = replyingTo?.id
-    void run(async () => {
-      const data = await request(`/chats/${chatId}/messages`, { text, ...(replyToId ? { replyToId } : {}) }) as { message: ChatMessage }
-      if (!data.message?.id) throw new Error('The chat service returned an incomplete response.')
-      setChatMessages((current) => mergeMessages(current, [data.message]))
+    const chatId = selectedChat?.id ?? `opening:${openingChat!.id}`
+    try {
+      outbox.enqueue({ kind: 'private', chatId, text, ...(!selectedChat && openingChat ? { recipientId: openingChat.id } : {}), ...(replyingTo ? {
+        replyTo: { id: replyingTo.id, isMine: replyingTo.isMine, text: replyingTo.text },
+      } : {}) })
       setMessageDraft('')
-      publishTyping(chatId, false)
+      if (selectedChat) publishTyping(chatId, false)
       setReply(null)
-      setChatError(replyToId && !data.message.replyTo
-        ? 'Your message was sent, but replies need the latest server. Restart the API server to link replies.'
-        : null)
-      await load()
-    })
+      setChatError(null)
+      requestAnimationFrame(() => { if (chatStream.current) chatStream.current.scrollTop = chatStream.current.scrollHeight })
+    } catch (failure) {
+      setChatError(failure instanceof Error ? failure.message : 'Could not send this message.')
+    }
   }
 
   const loadOlderMessages = () => {
@@ -1405,7 +1452,7 @@ export function CompanionPanel({
                 })}</div>}
             </section>}
 
-            {sidebarView === 'groups' && <GroupsSidebar directory={groupDirectory} error={groupsError} selectedId={selectedGroup?.id ?? null} onOpen={openGroup} reload={reloadGroups} invitationToken={invitationToken} onInvitationHandled={onInvitationHandled} />}
+            {sidebarView === 'groups' && <GroupsSidebar directory={groupDirectory} error={groupsError} selectedId={selectedGroup?.id ?? null} onOpen={openGroup} reload={reloadGroups} invitationToken={invitationToken} onInvitationHandled={onInvitationHandled} onNotify={onNotify} />}
 
             {sidebarView === 'moderation' && groupDirectory?.canModerate && <ModerationQueue onNotify={onNotify} />}
 
@@ -1488,7 +1535,7 @@ export function CompanionPanel({
             </button>
           </div>
           <div className="companion-chat-surface">
-          {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} cache={groupCache} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} wordTools={wordTools}
+          {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} cache={groupCache} outbox={outbox} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} wordTools={wordTools}
             shareableCards={cards.filter((card) => card.status === 'active' && isShareableCard(card))} cardPayload={sharedCardPayload}
             cardInDeck={(card, id) => deckWordKeys.has(wordKey(card)) || cards.some((item) => item.sharedFrom?.shareId === id)}
             onReceiveWord={onReceiveWord} onNotify={onNotify} />
@@ -1497,7 +1544,18 @@ export function CompanionPanel({
               <img src={avatarDataUri(openingChat.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{openingChat.username}</h2><span className="companion-status-tag connected">Connected</span></div>
             </header>
-            <div className="companion-chat-stream"><CompanionLoader label="Opening conversation" /></div>
+            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${openingChat.username}`} aria-live="polite">
+              <CompanionLoader label="Opening conversation" />
+              <PendingChatMessages items={pendingMessages} outbox={outbox} />
+            </div>
+            <form className="companion-chat-composer" onSubmit={sendMessage}>
+              <label className="companion-visually-hidden" htmlFor="opening-companion-message">Message {openingChat.username}</label>
+              <div className="companion-composer-input">
+                <textarea ref={messageComposer} id="opening-companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Write a message…" />
+                <button className="companion-send-button" type="submit" disabled={!messageDraft.trim()}>Send</button>
+              </div>
+              <div className="companion-composer-footer"><span>{messageDraft.length}/2000</span></div>
+            </form>
           </> : sidebarView === 'chats' && selectedChat ? <>
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
@@ -1544,7 +1602,7 @@ export function CompanionPanel({
             <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
               <ChatMessageList updating={chatUpdating}>
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy || chatUpdating} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
-              {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
+              {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0 && pendingMessages.length === 0
                 ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className={`companion-message-row${highlightId === chatMessage.id ? ' highlighted' : ''}`} id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
                   <div className="companion-message-content">
@@ -1554,6 +1612,7 @@ export function CompanionPanel({
                     <div className="companion-message-meta">
                       <strong>{chatMessage.isMine ? 'You' : selectedChat.companion.username}</strong>
                       <time dateTime={chatMessage.createdAt}>{formatChatTime(chatMessage.createdAt)}</time>
+                      {chatMessage.isMine && chatMessage.kind !== 'unsent' && <MessageReceipt status={chatMessage.receipt ?? 'sent'} />}
                       {chatMessage.editedAt && <span className="companion-edited">edited</span>}
                       {repliedToIds.has(chatMessage.id) && <span className="companion-reply-dot" style={replyColor(chatMessage.id)} title="Has a reply" aria-hidden="true" />}
                     </div>
@@ -1652,24 +1711,24 @@ export function CompanionPanel({
                   </div>
                 </article>)}
               </ChatMessageList>
+              <PendingChatMessages items={pendingMessages} outbox={outbox} />
               {awayFromBottom && <button className="companion-scroll-bottom" type="button" aria-label="Scroll to latest messages" onClick={() => {
                 const element = chatStream.current
                 if (element) element.scrollTo({ top: element.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
               }}><ChevronDown size={18} aria-hidden="true" /></button>}
             </div>
-            {(chatUpdating || (chatTyping?.id === selectedChat.id && chatTyping.typing)) && <div className="companion-chat-statuses">
-              {chatUpdating && <p className="companion-chat-status updating" role="status">Updating messages…</p>}
+            {(chatTyping?.id === selectedChat.id && chatTyping.typing) && <div className="companion-chat-statuses">
               {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-chat-status typing" role="status">{selectedChat.companion.username} is typing…</p>}
             </div>}
-            <form className="companion-chat-composer" onSubmit={sendMessage} inert={chatUpdating}>
+            <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
               {replyingTo && <div className="companion-reply-bar" style={replyColor(replyingTo.id)}>
                 <span>Replying to <strong>{replyingTo.isMine ? 'yourself' : selectedChat.companion.username}</strong><em>{replyingTo.text}</em></span>
                 <button type="button" aria-label="Cancel reply" onClick={() => setReply(null)}><X size={14} aria-hidden="true" /></button>
               </div>}
               <div className="companion-composer-input">
-                <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); publishTyping(selectedChat.id, Boolean(event.target.value.trim())) }} onBlur={() => publishTyping(selectedChat.id, false)} placeholder="Write a message…" disabled={busy} />
-                <button className="companion-send-button" type="submit" disabled={busy || !messageDraft.trim()}>Send</button>
+                <textarea ref={messageComposer} id="companion-message" rows={1} maxLength={2000} value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); publishTyping(selectedChat.id, Boolean(event.target.value.trim())) }} onBlur={() => publishTyping(selectedChat.id, false)} placeholder="Write a message…" />
+                <button className="companion-send-button" type="submit" disabled={!messageDraft.trim()}>Send</button>
               </div>
               <div className="companion-composer-footer">
                 <details className="companion-word-picker" ref={wordPicker} onToggle={onChatDetailsToggle}>
