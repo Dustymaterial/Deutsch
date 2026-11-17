@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { BookOpen, Check, ChevronDown, Ellipsis, Languages, Plus, Reply, Search, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
+import { AtSign, BookOpen, Check, ChevronDown, Ellipsis, Languages, Plus, Reply, Search, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useConfirm } from './confirmContext'
 import { useFormValidation } from './formValidation'
@@ -22,6 +22,8 @@ import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime as formatTime } from './chatTime'
+import { watchChatChanges } from './chatLive'
+import { useChatScrollState } from './useChatScrollState'
 import './Groups.css'
 
 const rulesText = 'Groups are open to every member, so anything you post can be read by all of them. Be kind and keep it about learning German. No spam, advertising, personal details or harassment. You must be at least 13. Group owners and moderators can hide messages and remove people, and you can report any message.'
@@ -263,7 +265,6 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const [cachedPage] = useState(() => cache.get(group.id))
   const [messages, setMessages] = useState<GroupMessage[]>(cachedPage?.messages ?? [])
   const [typing, setTyping] = useState<Profile[]>([])
-  const [awayFromBottom, setAwayFromBottom] = useState(false)
   const [loaded, setLoaded] = useState(Boolean(cachedPage))
   const [updating, setUpdating] = useState(Boolean(cachedPage))
   const [unavailable, setUnavailable] = useState(false)
@@ -303,6 +304,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   const groupNameRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const stream = useRef<HTMLDivElement>(null)
+  const [awayFromBottom] = useChatScrollState(stream, group.id)
   const stickToBottom = useRef(true)
   const firstLoad = useRef(true)
   const loadSequence = useRef(0)
@@ -441,20 +443,23 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
   }, [popover])
 
   useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === 'visible' && !loadingRef.current && !accessDenied.current) void load()
+    const refresh = (force = false) => {
+      if (document.visibilityState === 'visible' && (force || !loadingRef.current) && !accessDenied.current) return load()
     }
-    const first = window.setTimeout(refresh, 0)
-    const timer = window.setInterval(refresh, 5000)
-    document.addEventListener('visibilitychange', refresh)
+    const onVisibilityChange = () => { void refresh() }
+    const first = window.setTimeout(() => { void refresh() }, 0)
+    const timer = window.setInterval(() => { void refresh() }, 5000)
+    const stopLive = watchChatChanges(`/api/groups/${group.id}/live`, () => refresh(true))
+    document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       window.clearTimeout(first)
       window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', refresh)
+      stopLive()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       loadSequence.current += 1
       loadingRef.current = false
     }
-  }, [load])
+  }, [group.id, load])
 
   useEffect(() => {
     const element = stream.current
@@ -857,7 +862,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       </div>
       <div className="companion-chat-header-actions">
         <button className="companion-header-pill" type="button" aria-label="Search this group" aria-pressed={searchOpen} disabled={updating} onClick={() => { setSearchOpen((open) => !open); setSearchError(null) }}><Search size={14} aria-hidden="true" /><span>Search</span></button>
-        <button className="companion-header-pill" type="button" aria-pressed={mentionsOpen} aria-label={`Mentions, ${group.mentionCount ?? 0} pending`} onClick={() => { const next = !mentionsOpen; setMentionsOpen(next); if (next) void loadMentions() }}><span>@ {group.mentionCount ?? 0}</span></button>
+        <button className="companion-header-pill group-mentions-toggle" type="button" aria-pressed={mentionsOpen} aria-label={`Mentions, ${group.mentionCount ?? 0} pending`} onClick={() => { const next = !mentionsOpen; setMentionsOpen(next); if (next) void loadMentions() }}><AtSign size={14} aria-hidden="true" /><span>{group.mentionCount ?? 0}</span>{Boolean(group.mentionCount) && <b className="group-mentions-badge" aria-hidden="true">{group.mentionCount && group.mentionCount > 99 ? '99+' : group.mentionCount}</b>}</button>
         <button className="companion-header-pill" type="button" aria-pressed={membersOpen} onClick={toggleMembers}><Users size={14} aria-hidden="true" /><span>{group.memberCount}</span></button>
         <details className="companion-row-menu companion-chat-menu">
           <summary className="companion-header-pill" aria-label="Group actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
@@ -931,7 +936,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
       <p className="companion-search-note">Searches the latest 1,000 group messages.</p>
     </div>}
     {mentionsOpen && <div className="companion-search-panel group-mentions" aria-label="Your mentions">
-      <div className="group-mentions-heading"><strong>Your mentions</strong><button type="button" disabled={mentionsLoading} onClick={() => void loadMentions()}>Refresh</button></div>
+      <div className="group-mentions-heading"><strong>Your mentions</strong><button type="button" className="group-mentions-action" disabled={mentionsLoading} onClick={() => void loadMentions()}>Refresh</button></div>
       {mentionsLoading && !mentions ? <p className="companion-search-note" role="status">Loading mentions…</p>
         : !mentions ? <p className="companion-search-note">Mentions are unavailable. Try Refresh.</p>
         : !mentions?.messages.length ? <p className="companion-search-note">No mentions to show.</p>
@@ -940,9 +945,9 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
             <strong>{message.sender?.username ?? 'Former member'}</strong> <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
             <span>{message.text}</span>
           </button>
-          <button type="button" disabled={busy} onClick={() => void clearMention(message)}>Clear</button>
+          <button type="button" className="group-mentions-action" disabled={busy} onClick={() => void clearMention(message)}>Clear</button>
         </li>)}</ul>}
-      {mentions?.hasMore && <button type="button" disabled={mentionsLoading} onClick={() => void loadMentions(true)}>{mentionsLoading ? 'Loading…' : 'Load earlier mentions'}</button>}
+      {mentions?.hasMore && <button type="button" className="group-mentions-action group-mentions-more" disabled={mentionsLoading} onClick={() => void loadMentions(true)}>{mentionsLoading ? 'Loading…' : 'Load earlier mentions'}</button>}
     </div>}
     {membersOpen && <div className="companion-search-panel group-members">
       {group.description && <p className="group-description">{group.description}</p>}
@@ -960,10 +965,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     {updating && <p className="companion-empty-note" role="status">Updating messages…</p>}
     {error && <p className="companion-alert" role="alert">{error}</p>}
     {typing.length > 0 && <p className="companion-typing" role="status">{typing.slice(0, 3).map((person) => person.username).join(', ')}{typing.length > 3 ? ` and ${typing.length - 3} more` : ''} {typing.length === 1 ? 'is' : 'are'} typing…</p>}
-    <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating} onScroll={(event) => {
-      const element = event.currentTarget
-      setAwayFromBottom(element.scrollHeight - element.scrollTop - element.clientHeight >= 160)
-    }}>
+    <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating}>
       <ChatMessageList updating={updating}>
       {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
       {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0

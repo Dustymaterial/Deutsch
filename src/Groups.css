@@ -333,6 +333,42 @@
   justify-content: space-between;
 }
 
+.group-mentions-heading strong {
+  color: var(--companion-text);
+  font: 650 0.75rem system-ui, sans-serif;
+}
+
+.group-mentions-action {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: #edf2f7;
+  color: #3569a6;
+  font: 600 0.65rem system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.group-mentions-action:disabled { opacity: 0.55; cursor: default; }
+.group-mentions-more { justify-self: start; }
+.group-mentions-toggle { position: relative; }
+.group-mentions-badge { display: none; }
+@media (max-width: 520px) {
+  .group-mentions-toggle .group-mentions-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    display: grid;
+    place-items: center;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 2px;
+    border-radius: 999px;
+    background: #e8c77d;
+    color: #60450f;
+    font: 700 0.55rem system-ui, sans-serif;
+  }
+}
+
 .group-mentions ul {
   display: grid;
   gap: 6px;
@@ -352,7 +388,14 @@
 .group-mention-message {
   flex: 1;
   min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: #f0f2f0;
+  color: var(--companion-text);
+  font: 500 0.7rem/1.4 system-ui, sans-serif;
   text-align: left;
+  cursor: pointer;
 }
 
 .group-mention-message span {

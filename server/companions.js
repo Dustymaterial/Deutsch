@@ -8,6 +8,7 @@ import { sharedCardSchema } from './sharedCard.js'
 import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
 import { mapInBatches } from './mapInBatches.js'
 import { setTyping, typingFilter, typingRateLimit, typingSchema } from './chatTyping.js'
+import { liveSessionValid } from './chatLive.js'
 
 const usernameSchema = z.object({ username: z.string().trim().min(3).max(20).regex(/^[A-Za-z0-9_-]+$/) })
 const targetSchema = z.object({ id: z.string().regex(/^[a-f\d]{24}$/) })
@@ -42,7 +43,7 @@ const shareLifetime = 30 * 24 * hour
 
 export function createCompanionRouter({
   users, relationships, sharedWords, conversations, companionMessages, companionReports,
-  requireUser, mailer, renderAvatar, chatTyping,
+  requireUser, mailer, renderAvatar, chatTyping, chatLive,
 }) {
   const router = Router()
   const limiter = rateLimit({
@@ -212,6 +213,13 @@ export function createCompanionRouter({
     if (!pair || pair.connectionId !== conversation.connectionId) return null
     return { conversation, pair, them }
   }
+
+  router.get('/chats/:id/live', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    if (!await activeConversation(me, req.params.id)) return unavailable(res)
+    return chatLive.subscribe(req, res, 'private', req.params.id, async () =>
+      await liveSessionValid(req, users) && Boolean(await activeConversation(me, req.params.id)))
+  })
 
   const unreadLimit = 99
   const unreadCountFor = async (conversation, me) => {

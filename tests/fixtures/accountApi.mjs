@@ -314,6 +314,10 @@ try {
   assert.equal((await request('/api/companions/chats/open', { id: learnerId }, other.cookie)).body.id, openedChat.body.id)
   const typingPath = `/api/companions/chats/${openedChat.body.id}/typing`
   const privateMessagesPath = `/api/companions/chats/${openedChat.body.id}/messages`
+  const privateLivePath = `/api/companions/chats/${openedChat.body.id}/live`
+  assert.equal((await request(privateLivePath, null, learner.cookie)).status, 503)
+  assert.equal((await request(privateLivePath)).status, 401)
+  assert.equal((await request('/api/companions/chats/000000000000000000000000/live', null, learner.cookie)).status, 404)
   assert.equal((await request(typingPath, { typing: 'yes' }, learner.cookie)).status, 400)
   assert.equal((await request(typingPath, { typing: true }, learner.cookie)).status, 200)
   assert.equal((await request(privateMessagesPath, null, other.cookie)).body.typing, true)
@@ -655,6 +659,8 @@ try {
   assert.equal((await request('/api/groups/invitation/resolve', { inviteToken: rotatedToken }, outsider.cookie)).status, 200)
   assert.equal((await request(visibilityPath, { visibility: 'listed' }, learner.cookie)).status, 200)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, outsider.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/live`, null, outsider.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/live`, null, learner.cookie)).status, 503)
   const groupTypingPath = `/api/groups/${groupId}/typing`
   assert.equal((await request(groupTypingPath, { typing: true }, outsider.cookie)).status, 404)
   assert.equal((await request(groupTypingPath, { typing: true }, third.cookie)).status, 200)

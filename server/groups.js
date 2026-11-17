@@ -9,6 +9,7 @@ import { sharedCardSchema } from './sharedCard.js'
 import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
 import { mapInBatches } from './mapInBatches.js'
 import { setTyping, typingFilter, typingRateLimit, typingSchema } from './chatTyping.js'
+import { liveSessionValid } from './chatLive.js'
 
 export const maxGroupsPerOwner = 3
 const maxMembers = 100
@@ -81,7 +82,7 @@ const createLimiter = () => rateLimit({
 
 export function createGroupsRouter({
   users, groups, groupMembers, groupMessages, groupReports,
-  requireUser, isModerator, chatTyping,
+  requireUser, isModerator, chatTyping, chatLive,
 }) {
   const router = Router()
   router.use(...guard({ requireUser, limiter: createLimiter() }))
@@ -494,6 +495,15 @@ export function createGroupsRouter({
     if (!await activeMember(group._id.toString(), me)) { notFound(res); return null }
     return group
   }
+
+  router.get('/:id/live', async (req, res) => {
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    const id = group._id.toString()
+    return chatLive.subscribe(req, res, 'group', id, async () =>
+      await liveSessionValid(req, users) && Boolean(await loadGroup(id)) && Boolean(await activeMember(id, me)))
+  })
 
   router.get('/:id/info', async (req, res) => {
     const group = await readableGroup(req, res)

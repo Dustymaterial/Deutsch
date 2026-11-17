@@ -16,7 +16,7 @@ export async function setTyping(collection, kind, chatId, userId, typing) {
   if (typing) {
     await collection.updateOne(key, { $set: { expiresAt: new Date(Date.now() + 8000) } }, { upsert: true })
   } else {
-    await collection.deleteOne(key)
+    await collection.updateOne(key, { $set: { expiresAt: new Date() } })
   }
 }
 

@@ -4,7 +4,6 @@ import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
 import { useConfirm } from './confirmContext'
-import starterPack from './data/german-starter-pack.json'
 import { findMeaning, findWord, indexMeanings, indexWords, normalizeWord, type WordEntry } from './wordLookup'
 import { lookupDictionary, lookupEnglish, type Dictionary } from './dictionaryLookup'
 import { loadDictionary } from './dictionaryLoader'
@@ -25,7 +24,11 @@ import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime } from './chatTime'
 import { conversationEntryState, isConversationEntry } from './conversationHistory'
-import type { StarterEntry } from './starterDeck'
+import { watchChatChanges } from './chatLive'
+import { useChatScrollState } from './useChatScrollState'
+import { clearCommunityDirectoryCache, getCommunityDirectory, loadCommunityDirectory } from './communityDirectoryCache'
+import { CompanionApiError, fetchCompanionDirectory, request } from './companionsApi'
+import { loadStarterPack, type StarterEntry, type StarterPack } from './starterDeck'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -59,6 +62,7 @@ type ChatSummary = {
   unread: boolean
   updatedAt: string
 }
+export type CompanionDirectory = { companions: Companion[]; sharedWords: SharedWordPreview[]; emailsEnabled: boolean; chats: ChatSummary[] }
 type SelectedChat = { id: string; companion: Profile }
 
 const shareableCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
@@ -88,38 +92,6 @@ export type SharedWordPreview = {
   createdAt: string
 }
 
-class CompanionApiError extends Error {
-  readonly status: number
-  constructor(message: string, status: number) {
-    super(message)
-    this.status = status
-  }
-}
-
-async function request(path: string, body?: object): Promise<unknown> {
-  const response = await fetch(`/api/companions${path}`, body ? {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  } : undefined)
-  let data: unknown
-  const bodyText = await response.text()
-  try {
-    data = JSON.parse(bodyText)
-  } catch {
-    const status = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`
-    if (response.status === 404) {
-      throw new CompanionApiError(`The companion API route was not found (${status}). Restart the API server and make sure the app points to the correct API port.`, response.status)
-    }
-    throw new CompanionApiError(`The companion service returned a non-JSON response (${status}).`, response.status)
-  }
-  if (!response.ok) {
-    const error = data && typeof data === 'object' && 'error' in data ? data.error : null
-    throw new CompanionApiError(typeof error === 'string' ? error : 'Could not complete the request.', response.status)
-  }
-  return data
-}
-
 const normalizeMessage = (message: ChatMessage): ChatMessage => ({
   ...message,
   kind: message.kind ?? 'text',
@@ -137,20 +109,6 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   if (!changed) return current
   return [...messages.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))
 }
-
-const starterEntries = starterPack.cards.map((entry) => ({
-  id: entry.id,
-  source: 'starter' as const,
-  prompt: entry.article ? `${entry.article} ${entry.word}` : entry.word,
-  meaning: entry.meaning,
-  category: entry.category,
-  plural: entry.plural,
-  example: entry.example,
-  translation: entry.translation,
-  level: entry.level,
-}))
-const starterWordIndex = indexWords(starterEntries)
-const starterMeaningIndex = indexMeanings(starterEntries)
 
 const distinctEntries = (entries: WordEntry[], limit: number) => entries
   .filter((entry, index, all) => all.findIndex((other) => other.prompt === entry.prompt && other.category === entry.category) === index)
@@ -181,18 +139,19 @@ export function CompanionPanel({
   invitationToken: string | null
   onInvitationHandled: () => void
 }) {
-  const [companions, setCompanions] = useState<Companion[]>([])
-  const [sharedWords, setSharedWords] = useState<SharedWordPreview[]>([])
-  const [chats, setChats] = useState<ChatSummary[]>([])
-  const [emailsEnabled, setEmailsEnabled] = useState(true)
+  const [initialDirectory] = useState(() => getCommunityDirectory(accountId, 'companions'))
+  const [companions, setCompanions] = useState<Companion[]>(initialDirectory?.companions ?? [])
+  const [sharedWords, setSharedWords] = useState<SharedWordPreview[]>(initialDirectory?.sharedWords ?? [])
+  const [chats, setChats] = useState<ChatSummary[]>(initialDirectory?.chats ?? [])
+  const [emailsEnabled, setEmailsEnabled] = useState(initialDirectory?.emailsEnabled ?? true)
   const [cachePreference] = useState(() => {
     try { return { enabled: chatCacheEnabled(), error: null } }
     catch { return { enabled: false, error: 'Could not read the saved chat preference on this device.' } }
   })
   const [persistentCacheEnabled, setPersistentCacheEnabled] = useState(cachePreference.enabled)
   const [cacheProblem, setCacheProblem] = useState<string | null>(cachePreference.error)
-  const [loading, setLoading] = useState(true)
-  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(!initialDirectory)
+  const [loaded, setLoaded] = useState(Boolean(initialDirectory))
   const [busy, setBusy] = useState(false)
   const [sidebarView, setSidebarView] = useState<'chats' | 'requests' | 'shared' | 'groups' | 'moderation'>(() => invitationToken ? 'groups' : 'chats')
   const [username, setUsername] = useState('')
@@ -205,7 +164,6 @@ export function CompanionPanel({
   const [chatTyping, setChatTyping] = useState<{ id: string; typing: boolean } | null>(null)
   const [chatError, setChatError] = useState<string | null>(null)
   const [chatLoading, setChatLoading] = useState(false)
-  const [awayFromBottom, setAwayFromBottom] = useState(false)
   const [chatUpdating, setChatUpdating] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
@@ -228,11 +186,14 @@ export function CompanionPanel({
   const [wordChipsFor, setWordChipsFor] = useState<string | null>(null)
   const [dictionary, setDictionary] = useState<Dictionary | null>(null)
   const [dictionaryFailed, setDictionaryFailed] = useState(false)
+  const [starterPack, setStarterPack] = useState<StarterPack | null>(null)
+  const [starterFailed, setStarterFailed] = useState(false)
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
   const workspace = useRef<HTMLDivElement>(null)
   const chatStream = useRef<HTMLDivElement>(null)
+  const [awayFromBottom, setAwayFromBottom] = useChatScrollState(chatStream, sidebarView === 'chats' ? selectedChat?.id ?? null : null)
   const scrollOnOpen = useRef(false)
   const messageComposer = useRef<HTMLTextAreaElement>(null)
   const shareTools = useRef<HTMLDetailsElement>(null)
@@ -240,6 +201,7 @@ export function CompanionPanel({
   const selectedChatId = useRef<string | null>(null)
   const chatOpenSequence = useRef(0)
   const latestChatRequest = useRef(0)
+  const directoryRequest = useRef(0)
   const latestChatInFlight = useRef<{ id: string; sequence: number } | null>(null)
   const [privateCache] = useState(() => new PersistentChatCache<ChatMessage>(accountId ?? '', 'private', false,
     (value): value is ChatMessage => Boolean(value && typeof value === 'object' && 'id' in value && typeof value.id === 'string'
@@ -259,27 +221,28 @@ export function CompanionPanel({
     (failure) => setCacheProblem(failure instanceof Error ? `Chat storage is unavailable: ${failure.message}` : 'Chat storage is unavailable.')))
   const conversationHistoryEntry = useRef<string | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
-  const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory()
+  const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory(accountId)
   const lastScrolledMessage = useRef<string | null>(null)
   const { errors, validate, handleInput } = useFormValidation()
 
-  const load = useCallback(async () => {
-    const [accountData, chatData] = await Promise.all([
-      request('/') as Promise<{ companions: Companion[]; sharedWords: SharedWordPreview[]; emailsEnabled: boolean }>,
-      request('/chats') as Promise<{ chats: ChatSummary[] }>,
-    ])
-    if (!Array.isArray(accountData.companions) || !Array.isArray(accountData.sharedWords)
-      || typeof accountData.emailsEnabled !== 'boolean' || !Array.isArray(chatData.chats)) {
-      throw new Error('The companion service returned an incomplete response.')
+  const load = useCallback(async (join = false) => {
+    const sequence = ++directoryRequest.current
+    let data: CompanionDirectory
+    try {
+      data = await loadCommunityDirectory(accountId, 'companions', fetchCompanionDirectory, join)
+    } catch (failure) {
+      if (sequence !== directoryRequest.current) return
+      throw failure
     }
-    setCompanions(accountData.companions)
-    setSharedWords(accountData.sharedWords)
-    setEmailsEnabled(accountData.emailsEnabled)
-    setChats(chatData.chats)
-    privateCache.retain(new Set(chatData.chats.map((chat) => chat.id)))
+    if (sequence !== directoryRequest.current) return
+    setCompanions(data.companions)
+    setSharedWords(data.sharedWords)
+    setEmailsEnabled(data.emailsEnabled)
+    setChats(data.chats)
+    privateCache.retain(new Set(data.chats.map((chat) => chat.id)))
     setError(null)
     setLoaded(true)
-  }, [privateCache])
+  }, [accountId, privateCache])
 
   const loadMessages = useCallback(async (
     chatId: string,
@@ -322,9 +285,18 @@ export function CompanionPanel({
     Promise.resolve().then(() => Promise.all([
       accountId && cachePreference.enabled ? privateCache.start() : privateCache.whenReady(),
       accountId && cachePreference.enabled ? groupCache.start() : groupCache.whenReady(),
-      load(),
+      load(true),
     ])).catch((failure: unknown) => {
-      if (active) setError(failure instanceof Error ? failure.message : 'Could not load companions.')
+      if (active) {
+        if (failure instanceof CompanionApiError && [401, 403].includes(failure.status)) {
+          clearCommunityDirectoryCache()
+          setLoaded(false)
+          setCompanions([])
+          setChats([])
+          setSharedWords([])
+        }
+        setError(failure instanceof Error ? failure.message : 'Could not load companions.')
+      }
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [accountId, cachePreference.enabled, load, privateCache, groupCache])
@@ -350,10 +322,10 @@ export function CompanionPanel({
     if (!selectedChat) return
     const chatId = selectedChat.id
     const sequence = chatOpenSequence.current
-    const refresh = () => {
+    const refresh = (force = false) => {
       if (document.visibilityState !== 'visible') return
-      if (latestChatInFlight.current?.id === chatId && latestChatInFlight.current.sequence === sequence) return
-      void loadMessages(chatId, 'merge').catch((failure: unknown) => {
+      if (!force && latestChatInFlight.current?.id === chatId && latestChatInFlight.current.sequence === sequence) return
+      return loadMessages(chatId, 'merge').then(() => {}).catch((failure: unknown) => {
         if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence) return
         if (failure instanceof CompanionApiError && [401, 403, 404].includes(failure.status)) {
           privateCache.delete(chatId)
@@ -371,12 +343,15 @@ export function CompanionPanel({
       })
     }
     const timer = window.setInterval(() => {
-      refresh()
+      void refresh()
     }, 5000)
-    document.addEventListener('visibilitychange', refresh)
+    const onVisibilityChange = () => { void refresh() }
+    const stopLive = watchChatChanges(`/api/companions/chats/${chatId}/live`, () => refresh(true))
+    document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', refresh)
+      stopLive()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [loadMessages, selectedChat, privateCache])
 
@@ -390,6 +365,7 @@ export function CompanionPanel({
         || (!event.newValue.startsWith(`${accountId}:`) && !event.newValue.startsWith('*:'))) return
       privateCache.stop()
       groupCache.stop()
+      clearCommunityDirectoryCache()
       privateCache.retain(new Set())
       groupCache.retain(new Set())
       chatOpenSequence.current += 1
@@ -444,6 +420,18 @@ export function CompanionPanel({
     loadDictionary().then((loaded) => { if (active) setDictionary(loaded) }).catch(() => { if (active) setDictionaryFailed(true) })
     return () => { active = false }
   }, [activeWord, dictionary, dictionaryFailed])
+
+  useEffect(() => {
+    if ((!activeWord && !selectedChat && !selectedGroupId) || starterPack || starterFailed) return
+    let active = true
+    loadStarterPack().then((pack) => { if (active) setStarterPack(pack) }).catch(() => {
+      if (active) {
+        setStarterFailed(true)
+        onNotify('Could not load the starter vocabulary for word lookup.')
+      }
+    })
+    return () => { active = false }
+  }, [activeWord, selectedChat, selectedGroupId, starterPack, starterFailed, onNotify])
 
   useEffect(() => {
     if (!reactionPickerFor && !activeWord) return
@@ -1058,21 +1046,44 @@ export function CompanionPanel({
     })
   }
 
-  const matchingCards = cards.filter((card) => card.status === 'active' && isShareableCard(card) && (!shareQuery.trim()
-    || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(shareQuery.trim().toLocaleLowerCase())))
+  const matchingCards = useMemo(() => {
+    const query = shareQuery.trim().toLocaleLowerCase()
+    const matching: Card[] = []
+    for (const card of cards) {
+      if (card.status !== 'active' || !isShareableCard(card)
+        || (query && !`${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(query))) continue
+      matching.push(card)
+      if (matching.length === 6) break
+    }
+    return matching
+  }, [cards, shareQuery])
   const pickerQuery = wordPickerQuery.trim().toLocaleLowerCase()
-  const pickerCards = cards
+  const hasConversation = Boolean(selectedChat || selectedGroupId)
+  const pickerCards = useMemo(() => !hasConversation ? [] : cards
     .filter((card) => card.status === 'active' && isShareableCard(card)
       && (!pickerQuery || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(pickerQuery)))
     .sort((a, b) => Date.parse(b.lastReviewedAt ?? b.createdAt) - Date.parse(a.lastReviewedAt ?? a.createdAt))
-    .slice(0, 8)
-  const deckWordKeys = new Set(cards.map(cardContentKey))
+    .slice(0, 8), [cards, hasConversation, pickerQuery])
+  const deckWordKeys = useMemo(() => new Set(hasConversation ? cards.map(cardContentKey) : []), [cards, hasConversation])
   const repliedToIds = new Set(chatMessages.flatMap((item) => item.replyTo ? [item.replyTo.id] : []))
-  const deckEntries = useMemo(() => cards
+  const deckEntries = useMemo(() => !hasConversation ? [] : cards
     .filter((card) => card.status === 'active')
-    .map((card) => ({ id: card.id, source: 'deck' as const, prompt: card.prompt, meaning: card.meaning, category: card.category, plural: card.plural })), [cards])
+    .map((card) => ({ id: card.id, source: 'deck' as const, prompt: card.prompt, meaning: card.meaning, category: card.category, plural: card.plural })), [cards, hasConversation])
   const deckWordIndex = useMemo(() => indexWords(deckEntries), [deckEntries])
   const deckMeaningIndex = useMemo(() => indexMeanings(deckEntries), [deckEntries])
+  const starterEntries = useMemo(() => (starterPack?.cards ?? []).map((entry) => ({
+    id: entry.id,
+    source: 'starter' as const,
+    prompt: entry.article ? `${entry.article} ${entry.word}` : entry.word,
+    meaning: entry.meaning,
+    category: entry.category,
+    plural: entry.plural,
+    example: entry.example,
+    translation: entry.translation,
+    level: entry.level,
+  })), [starterPack])
+  const starterWordIndex = useMemo(() => indexWords(starterEntries), [starterEntries])
+  const starterMeaningIndex = useMemo(() => indexMeanings(starterEntries), [starterEntries])
   const germanEntries = activeWord
     ? distinctEntries([
       findWord(activeWord.key, deckWordIndex, starterWordIndex),
@@ -1094,7 +1105,7 @@ export function CompanionPanel({
   }
 
   const addPeekedWord = (entry: WordEntry) => {
-    const starter = entry.source === 'starter' ? starterPack.cards.find((item) => item.id === entry.id) : undefined
+    const starter = entry.source === 'starter' ? starterPack?.cards.find((item) => item.id === entry.id) : undefined
     const result = entry.source === 'dictionary' ? onAddDictionaryWord(entry) : starter ? onAddStarterWord(starter) : false
     if (result === 'already-present') onNotify(`You already had ${entry.prompt} in your deck.`)
   }
@@ -1105,8 +1116,8 @@ export function CompanionPanel({
     isKnown: (word) => Boolean(findWord(word, deckWordIndex, starterWordIndex)),
     german: germanEntries,
     english: englishEntries,
-    loading: !dictionary && !dictionaryFailed,
-    unavailable: dictionaryFailed,
+    loading: (!dictionary && !dictionaryFailed) || (!starterPack && !starterFailed),
+    unavailable: dictionaryFailed || starterFailed,
     inDeck: isEntryInDeck,
     onAdd: addPeekedWord,
     onClose: () => setActiveWord(null),
@@ -1166,14 +1177,14 @@ export function CompanionPanel({
         <aside className="companion-sidebar" aria-label="Learning companions">
           <div className="companion-sidebar-heading">
             <h1>Companions</h1>
-            <span className="companion-sidebar-count">{connectedCompanions.length}</span>
+            {loaded && <span className="companion-sidebar-count">{connectedCompanions.length}</span>}
             <button className="companion-mobile-deck-back" type="button" onClick={backToDeck} aria-label="Back to deck" title="Back to deck">
               <ChevronLeft size={17} aria-hidden="true" />
             </button>
           </div>
           {error && <p className="companion-alert" role="alert">{error}</p>}
           {cacheProblem && <p className="companion-alert" role="alert">{cacheProblem}</p>}
-          {loading ? <CompanionLoader label="Loading your connections" /> : !loaded ? (
+          {!loading && !loaded ? (
             <button className="companion-primary-button" disabled={busy} onClick={() => void run(load)} type="button">Try again</button>
           ) : <>
             <form className="companion-search" noValidate onInput={handleInput} onSubmit={search}>
@@ -1198,22 +1209,23 @@ export function CompanionPanel({
 
             <nav className="companion-sidebar-nav" aria-label="Companion views">
               <button className={sidebarView === 'chats' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'chats'} onClick={() => setSidebarView('chats')}>
-                <LayoutGridCircles size={15} aria-hidden="true" /><span className="companion-nav-label">Chats</span><span className="companion-nav-count">{connectedCompanions.length}</span>{unreadCount > 0 && <b aria-label={`${unreadCount} unread chats`}>{unreadCount}</b>}
+                <LayoutGridCircles size={15} aria-hidden="true" /><span className="companion-nav-label">Chats</span>{loaded && <span className="companion-nav-count">{connectedCompanions.length}</span>}{unreadCount > 0 && <b aria-label={`${unreadCount} unread chats`}>{unreadCount}</b>}
               </button>
               <button className={sidebarView === 'requests' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'requests'} onClick={() => setSidebarView('requests')}>
-                <Inbox size={15} aria-hidden="true" /><span className="companion-nav-label">Requests</span><span className="companion-nav-count">{requestCount}</span>
+                <Inbox size={15} aria-hidden="true" /><span className="companion-nav-label">Requests</span>{loaded && <span className="companion-nav-count">{requestCount}</span>}
               </button>
               <button className={sidebarView === 'shared' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'shared'} onClick={() => setSidebarView('shared')}>
-                <BookOpen size={15} aria-hidden="true" /><span className="companion-nav-label">Shared words</span><span className="companion-nav-count">{sharedWords.length}</span>
+                <BookOpen size={15} aria-hidden="true" /><span className="companion-nav-label">Shared words</span>{loaded && <span className="companion-nav-count">{sharedWords.length}</span>}
               </button>
               <button className={sidebarView === 'groups' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'groups'} onClick={() => setSidebarView('groups')}>
-                <Users size={15} aria-hidden="true" /><span className="companion-nav-label">Groups</span><span className="companion-nav-count">{joinedGroupCount}</span>
+                <Users size={15} aria-hidden="true" /><span className="companion-nav-label">Groups</span>{groupDirectory && <span className="companion-nav-count">{joinedGroupCount}</span>}
               </button>
               {groupDirectory?.canModerate && <button className={sidebarView === 'moderation' ? 'active' : ''} type="button" aria-pressed={sidebarView === 'moderation'} onClick={() => setSidebarView('moderation')}>
                 <ShieldCheck size={15} aria-hidden="true" /><span className="companion-nav-label">Moderation</span>
               </button>}
             </nav>
 
+            {loading ? <CompanionLoader label="Loading your connections" compact /> : <>
             {sidebarView === 'requests' && <section className="companion-list-section" aria-labelledby="requests-heading">
               <h2 id="requests-heading">Requests <span>{requestCount}</span></h2>
               {requestCount === 0
@@ -1328,6 +1340,7 @@ export function CompanionPanel({
               <p className="companion-empty-note">Saved chats can be seen by someone using this browser. Turn this off on a shared device to remove them.</p>
               </div>
             </details>
+            </>}
           </>}
         </aside>
 
@@ -1393,10 +1406,7 @@ export function CompanionPanel({
             {chatUpdating && <p className="companion-empty-note" role="status">Updating messages…</p>}
             {chatError && <p className="companion-alert" role="alert">{chatError}</p>}
             {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-typing" role="status">{selectedChat.companion.username} is typing…</p>}
-            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating} onScroll={(event) => {
-              const element = event.currentTarget
-              setAwayFromBottom(element.scrollHeight - element.scrollTop - element.clientHeight >= 160)
-            }}>
+            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
               <ChatMessageList updating={chatUpdating}>
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
