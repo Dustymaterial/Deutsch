@@ -286,7 +286,6 @@ export function AccountMenu({
               </>
             )}
             {user.emailVerified && <button className="account-secondary" disabled={busy} onClick={() => {
-              onOpenChange(false)
               onOpenCompanions()
             }} type="button">Learning companions</button>}
             <button className="account-secondary" disabled={busy} onClick={() => {
