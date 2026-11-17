@@ -45,6 +45,25 @@
   transition: background-color 140ms ease, transform 140ms ease;
 }
 
+.companion-launcher-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  transform: rotate(4deg);
+}
+
 .companion-launcher:hover {
   background: #e947a8;
   transform: rotate(0deg) translateY(-2px);

@@ -238,6 +238,32 @@ export function createCompanionRouter({
     return { conversation, pair, them }
   }
 
+  const unreadLimit = 99
+  const unreadCountFor = async (conversation, me) => {
+    const since = [conversation.readAt?.[me], conversation.hiddenAt?.[me]]
+      .filter(Boolean).sort((a, b) => b - a)[0]
+    const found = await companionMessages.find({
+      conversationId: conversation._id.toString(),
+      senderId: { $ne: me },
+      ...(since ? { createdAt: { $gt: since } } : {}),
+    }, { limit: unreadLimit }).toArray()
+    return found.filter((message) => !message.unsentAt).length
+  }
+
+  router.get('/unread', async (req, res) => {
+    const me = req.accountUser._id.toString()
+    const pairs = await relationships.find({ participants: me, state: 'connected', blockedBy: [] }).toArray()
+    let count = 0
+    for (const pair of pairs) {
+      const them = pair.participants.find((participant) => participant !== me)
+      const connection = await currentConnection(me, them)
+      if (!connection) continue
+      const conversation = await getOrCreateConversation(connection)
+      if (conversation) count += await unreadCountFor(conversation, me)
+    }
+    res.json({ count })
+  })
+
   router.get('/chats', async (req, res) => {
     const me = req.accountUser._id.toString()
     const pairs = await relationships.find({
@@ -274,6 +300,7 @@ export function createCompanionRouter({
         } : null,
         unread: Boolean(lastMessage && lastMessage.senderId !== me
           && (!conversation.readAt?.[me] || lastMessage.createdAt > conversation.readAt[me])),
+        unreadCount: await unreadCountFor(conversation, me),
         updatedAt: conversation.updatedAt.toISOString(),
       })
     }

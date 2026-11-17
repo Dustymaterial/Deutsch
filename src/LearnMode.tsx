@@ -203,7 +203,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
             <div className="card card-back card-back-3" aria-hidden="true" />
             <div className="card card-back card-back-2" aria-hidden="true" />
             <article key={card.id} className="flashcard learn-card">
-              <div className="card-header"><span className="tag">{card.category}</span><span className="progress">{visible.length} available</span></div>
+              <div className="card-header"><span className="tag">{card.category}</span><span className="progress">{visible.length} new {visible.length === 1 ? 'word' : 'words'}</span></div>
               <div className="learn-card-content">
                 {showQuiz && !readOnly ? (
                   <div className="learn-quiz">
