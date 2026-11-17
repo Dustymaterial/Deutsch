@@ -1393,7 +1393,7 @@ export function CompanionPanel({
           ) : <>
             <form className="companion-search" noValidate onInput={handleInput} onSubmit={search}>
               <label className="companion-visually-hidden" htmlFor="companion-search">Find a learner by exact username</label>
-              <input id="companion-search" name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Find learner…" minLength={3} maxLength={20} pattern="[A-Za-z0-9_\\-]+" required />
+              <span className="companion-search-input"><input id="companion-search" name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Find learner…" minLength={3} maxLength={20} pattern="[A-Za-z0-9_\\-]+" required /></span>
               <button className="companion-search-submit" disabled={busy} type="submit">Find</button>
               {errors.username && <span className="field-error" id="companion-username-error">{errors.username}</span>}
             </form>
