@@ -258,19 +258,26 @@ export function CompanionPanel({
     if (!viewport || !element) return
     let workspaceTop = element.getBoundingClientRect().top
     const updateHeight = () => {
+      element.style.setProperty('--companion-visual-height', `${Math.round(viewport.height)}px`)
       element.style.setProperty('--companion-available-height', `${Math.max(0, Math.round(viewport.height - workspaceTop))}px`)
     }
+    const updatePosition = () => element.style.setProperty('--companion-viewport-offset-top', `${Math.round(viewport.offsetTop)}px`)
     const updateGeometry = () => {
       workspaceTop = element.getBoundingClientRect().top
       updateHeight()
     }
     updateHeight()
+    updatePosition()
     viewport.addEventListener('resize', updateHeight)
+    viewport.addEventListener('scroll', updatePosition)
     window.addEventListener('resize', updateGeometry)
     return () => {
       viewport.removeEventListener('resize', updateHeight)
+      viewport.removeEventListener('scroll', updatePosition)
       window.removeEventListener('resize', updateGeometry)
       element.style.removeProperty('--companion-available-height')
+      element.style.removeProperty('--companion-visual-height')
+      element.style.removeProperty('--companion-viewport-offset-top')
     }
   }, [])
 
@@ -1371,8 +1378,10 @@ export function CompanionPanel({
     </details>
   </article>
 
+  const chatActive = Boolean(((selectedChat || openingChat) && sidebarView === 'chats') || (selectedGroup && sidebarView === 'groups'))
+
   return (
-    <div className="companion-workspace-view" ref={workspace} onKeyDown={(event) => {
+    <div className={`companion-workspace-view${chatActive ? ' chat-active' : ''}`} ref={workspace} onKeyDown={(event) => {
       if (event.key !== 'Escape' || !(event.target instanceof Element)) return
       const menu = event.target.closest<HTMLDetailsElement>('.companion-row-menu[open], .companion-message-menu[open], .companion-sidebar-details[open], .companion-word-picker[open]')
       if (!menu) return
@@ -1381,7 +1390,7 @@ export function CompanionPanel({
       menu.open = false
       menu.querySelector<HTMLElement>('summary')?.focus()
     }}>
-      <div className={`companion-workspace${((selectedChat || openingChat) && sidebarView === 'chats') || (selectedGroup && sidebarView === 'groups') ? ' chat-active' : ''}`}>
+      <div className={`companion-workspace${chatActive ? ' chat-active' : ''}`}>
         <aside className="companion-sidebar" aria-label="Learning companions">
           <div className="companion-sidebar-heading">
             <h1>Companions</h1>
@@ -1397,7 +1406,7 @@ export function CompanionPanel({
           ) : <>
             <form className="companion-search" noValidate onInput={handleInput} onSubmit={search}>
               <label className="companion-visually-hidden" htmlFor="companion-search">Find a learner by exact username</label>
-              <span className="companion-search-input"><input id="companion-search" name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Find learner…" minLength={3} maxLength={20} pattern="[A-Za-z0-9_\\-]+" required /></span>
+              <input id="companion-search" name="username" value={username} onChange={(event) => { setUsername(event.target.value); setFound(null) }} aria-invalid={Boolean(errors.username) || undefined} aria-describedby={errors.username ? 'companion-username-error' : undefined} placeholder="Find learner…" minLength={3} maxLength={20} pattern="[A-Za-z0-9_\\-]+" required />
               <button className="companion-search-submit" disabled={busy} type="submit">Find</button>
               {errors.username && <span className="field-error" id="companion-username-error">{errors.username}</span>}
             </form>
