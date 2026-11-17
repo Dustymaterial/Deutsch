@@ -81,6 +81,7 @@ type PracticeSession = {
   answer?: string
   feedback?: 'try-again' | 'correct' | 'reveal'
 }
+type PracticeDecision = 'accept' | 'decline' | 'end' | 'try-again' | 'correct' | 'reveal' | 'retry' | 'next'
 export type CompanionDirectory = { companions: Companion[]; sharedWords: SharedWordPreview[]; emailsEnabled: boolean; chats: ChatSummary[] }
 type SelectedChat = { id: string; companion: Profile }
 type SidebarView = 'chats' | 'requests' | 'shared' | 'groups' | 'moderation'
@@ -136,6 +137,102 @@ const distinctEntries = (entries: WordEntry[], limit: number) => entries
 
 function CompanionLoader({ label, compact = false }: { label: string; compact?: boolean }) {
   return <div className={`companion-loader${compact ? ' compact' : ''}`} role="status" aria-label={label}><span /></div>
+}
+
+function CompanionPracticeSession({
+  practice, companionName, answer, busy, onAnswerChange, onSubmitAnswer, onDecision,
+}: {
+  practice: PracticeSession
+  companionName: string
+  answer: string
+  busy: boolean
+  onAnswerChange: (value: string) => void
+  onSubmitAnswer: (event: React.FormEvent<HTMLFormElement>) => void
+  onDecision: (decision: PracticeDecision) => void
+}) {
+  const card = practice.card
+  const prompt = card && (card.article ? `${card.article} ${card.prompt}` : card.prompt)
+  const waiting = practice.status === 'pending'
+  const helping = practice.role === 'helper'
+  const revealed = practice.feedback === 'correct' || practice.feedback === 'reveal'
+
+  return <section className="companion-practice-session" aria-label="Practice together">
+    <div className="deck-shell companion-practice-deck">
+      <div className="card card-back card-back-3" aria-hidden="true" />
+      <div className="card card-back card-back-2" aria-hidden="true" />
+      <article className="flashcard companion-practice-card">
+        <header className="card-header">
+          <span className="tag">{waiting ? 'Together' : card?.category ?? 'Practice'}</span>
+          <span className="progress">{waiting ? '5 words' : `${practice.position}/${practice.total}`}</span>
+        </header>
+
+        {waiting
+          ? <div className="card-front companion-practice-card-content">
+            <p className="prompt-label">Practice together</p>
+            <h2>{helping ? `${companionName} asked for your help` : 'A surprise review is ready'}</h2>
+            <p className="companion-practice-copy">Five previously reviewed words will appear one at a time. Practice stays separate from both learners’ schedules.</p>
+            {helping
+              ? <div className="companion-practice-cta">
+                <button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('accept')}>Help practise</button>
+                <button type="button" className="quiet-button" disabled={busy} onClick={() => onDecision('decline')}>Not now</button>
+              </div>
+              : <div className="companion-practice-cta">
+                <p className="companion-practice-waiting" role="status">Waiting for {companionName} to join.</p>
+                <button type="button" className="quiet-button" disabled={busy} onClick={() => onDecision('end')}>Cancel request</button>
+              </div>}
+          </div>
+          : card && helping
+            ? <div className="companion-practice-card-content companion-practice-helper">
+              <p className="prompt-label">Ask them to recall</p>
+              <h2 lang="de">{prompt}</h2>
+              <div className="companion-practice-expected">
+                <span className="label">Expected meaning</span>
+                <strong>{card.meaning}</strong>
+                {card.plural && <span>Plural: <span lang="de">{card.plural}</span></span>}
+              </div>
+              {practice.answer
+                ? <div className="companion-practice-response">
+                  <span>{companionName} answered</span>
+                  <strong>{practice.answer}</strong>
+                </div>
+                : <p className="companion-practice-waiting" role="status">Waiting for their answer.</p>}
+              {practice.answer && !practice.feedback && <div className="companion-practice-actions" role="group" aria-label="Respond to answer">
+                <button type="button" className="rating good" disabled={busy} onClick={() => onDecision('correct')}><Check size={17} aria-hidden="true" />Correct</button>
+                <button type="button" className="rating hard" disabled={busy} onClick={() => onDecision('try-again')}>Try again</button>
+                <button type="button" className="rating easy" disabled={busy} onClick={() => onDecision('reveal')}>Reveal</button>
+              </div>}
+              {practice.feedback && <p className="companion-practice-waiting" role="status">{practice.feedback === 'try-again' ? 'They can try another answer.' : practice.feedback === 'correct' ? 'Marked correct. They can continue when ready.' : 'The answer was revealed. They can continue when ready.'}</p>}
+            </div>
+            : card && revealed
+              ? <div className="card-back-content companion-practice-reveal">
+                <p className="answer-word" lang="de">{prompt}</p>
+                <div className="answer-meaning"><span className="label">Meaning</span><strong>{card.meaning}</strong></div>
+                {card.article && <div className="fact-row"><span className="label">Article</span><strong lang="de">{card.article}</strong></div>}
+                {card.plural && <div className="fact-row"><span className="label">Plural</span><strong lang="de">{card.plural}</strong></div>}
+                <p className="companion-practice-feedback" role="status">{practice.feedback === 'correct' ? 'Correct — nice recall. This does not change your schedule.' : 'Answer revealed. Take a moment to connect the word and meaning.'}</p>
+              </div>
+              : card
+                ? <div className="card-front companion-practice-card-content">
+                  <p className="prompt-label">What does this mean?</p>
+                  <h2 lang="de">{prompt}</h2>
+                  {practice.feedback === 'try-again'
+                    ? <div className="companion-practice-cta"><p className="companion-practice-feedback" role="status">Not quite yet. Take another look when you are ready.</p><button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('retry')}>Try again</button></div>
+                    : practice.answer
+                      ? <p className="companion-practice-waiting" role="status">Waiting for {companionName}’s feedback.</p>
+                      : <form className="production-answer-form companion-practice-answer-form" onSubmit={onSubmitAnswer}>
+                        <label>English meaning
+                          <input value={answer} maxLength={1000} autoComplete="off" onChange={(event) => onAnswerChange(event.target.value)} placeholder="Type your answer" />
+                        </label>
+                        <p>Use the meaning you remember. Your companion will respond before you move on.</p>
+                        <button type="submit" className="primary-button" disabled={busy || !answer.trim()}>Send answer</button>
+                      </form>}
+                </div>
+                : null}
+      </article>
+    </div>
+    {!waiting && practice.role === 'learner' && revealed && <button type="button" className="primary-button companion-practice-next" disabled={busy} onClick={() => onDecision('next')}>Next word</button>}
+    {!waiting && <button type="button" className="quiet-button companion-practice-end" disabled={busy} onClick={() => onDecision('end')}>End practice</button>}
+  </section>
 }
 
 export function CompanionPanel({
@@ -1314,13 +1411,16 @@ export function CompanionPanel({
     })
   }
 
-  const decidePractice = (decision: 'accept' | 'decline' | 'end' | 'try-again' | 'correct' | 'reveal' | 'retry' | 'next') => {
+  const decidePractice = (decision: PracticeDecision) => {
     if (!selectedChat || !practice) return
     void run(async () => {
       const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/decision`, { decision }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not update the practice session.')
-      setPractice(data.practice.status === 'ended' || data.practice.status === 'completed' || data.practice.status === 'declined' ? null : data.practice)
+      const finished = data.practice.status === 'ended' || data.practice.status === 'completed' || data.practice.status === 'declined'
+      setPractice(finished ? null : data.practice)
       if (decision === 'decline') onNotify('Practice request declined.')
+      else if (data.practice.status === 'completed') onNotify('Practice complete. Nice work.')
+      else if (data.practice.status === 'ended') onNotify('Practice ended.')
     })
   }
 
@@ -1671,7 +1771,7 @@ export function CompanionPanel({
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
-              <div className="companion-chat-header-actions">
+              {!practice && <div className="companion-chat-header-actions">
                 <button className="companion-header-pill" type="button" aria-label="Search this conversation" aria-pressed={searchOpen} disabled={chatUpdating} onClick={toggleSearch}><Search size={14} aria-hidden="true" /><span>Search</span></button>
                 <details className="companion-row-menu companion-chat-menu" onToggle={onChatDetailsToggle}>
                   <summary className="companion-header-pill" aria-label="Conversation actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
@@ -1679,9 +1779,9 @@ export function CompanionPanel({
                     <button type="button" onClick={(event) => { closePopover(event); void requestDeleteChat() }}>Delete conversation</button>
                   </div>
                 </details>
-              </div>
+              </div>}
             </header>
-            {searchOpen && <div className="companion-search-panel" inert={chatUpdating}>
+            {!practice && searchOpen && <div className="companion-search-panel" inert={chatUpdating}>
               <div className="companion-message-search">
                 <Search size={14} aria-hidden="true" />
                 <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setSearchFor(null) }} placeholder="Search words or phrases" aria-label="Search this conversation" maxLength={100} autoFocus />
@@ -1706,69 +1806,18 @@ export function CompanionPanel({
                   : <p className="companion-search-note">No messages match “{searchTerm}”.</p>
                 : <CompanionLoader label="Searching" compact />)}
             </div>}
-            <aside className="companion-practice-nudge" aria-label="Practice suggestion">
+            {!practice && <aside className="companion-practice-nudge" aria-label="Practice suggestion">
               <p>Try using one word you reviewed recently in a sentence. A small practice moment counts.</p>
-            </aside>
-            {practice && <section className="companion-together" aria-label="Practice together">
-              {practice.status === 'pending' && practice.role === 'helper'
-                ? <>
-                  <span className="companion-together-kicker">Practice together</span>
-                  <strong>{selectedChat.companion.username} asked for help with {practice.total} surprise review words.</strong>
-                  <p>Deutsch Deck chose them at random. You will see one at a time; their schedule and review history stay private.</p>
-                  <div className="companion-card-actions">
-                    <button type="button" disabled={busy} onClick={() => decidePractice('accept')}>Help practise</button>
-                    <button type="button" disabled={busy} onClick={() => decidePractice('decline')}>Not now</button>
-                  </div>
-                </>
-                : practice.status === 'pending'
-                  ? <>
-                    <span className="companion-together-kicker">Practice together</span>
-                    <strong>Waiting for {selectedChat.companion.username} to join.</strong>
-                    <p>Deutsch Deck chose {practice.total} reviewed words at random. They can accept or decline; nothing changes in your deck.</p>
-                    <button type="button" className="companion-subtle-button" disabled={busy} onClick={() => decidePractice('end')}>Cancel request</button>
-                  </>
-                  : practice.status === 'active' && practice.card && practice.role === 'helper'
-                    ? <>
-                      <span className="companion-together-kicker">Practice together · {practice.position}/{practice.total}</span>
-                      <p className="companion-together-prompt" lang="de">{practice.card.article ? `${practice.card.article} ${practice.card.prompt}` : practice.card.prompt}</p>
-                      <p className="companion-together-meaning">Expected meaning: {practice.card.meaning}</p>
-                      {practice.answer
-                        ? <>
-                          <p className="companion-together-answer"><span>{selectedChat.companion.username} answered</span>{practice.answer}</p>
-                          {practice.feedback
-                            ? <p className="companion-together-feedback" role="status">{practice.feedback === 'try-again' ? 'They can try another answer.' : practice.feedback === 'correct' ? 'Marked correct. They can continue when ready.' : 'The answer was revealed. They can continue when ready.'}</p>
-                            : <div className="companion-card-actions">
-                              <button type="button" disabled={busy} onClick={() => decidePractice('correct')}><Check size={14} aria-hidden="true" /> Correct</button>
-                              <button type="button" disabled={busy} onClick={() => decidePractice('try-again')}>Try again</button>
-                              <button type="button" disabled={busy} onClick={() => decidePractice('reveal')}>Reveal answer</button>
-                            </div>}
-                        </>
-                        : <p className="companion-together-feedback" role="status">Waiting for their answer.</p>}
-                      <button type="button" className="companion-subtle-button" disabled={busy} onClick={() => decidePractice('end')}>End practice</button>
-                    </>
-                    : practice.status === 'active' && practice.card
-                      ? <>
-                        <span className="companion-together-kicker">Practice together · {practice.position}/{practice.total}</span>
-                        <p className="companion-together-prompt" lang="de">{practice.card.article ? `${practice.card.article} ${practice.card.prompt}` : practice.card.prompt}</p>
-                        {practice.feedback === 'reveal' && <p className="companion-together-meaning">Meaning: {practice.card.meaning}{practice.card.plural ? ` · Plural: ${practice.card.plural}` : ''}</p>}
-                        {practice.feedback === 'correct'
-                          ? <><p className="companion-together-feedback" role="status">Correct. You decide when to continue; this does not change your schedule.</p><button type="button" disabled={busy} onClick={() => decidePractice('next')}>Next word</button></>
-                          : practice.feedback === 'reveal'
-                            ? <><p className="companion-together-feedback" role="status">Answer revealed. Take a moment, then continue when ready.</p><button type="button" disabled={busy} onClick={() => decidePractice('next')}>Next word</button></>
-                            : practice.feedback === 'try-again'
-                              ? <><p className="companion-together-feedback" role="status">Try again when you are ready.</p><button type="button" disabled={busy} onClick={() => decidePractice('retry')}>Try another answer</button></>
-                              : practice.answer
-                                ? <p className="companion-together-feedback" role="status">Waiting for {selectedChat.companion.username}’s feedback.</p>
-                                : <form className="companion-together-answer-form" onSubmit={submitPracticeAnswer}>
-                                  <label>What does it mean?
-                                    <input value={practiceAnswer} maxLength={1000} autoComplete="off" onChange={(event) => setPracticeAnswer(event.target.value)} placeholder="Type the English meaning" />
-                                  </label>
-                                  <button type="submit" disabled={busy || !practiceAnswer.trim()}>Send answer</button>
-                                </form>}
-                        <button type="button" className="companion-subtle-button" disabled={busy} onClick={() => decidePractice('end')}>End practice</button>
-                      </>
-                      : null}
-            </section>}
+            </aside>}
+            {practice ? <CompanionPracticeSession
+              practice={practice}
+              companionName={selectedChat.companion.username}
+              answer={practiceAnswer}
+              busy={busy}
+              onAnswerChange={setPracticeAnswer}
+              onSubmitAnswer={submitPracticeAnswer}
+              onDecision={decidePractice}
+            /> : <>
             {chatError && <p className="companion-alert" role="alert">{chatError}</p>}
             <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
               <ChatMessageList updating={chatUpdating}>
@@ -1891,7 +1940,7 @@ export function CompanionPanel({
             {(chatTyping?.id === selectedChat.id && chatTyping.typing) && <div className="companion-chat-statuses">
               {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-chat-status typing" role="status">{selectedChat.companion.username} is typing…</p>}
             </div>}
-            {!practice && <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>
+            <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>
               <summary><BookOpen size={14} aria-hidden="true" /><span>Practice together</span></summary>
               <div className="companion-practice-fab-panel">
                 <strong>Surprise practice</strong>
@@ -1904,7 +1953,7 @@ export function CompanionPanel({
                 </label>
                 <button type="button" disabled={busy} onClick={() => void startPractice()}>Ask to practise</button>
               </div>
-            </details>}
+            </details>
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
               {replyingTo && <div className="companion-reply-bar" style={replyColor(replyingTo.id)}>
@@ -1932,6 +1981,7 @@ export function CompanionPanel({
               </div>
             </form>
             {reportingMessageId && <ReportPopover key={reportingMessageId} anchorRef={reportAnchor} title="Report message" onClose={closeReport} onSubmit={(reason, details) => reportMessage(reportingMessageId, reason, details)} />}
+            </>}
           </> : <div className="companion-chat-welcome">
             <img className="companion-welcome-logo" src="/app-icon.svg" alt="" />
             <h2>Your learning community</h2>
