@@ -39,10 +39,14 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
 const records = {
   users: [], progress: [], relationships: [], sharedWords: [],
   companionConversations: [], companionMessages: [], companionReports: [],
+  groups: [], groupMembers: [], groupMessages: [], groupReports: [],
 }
 const applyUpdate = (record, update) => {
   for (const [path, value] of Object.entries(update.$set ?? {})) set(record, path, value)
   for (const [path, value] of Object.entries(update.$inc ?? {})) set(record, path, (get(record, path) ?? 0) + value)
+  for (const [path, value] of Object.entries(update.$max ?? {})) {
+    if (get(record, path) === undefined || get(record, path) < value) set(record, path, value)
+  }
   for (const [path, value] of Object.entries(update.$addToSet ?? {})) {
     const current = get(record, path) ?? []
     if (!current.includes(value)) set(record, path, [...current, value])
@@ -54,6 +58,9 @@ const applyUpdate = (record, update) => {
 }
 const collection = (name) => ({
   async createIndex() {},
+  async countDocuments(query) {
+    return records[name].filter((item) => matches(item, query)).length
+  },
   find(query, options = {}) {
     let result = records[name].filter((item) => matches(item, query)).map((item) => ({ ...item }))
     if (options.sort) {
@@ -80,6 +87,9 @@ const collection = (name) => ({
   },
   async insertOne(value) {
     if (records[name].some((item) => (value.emailKey && item.emailKey === value.emailKey)
+      || (value.nameKey && item.nameKey === value.nameKey)
+      || (name === 'groups' && item.ownerId === value.ownerId && item.ownerSlot === value.ownerSlot)
+      || (name === 'groupMembers' && item.groupId === value.groupId && item.userId === value.userId)
       || (value.usernameKey && item.usernameKey === value.usernameKey)
       || (value.pairKey && item.pairKey === value.pairKey
         && (name !== 'companionConversations' || item.connectionId === value.connectionId))
@@ -93,8 +103,22 @@ const collection = (name) => ({
   async updateOne(query, update) {
     const record = records[name].find((item) => matches(item, query))
     if (!record) return { matchedCount: 0, modifiedCount: 0 }
+    if (name === 'groups' && update.$set?.nameKey
+      && records.groups.some((item) => item !== record && item.nameKey === update.$set.nameKey)) {
+      throw Object.assign(new Error('duplicate'), { code: 11000 })
+    }
     applyUpdate(record, update)
     return { matchedCount: 1, modifiedCount: 1 }
+  },
+  async deleteOne(query) {
+    const index = records[name].findIndex((item) => matches(item, query))
+    if (index >= 0) records[name].splice(index, 1)
+    return { deletedCount: index >= 0 ? 1 : 0 }
+  },
+  async deleteMany(query) {
+    const before = records[name].length
+    records[name] = records[name].filter((item) => !matches(item, query))
+    return { deletedCount: before - records[name].length }
   },
   async updateMany(query, update) {
     const found = records[name].filter((item) => matches(item, query))
@@ -116,6 +140,9 @@ process.env.MAILJET_API_KEY = 'test-key'
 process.env.MAILJET_SECRET_KEY = 'test-secret'
 process.env.SENDER_EMAIL = 'sender@example.test'
 process.env.PORT = '0'
+process.env.TRUST_PROXY = '1'
+process.env.MODERATOR_USER_IDS = 'aaaaaaaaaaaaaaaaaaaaaaaa'
+process.env.GROUP_MIN_ACCOUNT_AGE_HOURS = '1'
 const deliveries = []
 let failCompanionDelivery = false
 const nativeFetch = globalThis.fetch
@@ -443,6 +470,207 @@ try {
   assert.equal((await request('/api/companions/request', { id: otherId }, learner.cookie)).status, 201)
   assert.equal((await request('/api/companions/', null, other.cookie)).body.companions[0].status, 'incoming')
   assert.equal(deliveries.length, 5)
+
+  // Groups and moderation
+  const makeUser = async (username) => {
+    const record = {
+      _id: username === 'Moderator' ? new ObjectId('aaaaaaaaaaaaaaaaaaaaaaaa') : new ObjectId(), email: `${username.toLowerCase()}@example.test`, emailKey: `${username.toLowerCase()}@example.test`,
+      username, usernameKey: username.toLowerCase(), avatarSeed: 'pixel-blue',
+      emailVerifiedAt: new Date(), passwordHash: await bcrypt.hash(password, 4),
+    }
+    records.users.push(record)
+    const signedIn = await nativeFetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': `198.51.100.${records.users.length}` },
+      body: JSON.stringify({ email: record.email, password }),
+    })
+    assert.equal(signedIn.status, 200)
+    return { record, id: record._id.toString(), cookie: signedIn.headers.get('set-cookie').split(';')[0] }
+  }
+  const third = await makeUser('Third')
+  const fourth = await makeUser('Fourth')
+  const moderator = await makeUser('Moderator')
+  third.record.username = 'Moderator'
+  assert.equal((await request('/api/moderation/reports', null, third.cookie)).status, 404)
+  third.record.username = 'Third'
+  const learnerRecord = records.users.find((item) => item.email === email)
+  const learnerUser = { record: learnerRecord, cookie: learner.cookie }
+  const otherUser = { record: companion, cookie: other.cookie }
+  const groupPost = async (groupId, who, text, extra = {}) => {
+    delete who.record.lastGroupPostAt
+    return request(`/api/groups/${groupId}/messages`, { text, ...extra }, who.cookie)
+  }
+  const directory = await request('/api/groups', null, learner.cookie)
+  assert.equal(directory.status, 200)
+  assert.equal(directory.body.rulesAccepted, false)
+  assert.equal(directory.body.canModerate, false)
+  assert.equal((await request('/api/groups', null, moderator.cookie)).body.canModerate, true)
+  assert.equal((await request('/api/groups', { name: 'Anfänger' }, learner.cookie)).status, 403)
+  assert.equal((await request('/api/groups', { name: 'Anfänger' }, learner.cookie)).body.code, 'rules')
+  assert.equal((await request('/api/groups/rules', {}, learner.cookie)).status, 200)
+  const newAccount = await request('/api/groups', { name: 'Anfänger' }, learner.cookie)
+  assert.equal(newAccount.body.code, 'new-account')
+  learnerRecord.createdAt = new Date(Date.now() - 48 * 60 * 60 * 1000)
+  const created = await request('/api/groups', { name: 'Anfänger  Treff', description: 'A1 and A2 questions' }, learner.cookie)
+  assert.equal(created.status, 201)
+  assert.equal(created.body.group.name, 'Anfänger Treff')
+  assert.equal(created.body.group.isOwner, true)
+  const groupId = created.body.group.id
+  assert.equal((await request('/api/groups', { name: 'anfänger treff' }, learner.cookie)).status, 409)
+  assert.equal((await request('/api/groups', { name: 'Zweite Gruppe' }, learner.cookie)).status, 201)
+  const thirdGroup = await request('/api/groups', { name: 'Dritte Gruppe' }, learner.cookie)
+  assert.equal(thirdGroup.status, 201)
+  const overLimit = await request('/api/groups', { name: 'Vierte Gruppe' }, learner.cookie)
+  assert.equal(overLimit.status, 409)
+  assert.match(overLimit.body.error, /up to 3 groups/)
+  assert.equal((await request('/api/groups', null, learner.cookie)).body.ownedCount, 3)
+
+  assert.equal((await request(`/api/groups/${groupId}/join`, {}, other.cookie)).body.code, 'rules')
+  await request('/api/groups/rules', {}, other.cookie)
+  assert.equal((await request(`/api/groups/${groupId}/join`, {}, other.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/join`, {}, other.cookie)).status, 200)
+  await request('/api/groups/rules', {}, third.cookie)
+  await request('/api/groups/rules', {}, fourth.cookie)
+  assert.equal((await request(`/api/groups/${groupId}/state`, { state: 'closed' }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/state`, { state: 'closed' }, learner.cookie)).status, 200)
+  const closedJoin = await request(`/api/groups/${groupId}/join`, {}, third.cookie)
+  assert.equal(closedJoin.status, 409)
+  assert.match(closedJoin.body.error, /closed/)
+  assert.equal((await request(`/api/groups/${groupId}/state`, { state: 'open' }, learner.cookie)).status, 200)
+  for (const who of [third, fourth]) assert.equal((await request(`/api/groups/${groupId}/join`, {}, who.cookie)).status, 200)
+  const listed = (await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId)
+  assert.equal(listed.memberCount, 4)
+  assert.equal(listed.joined, true)
+  assert.equal(listed.owner.username, 'learner')
+  const browseGroups = Array.from({ length: 101 }, (_, index) => ({
+    _id: new ObjectId(), name: `Browse ${index}`, ownerId: moderator.id, ownerSlot: index,
+    state: 'open', memberCount: 1, createdAt: new Date(), lastActivityAt: new Date(Date.now() + 60_000),
+  }))
+  records.groups.push(...browseGroups)
+  assert.ok((await request('/api/groups', null, other.cookie)).body.groups.some((item) => item.id === groupId))
+  records.groups = records.groups.filter((item) => !browseGroups.includes(item))
+
+  const outsider = await makeUser('Outsider')
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, outsider.cookie)).status, 404)
+  assert.equal((await groupPost(groupId, learnerUser, 'Hallo zusammen!')).status, 201)
+  const first = await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?')
+  assert.equal(first.status, 201)
+  assert.equal(first.body.message.sender.username, 'Companion')
+  assert.equal((await request(`/api/groups/${groupId}/messages`, { text: 'Too fast' }, other.cookie)).status, 429)
+  assert.equal((await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?')).status, 429)
+  assert.equal((await groupPost(groupId, otherUser, 'a http://a.example http://b.example http://c.example')).status, 400)
+  const answer = await groupPost(groupId, learnerUser, 'Danke!', { replyToId: first.body.message.id })
+  assert.equal(answer.status, 201)
+  assert.equal(answer.body.message.replyTo.text, 'Wie sagt man "thanks"?')
+  const history = await request(`/api/groups/${groupId}/messages`, null, third.cookie)
+  assert.equal(history.body.messages.length, 3)
+  assert.equal(history.body.messages[0].canHide, false)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages[0].canHide, true)
+
+  const mine = await groupPost(groupId, third, 'Ich bin neu hier.')
+  assert.equal((await request(`/api/groups/${groupId}/messages/${mine.body.message.id}/unsend`, {}, other.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/messages/${mine.body.message.id}/unsend`, {}, third.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, other.cookie)).body.messages.at(-1).kind, 'unsent')
+
+  const spam = await groupPost(groupId, otherUser, 'Buy cheap followers')
+  const spamId = spam.body.message.id
+  const reportPath = `/api/groups/${groupId}/messages/${spamId}/report`
+  assert.equal((await request(reportPath, { reason: 'spam' }, other.cookie)).status, 404)
+  assert.equal((await request(reportPath, { reason: 'spam' }, learner.cookie)).status, 201)
+  assert.equal((await request(reportPath, { reason: 'spam' }, learner.cookie)).status, 409)
+  assert.equal((await request(reportPath, { reason: 'spam' }, third.cookie)).status, 201)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, fourth.cookie)).body.messages.at(-1).kind, 'text')
+  assert.equal((await request(reportPath, { reason: 'harassment', details: 'Repeated' }, fourth.cookie)).status, 201)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, fourth.cookie)).body.messages.at(-1).kind, 'hidden')
+
+  assert.equal((await request('/api/moderation/reports', null, learner.cookie)).status, 404)
+  const queue = await request('/api/moderation/reports', null, moderator.cookie)
+  assert.equal(queue.status, 200)
+  const groupReport = queue.body.reports.find((item) => item.kind === 'group')
+  assert.equal(groupReport.group, 'Anfänger Treff')
+  assert.equal(groupReport.reported.username, 'Companion')
+  assert.equal(groupReport.messageText, 'Buy cheap followers')
+  const privateReport = queue.body.reports.find((item) => item.kind === 'private')
+  assert.ok(privateReport)
+  assert.equal((await request(`/api/moderation/reports/private/${privateReport.id}/resolve`, { action: 'hide' }, moderator.cookie)).status, 400)
+  assert.equal((await request(`/api/moderation/reports/private/${privateReport.id}/resolve`, { action: 'dismiss' }, moderator.cookie)).status, 200)
+  assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'suspend' }, moderator.cookie)).status, 400)
+  assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'suspend', days: 3 }, learner.cookie)).status, 404)
+  const longerSuspension = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  companion.groupsSuspendedUntil = longerSuspension
+  assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'suspend', days: 3 }, moderator.cookie)).status, 200)
+  assert.equal(companion.groupsSuspendedUntil.getTime(), longerSuspension.getTime())
+  assert.equal((await request(`/api/moderation/reports/group/${groupReport.id}/resolve`, { action: 'dismiss' }, moderator.cookie)).status, 404)
+  assert.equal((await request('/api/moderation/reports', null, moderator.cookie)).body.reports.length, 0)
+  assert.ok(records.groupReports.every((item) => item.status === 'resolved' && item.deleteAfter > new Date()))
+  const suspended = await groupPost(groupId, otherUser, 'Noch einmal')
+  assert.equal(suspended.status, 403)
+  assert.equal(suspended.body.code, 'suspended')
+  assert.ok((await request('/api/groups', null, other.cookie)).body.suspendedUntil)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, other.cookie)).status, 200)
+
+  assert.equal((await request(`/api/groups/${groupId}/members/remove`, { id: third.id }, other.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/members/remove`, { id: learnerRecord._id.toString() }, learner.cookie)).status, 409)
+  assert.equal((await request(`/api/groups/${groupId}/members/remove`, { id: third.id }, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, third.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/join`, {}, third.cookie)).status, 403)
+  const members = await request(`/api/groups/${groupId}/members`, null, learner.cookie)
+  assert.deepEqual(members.body.members.map((item) => item.username), ['learner', 'Companion', 'Fourth'])
+  assert.equal(members.body.canRemove, true)
+  assert.equal((await request(`/api/groups/${groupId}/leave`, {}, learner.cookie)).status, 409)
+  assert.equal((await request(`/api/groups/${groupId}/leave`, {}, fourth.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, learner.cookie)).body.groups.find((item) => item.id === groupId).memberCount, 2)
+
+  const renamePath = `/api/groups/${groupId}/name`
+  const detailsPath = `/api/groups/${groupId}/details`
+  assert.equal((await request(`/api/groups/${groupId}/info`, null, outsider.cookie)).status, 404)
+  const info = await request(`/api/groups/${groupId}/info`, null, other.cookie)
+  assert.equal(info.body.messageCount, records.groupMessages.filter((item) =>
+    item.groupId === groupId && !item.unsentAt && !item.hiddenAt).length)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: 'No' }, other.cookie)).status, 404)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: 'x'.repeat(201) }, learner.cookie)).status, 400)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: '  Study together  ' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).description, 'Study together')
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages.filter((item) => item.kind === 'system').length, 0)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: '' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).description, '')
+  assert.equal((await request(renamePath, { name: 'New name' }, other.cookie)).status, 404)
+  assert.equal((await request(renamePath, { name: 'ab' }, learner.cookie)).status, 400)
+  assert.equal((await request(renamePath, { name: 'zweite gruppe' }, learner.cookie)).status, 409)
+  assert.equal((await request(renamePath, { name: 'Anfänger Treff' }, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages.filter((item) => item.kind === 'system').length, 0)
+  assert.equal((await request(detailsPath, { name: '  Deutsch   zusammen  ', description: 'Learning together' }, learner.cookie)).status, 200)
+  const updatedGroup = (await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId)
+  assert.equal(updatedGroup.name, 'Deutsch zusammen')
+  assert.equal(updatedGroup.description, 'Learning together')
+  const notice = (await request(`/api/groups/${groupId}/messages`, null, other.cookie)).body.messages.find((item) => item.kind === 'system')
+  assert.equal(notice.text, 'learner changed the group name to Deutsch zusammen.')
+  assert.equal((await request(`/api/groups/${groupId}/messages/${notice.id}/unsend`, {}, learner.cookie)).status, 404)
+  assert.equal((await request(detailsPath, { name: 'Deutsch zusammen', description: 'Practice' }, moderator.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).description, 'Practice')
+  for (let index = 0; index < 55; index++) {
+    records.groupMessages.push({
+      _id: new ObjectId(), groupId, senderId: otherId, text: `Later message ${index}`,
+      createdAt: new Date(Date.now() + (index + 1) * 1000),
+    })
+  }
+  const recentPage = (await request(`/api/groups/${groupId}/messages`, null, other.cookie)).body
+  assert.equal(recentPage.hasMore, true)
+  assert.equal(recentPage.messages.length, 50)
+  const earlierPage = (await request(`/api/groups/${groupId}/messages?before=${encodeURIComponent(recentPage.messages[0].createdAt)}`, null, other.cookie)).body
+  assert.ok(earlierPage.messages.some((item) => item.id === notice.id && item.kind === 'system'))
+
+  assert.equal((await request(`/api/groups/${groupId}/delete`, {}, other.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/delete`, {}, learner.cookie)).status, 200)
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).status, 404)
+  assert.equal(records.groupMessages.filter((item) => item.groupId === groupId).length, 0)
+  assert.equal((await request('/api/groups', { name: 'Neue Gruppe' }, learner.cookie)).status, 201)
+  assert.equal((await request(`/api/groups/${thirdGroup.body.group.id}/delete`, {}, moderator.cookie)).status, 200)
+  const concurrentCreates = await Promise.all(Array.from({ length: 5 }, (_, index) =>
+    request('/api/groups', { name: `Concurrent ${index}` }, fourth.cookie)))
+  assert.equal(concurrentCreates.filter((result) => result.status === 201).length, 3)
+  assert.equal(records.groups.filter((item) => item.ownerId === fourth.id).length, 3)
+
   console.log('Account API integration passed')
 } finally {
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))

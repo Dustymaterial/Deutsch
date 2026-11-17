@@ -2,7 +2,7 @@
 
 A calm German vocabulary trainer for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
 
-Studying is a solo activity by default, and learning is easier with company. Verified learners can **invite companions** for private one-to-one chat, shared words, tap-to-translate and gentle sentence corrections. Everything social is optional, consent-based and free of streaks, rankings and notification pressure. Open, public spaces for learners to share resources and talk are planned and will be opt-in, moderated and separate from private chats.
+Studying is a solo activity by default, and learning is easier with company. Verified learners can **invite companions** for private one-to-one chat, shared words, tap-to-translate and gentle sentence corrections. Everything social is optional, consent-based and free of streaks, rankings and notification pressure. Learners can also join or create small **groups**, open spaces for questions and resources. Groups are opt-in, have simple rules and reporting, and stay separate from private chats.
 
 ![Deutsch Daily Deck showing a German vocabulary card and account setup](./public/Deck.PNG)
 
@@ -18,6 +18,8 @@ Requirements: Node.js 22.12 or newer.
 Local study works without an account server. To enable account creation and cloud sync, copy `.env.example` to `.env` and set `MONGODB_URI` to your full MongoDB Atlas connection string, including username and password, with the database path `/deutsch`. URL-encode special characters in the credentials and put query options after a single `?`. The server explicitly uses only the `deutsch` database, where it creates `users`, `progress`, `relationships`, and `sessions` collections. Use a rotated database user restricted to that database, not one with broad access to other databases. Set `SESSION_SECRET` to a random secret of at least 32 characters (for example, generate one with `openssl rand -base64 32`). The `.env` file is ignored by git and the MongoDB URI is only read by the server, not sent to the browser.
 
 Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and `SENDER_EMAIL` on the server to send account codes and optional companion request notifications. Verify the sender or domain with Mailjet. Without these settings, existing accounts can still sign in, but new registrations and code requests are unavailable; companion requests remain visible in the app. Mailjet receives the recipient address and email content, including the recipient's avatar and, as applicable, the one-time code or sender's username. Never put credentials in the client or commit them.
+
+Set `MODERATOR_USER_IDS` to a comma-separated list of trusted accounts' MongoDB user IDs to give them the **Moderation** view. Do not use usernames: they can change. `GROUP_MIN_ACCOUNT_AGE_HOURS` sets how long a new account waits before it can create, join or post in groups (default 24; 0 in local development).
 
 The development command starts both the Vite app and account API:
 
@@ -275,9 +277,21 @@ A companion can review a text message with **Suggest edit** or **Looks good**. A
 
 Choose an active word in your deck to share it with a connected companion, with an optional note of up to 240 characters. The recipient sees a preview and chooses **Add to my deck** or **Not now**; shared words never enter their deck automatically. Adding creates a fresh card with no copied review history or schedule, and keeps the sender and note as source attribution. Shares expire after 30 days.
 
+### Groups
+
+Groups are open spaces for any verified learner, separate from private chat. Open them from the **Groups** tab in the companion workspace.
+
+- **Create and join.** Any verified learner can create up to **3 groups** (a name and an optional description), and others can find and join them. A group holds up to 100 members and a learner can be in up to 20. Delete a group to free a slot.
+- **Open or closed.** The creator can close a group so nobody new can join; members stay and can keep talking. The creator can open it again.
+- **Rules first.** Before a learner's first create or join, they read and agree to short group rules. Creating, joining and posting need an account at least 24 hours old (`GROUP_MIN_ACCOUNT_AGE_HOURS`).
+- **Messages.** Plain text up to 1,000 characters with replies. Messages are visible to every member, so a note in the group says so. Learners can unsend their own messages. At most two links per message, no repeated message within a minute, a short pause between messages and 60 messages per hour.
+- **Owners.** A group's creator can edit its name and description, hide a message, remove a member (who cannot rejoin), close or open the group, or delete it. Members see a chat notice when the name changes; the latest 1,000 notices are retained with the group. Select the group name to see its description, creation date, member count, and count of visible messages (excluding hidden and unsent messages).
+- **Reporting and moderation.** Any member can report another member's message. Three reports from different members hide it automatically. Reports from groups and from private chats appear in the **Moderation** view for the accounts listed in `MODERATOR_USER_IDS`, who can dismiss, hide the message or suspend the learner from groups for 1 to 90 days. Closed reports are deleted 90 days later, and group messages are deleted after one year.
+- **Privacy.** Members see only usernames and avatars. Group messages are never sent to a third-party or AI service. Tap-to-translate and sentence check are not yet available in groups.
+
 ### Confirmation, limits and email
 
-- Actions that remove data, cannot easily be undone, or affect another learner ask for confirmation in a dialog first: deleting a conversation, unsending a message, blocking, removing, unblocking, declining or cancelling a request, sending a reminder, sharing a word, setting a shared word aside, resetting review progress, replacing your deck or adding the starter pack, and signing out.
+- Actions that remove data, cannot easily be undone, or affect another learner ask for confirmation in a dialog first: deleting a conversation or group, unsending or hiding a message, removing a group member, closing a group, suspending a learner, blocking, removing, unblocking, declining or cancelling a request, sending a reminder, sharing a word, setting a shared word aside, resetting review progress, replacing your deck or adding the starter pack, and signing out.
 - Limits: 300 companion actions per account per 15 minutes (read-only refreshes do not count); 60 messages per account per hour, including word cards and reviews; ten requests and ten word shares per account per hour; one reminder per companion per 24 hours.
 - Companion activity emails (requests, shared-word notices, and reminders) are on by default and can be turned off in the companion workspace. At most five notification emails are sent to a recipient per hour. Delivery is not guaranteed, and shared-word emails do not include the word or note. Requests and activity remain visible in the app if email is disabled or fails.
 

@@ -330,7 +330,7 @@ function AboutContent({ onDone, introduction = false }: { onDone: () => void; in
       </section>
       <section>
         <h2>Learning with others</h2>
-        <p>Companions are optional and by invitation. You choose who you connect with, chat privately, and share words and gentle corrections. Nothing is posted publicly, and your messages are never sent to AI or other services.</p>
+        <p>Companions are optional and by invitation: you choose who you connect with, chat privately, and share words and gentle corrections. Groups are open spaces that any verified learner can join, so share only what you are happy for members to read. Your messages are never sent to AI or other services.</p>
       </section>
       <section>
         <h2>What Deutsch Deck isn’t</h2>
