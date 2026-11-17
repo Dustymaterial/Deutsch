@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
-import { ArrowRight, ArrowUpRight, Clock3, MessagesSquare } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, Clock3, MessagesSquare } from 'lucide-react'
 import {
   detectWeakPattern,
   getCardsIntroducedToday,
@@ -2622,8 +2622,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             {introduction.warning && <p role="status">{introduction.warning}</p>}
           </div>
         ) : <div ref={studyAreaRef} className="empty-state">
-          <button type="button" className="quiet-button" onClick={() => switchStudyActivity({ learn: true, mode: studyMode })}>Learn new words</button>
-          <span className="complete-mark" aria-hidden="true">✓</span>
+          <span className="complete-mark" aria-hidden="true"><Check size={20} strokeWidth={1.8} /></span>
           <h1>That’s a good moment to pause.</h1>
           <p className="session-note">
             {nextDueCard
@@ -2688,7 +2687,6 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
               {introducedTodayCards.length > 0 && (
                 <button type="button" className="quiet-button" onClick={startTodayReviewLoop}>
                   Review today’s {introducedTodayCards.length} {introducedTodayCards.length === 1 ? 'word' : 'words'} again
-                  <small>Repeat loop · no schedule changes</small>
                 </button>
               )}
             </section>
