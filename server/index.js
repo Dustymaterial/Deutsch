@@ -134,6 +134,7 @@ const changePasswordSchema = z.object({
 })
 
 const publicUser = (user) => ({
+  id: user._id.toString(),
   username: user.username,
   email: user.email,
   avatarSeed: user.avatarSeed,
