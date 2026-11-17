@@ -1053,9 +1053,7 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
     <aside className="companion-practice-nudge group-rules-note" aria-label="Group reminder">
       <p>Everyone in this group can read what you write. Be kind, stay on topic, and report anything that is not.</p>
     </aside>
-    {updating && <p className="companion-empty-note" role="status">Updating messages…</p>}
     {error && <p className="companion-alert" role="alert">{error}</p>}
-    {typing.length > 0 && <p className="companion-typing" role="status">{typing.slice(0, 3).map((person) => person.username).join(', ')}{typing.length > 3 ? ` and ${typing.length - 3} more` : ''} {typing.length === 1 ? 'is' : 'are'} typing…</p>}
     <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating}>
       <ChatMessageList updating={updating}>
       {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder || updating} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
@@ -1165,6 +1163,10 @@ export function GroupConversation({ group, cache, canModerate, onClose, reload, 
         if (element) element.scrollTo({ top: element.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
       }}><ChevronDown size={18} aria-hidden="true" /></button>}
     </div>
+    {(updating || typing.length > 0) && <div className="companion-chat-statuses">
+      {updating && <p className="companion-chat-status updating" role="status">Updating messages…</p>}
+      {typing.length > 0 && <p className="companion-chat-status typing" role="status">{typing.slice(0, 3).map((person) => person.username).join(', ')}{typing.length > 3 ? ` and ${typing.length - 3} more` : ''} {typing.length === 1 ? 'is' : 'are'} typing…</p>}
+    </div>}
     <form className="companion-chat-composer" onSubmit={send} inert={updating}>
       <label className="companion-visually-hidden" htmlFor="group-message">Message {group.name}</label>
       {replyTo && <div className="companion-reply-bar" style={replyColor(replyTo.id)}>

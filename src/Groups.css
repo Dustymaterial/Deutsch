@@ -411,8 +411,25 @@
 .group-mention-suggestions {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 6px;
 }
 
 .group-mention-suggestions:empty { display: none; }
+
+.group-mention-suggestions button {
+  min-height: 32px;
+  max-width: 100%;
+  padding: 5px 12px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: #edf2f7;
+  color: #3569a6;
+  font: 600 0.72rem system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.group-mention-suggestions button:hover { background: #dce9f5; }

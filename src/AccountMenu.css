@@ -670,6 +670,7 @@
 .companion-chat-message-list {
   display: flex;
   flex-direction: column;
+  flex: 1 0 auto;
   min-width: 0;
   width: 100%;
   margin: 0;
@@ -695,12 +696,26 @@
   cursor: pointer;
 }
 
-.companion-typing {
-  margin: 0;
-  padding: 3px 24px;
-  color: #766e77;
-  font-size: 0.7rem;
+.companion-chat-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 2px 18px 4px;
+  background: #fff;
 }
+
+.companion-chat-status {
+  margin: 0;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #eff1ef;
+  color: #565c58;
+  font: 600 0.65rem/1.35 system-ui, sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.companion-chat-status.typing { background: #edf2f7; color: #3569a6; }
 
 .companion-load-older {
   align-self: flex-start;
