@@ -330,6 +330,26 @@ try {
   assert.equal((await request('/api/companions/unread', null, learner.cookie)).body.count, 1)
   assert.equal((await request('/api/companions/unread', null, other.cookie)).body.count, 0)
   const messagesPath = `/api/companions/chats/${openedChat.body.id}/messages`
+  const readPath = `/api/companions/chats/${openedChat.body.id}/read`
+  const privateReadRecord = records.companionConversations.find((item) => item._id.toString() === openedChat.body.id)
+  const originalRead = privateReadRecord.readAt[learnerId]
+  const originalReadThrough = privateReadRecord.readThrough[learnerId]
+  assert.equal((await request(`${messagesPath}?read=0`, null, learner.cookie)).status, 200)
+  assert.equal((await request('/api/companions/unread', null, learner.cookie)).body.count, 1)
+  assert.equal((await request(readPath, { id: 'invalid' }, learner.cookie)).status, 400)
+  assert.equal((await request(readPath, { id: new ObjectId().toString() }, learner.cookie)).status, 404)
+  assert.equal((await request(readPath, { id: reply.body.message.id }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/companions/unread', null, learner.cookie)).body.count, 0)
+  const latestRead = privateReadRecord.readAt[learnerId]
+  const latestReadThrough = privateReadRecord.readThrough[learnerId]
+  await request(readPath, { id: sentMessage.body.message.id }, learner.cookie)
+  assert.equal(privateReadRecord.readAt[learnerId].getTime(), latestRead.getTime())
+  assert.equal(privateReadRecord.readThrough[learnerId], latestReadThrough)
+  privateReadRecord.readAt[learnerId] = new Date(Date.parse(reply.body.message.createdAt) + 1000)
+  privateReadRecord.readThrough[learnerId] = `${sentMessage.body.message.createdAt}/${sentMessage.body.message.id}`
+  assert.equal((await request('/api/companions/unread', null, learner.cookie)).body.count, 0)
+  privateReadRecord.readAt[learnerId] = originalRead
+  privateReadRecord.readThrough[learnerId] = originalReadThrough
   const wordCard = { prompt: 'die Lektion', article: 'die', meaning: 'lesson', example: 'Die Lektion ist kurz.', category: 'noun' }
   const wordMessage = await request(messagesPath, { card: wordCard }, learner.cookie)
   assert.equal(wordMessage.status, 201)
@@ -438,6 +458,35 @@ try {
   assert.equal((await request(searchPath('shared'), null, other.cookie)).body.messages.length, 0)
   assert.equal((await request(searchPath('oops'), null, other.cookie)).body.messages.length, 0)
   assert.equal((await request(`/api/companions/chats/${new ObjectId().toString()}/search?q=danke`, null, other.cookie)).status, 404)
+  const privateTieTime = new Date(Date.now() + 1000)
+  const privateTied = Array.from({ length: 60 }, (_, index) => ({
+    _id: new ObjectId(), conversationId: openedChat.body.id, senderId: otherId,
+    text: `Tied ${index}`, createdAt: privateTieTime,
+  }))
+  const privateConversation = records.companionConversations.find((item) => item._id.toString() === openedChat.body.id)
+  const previousReadAt = privateConversation.readAt[learnerId]
+  const previousReadThrough = privateConversation.readThrough[learnerId]
+  records.companionMessages.push(...privateTied)
+  const privateTiePage = (await request(messagesPath, null, learner.cookie)).body
+  const privateOldest = privateTiePage.messages[0]
+  const privateNextPage = (await request(`${messagesPath}?before=${encodeURIComponent(privateOldest.createdAt)}&beforeId=${privateOldest.id}`, null, learner.cookie)).body
+  const privateIds = [...privateTiePage.messages, ...privateNextPage.messages].map((message) => message.id)
+  assert.equal(new Set(privateIds).size, privateIds.length)
+  assert.ok(privateTied.every((message) => privateIds.includes(message._id.toString())))
+  assert.equal((await request(`${messagesPath}?beforeId=bad`, null, learner.cookie)).status, 400)
+  const sameTimeNewMessage = {
+    _id: new ObjectId(), conversationId: openedChat.body.id, senderId: otherId,
+    text: 'New at the same time', createdAt: privateTieTime,
+  }
+  records.companionMessages.push(sameTimeNewMessage)
+  assert.equal((await request('/api/companions/unread', null, learner.cookie)).body.count, 1)
+  assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats[0].unread, true)
+  assert.equal((await request(readPath, { id: sameTimeNewMessage._id.toString() }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/companions/unread', null, learner.cookie)).body.count, 0)
+  records.companionMessages = records.companionMessages.filter((message) => !privateTied.includes(message))
+  records.companionMessages = records.companionMessages.filter((message) => message !== sameTimeNewMessage)
+  privateConversation.readAt[learnerId] = previousReadAt
+  privateConversation.readThrough[learnerId] = previousReadThrough
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/delete`, {}, learner.cookie)).status, 200)
   assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats.length, 0)
   assert.equal((await request('/api/companions/chats', null, other.cookie)).body.chats.length, 1)
@@ -610,6 +659,17 @@ try {
   assert.equal(thirdEntry.lastMessage.text, 'Danke!')
   assert.equal(thirdEntry.lastMessage.sender, 'learner')
   assert.equal((await groupEntry(learner.cookie)).unreadCount, 1)
+  const groupReadPath = `/api/groups/${groupId}/read`
+  assert.equal((await request(`/api/groups/${groupId}/messages?read=0`, null, third.cookie)).status, 200)
+  assert.equal((await groupEntry(third.cookie)).unreadCount, 3)
+  assert.equal((await request(groupReadPath, { id: 'invalid' }, third.cookie)).status, 400)
+  assert.equal((await request(groupReadPath, { id: answer.body.message.id }, outsider.cookie)).status, 404)
+  assert.equal((await request(groupReadPath, { id: answer.body.message.id }, third.cookie)).status, 200)
+  assert.equal((await groupEntry(third.cookie)).unreadCount, 0)
+  const thirdMembership = records.groupMembers.find((item) => item.groupId === groupId && item.userId === third.id)
+  const readThrough = thirdMembership.readThrough
+  await request(groupReadPath, { id: first.body.message.id }, third.cookie)
+  assert.equal(thirdMembership.readThrough, readThrough)
   const history = await request(`/api/groups/${groupId}/messages`, null, third.cookie)
   assert.equal(history.body.messages.length, 3)
   assert.equal(history.body.messages[0].canHide, false)

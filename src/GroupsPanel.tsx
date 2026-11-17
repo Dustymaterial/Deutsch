@@ -14,9 +14,12 @@ import { correctionTagLabels, reactionOptions } from './chatOptions'
 import type { Card } from './deckImport'
 import type { SharedWordPreview } from './CompanionPanel'
 import {
-  errorMessage, groupsRequest,
+  errorMessage, groupsRequest, GroupsApiError,
   type GroupDirectory, type GroupMessage, type GroupReview, type GroupSummary, type Profile,
 } from './groupsApi'
+import type { ChatMemoryCache } from './chatMemoryCache'
+import { useVisibleChatRead } from './useVisibleChatRead'
+import { ChatMessageList } from './ChatMessageList'
 import './Groups.css'
 
 const rulesText = 'Groups are open to every member, so anything you post can be read by all of them. Be kind and keep it about learning German. No spam, advertising, personal details or harassment. You must be at least 13. Group owners and moderators can hide messages and remove people, and you can report any message.'
@@ -204,8 +207,9 @@ const mergeMessages = (current: GroupMessage[], incoming: GroupMessage[]) => {
   return [...map.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))
 }
 
-export function GroupConversation({ group, canModerate, onClose, reload, wordTools, shareableCards, cardPayload, cardInDeck, onReceiveWord, onNotify }: {
+export function GroupConversation({ group, cache, canModerate, onClose, reload, wordTools, shareableCards, cardPayload, cardInDeck, onReceiveWord, onNotify }: {
   group: GroupSummary
+  cache: ChatMemoryCache<GroupMessage>
   canModerate: boolean
   onClose: () => void
   reload: () => Promise<void>
@@ -217,9 +221,12 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
   onNotify: (message: string) => void
 }) {
   const confirmDialog = useConfirm()
-  const [messages, setMessages] = useState<GroupMessage[]>([])
-  const [loaded, setLoaded] = useState(false)
-  const [hasOlder, setHasOlder] = useState(false)
+  const [cachedPage] = useState(() => cache.get(group.id))
+  const [messages, setMessages] = useState<GroupMessage[]>(cachedPage?.messages ?? [])
+  const [loaded, setLoaded] = useState(Boolean(cachedPage))
+  const [updating, setUpdating] = useState(Boolean(cachedPage))
+  const [unavailable, setUnavailable] = useState(false)
+  const [hasOlder, setHasOlder] = useState(cachedPage?.hasMore ?? false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [draft, setDraft] = useState('')
   const [replyTo, setReplyTo] = useState<GroupMessage | null>(null)
@@ -254,6 +261,9 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
   const stream = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const firstLoad = useRef(true)
+  const loadSequence = useRef(0)
+  const loadingRef = useRef(false)
+  const accessDenied = useRef(false)
   const directorySignature = useRef<string | null>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const searchTerm = searchQuery.trim()
@@ -290,9 +300,17 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
   }, [group.id, searchOpen, searchTerm])
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current
+    loadingRef.current = true
     try {
-      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary }>(`/${group.id}/messages`)
-      setMessages((current) => mergeMessages(current, data.messages))
+      const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary }>(`/${group.id}/messages?read=0`)
+      if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean' || !data.group) {
+        throw new Error('The group service returned an incomplete response.')
+      }
+      if (sequence !== loadSequence.current) return
+      cache.set(group.id, { messages: data.messages, hasMore: data.hasMore })
+      const initialLoad = firstLoad.current
+      setMessages((current) => initialLoad ? data.messages : mergeMessages(current, data.messages))
       const signature = JSON.stringify([data.messages, data.group.name, data.group.description])
       if (directorySignature.current !== signature) {
         directorySignature.current = signature
@@ -303,12 +321,44 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
         setHasOlder(data.hasMore)
       }
       setLoaded(true)
+      setUpdating(false)
       setError(null)
     } catch (failure) {
+      if (sequence !== loadSequence.current) return
+      const denied = failure instanceof GroupsApiError && [401, 403, 404].includes(failure.status)
+      if (firstLoad.current || denied) {
+        cache.delete(group.id)
+        setMessages([])
+      }
+      if (denied) {
+        accessDenied.current = true
+        setSearchState(null)
+        setUnavailable(true)
+      }
+      setUpdating(false)
       setError(errorMessage(failure, 'Could not load messages.'))
       setLoaded(true)
+    } finally {
+      if (sequence === loadSequence.current) loadingRef.current = false
     }
-  }, [group.id, reload])
+  }, [cache, group.id, reload])
+
+  const markGroupRead = useCallback(async (id: string) => {
+    await groupsRequest(`/${group.id}/read`, { id })
+  }, [group.id])
+  const onGroupRead = useCallback(() => { void reload() }, [reload])
+  const onGroupReadError = useCallback((failure: unknown) => {
+    setError(errorMessage(failure, 'Could not mark messages as read.'))
+  }, [])
+  useVisibleChatRead({
+    chatKey: group.id,
+    messageId: messages.findLast((message) => message.kind !== 'system')?.id ?? null,
+    enabled: loaded && !updating && !unavailable,
+    stream,
+    markRead: markGroupRead,
+    onRead: onGroupRead,
+    onError: onGroupReadError,
+  })
 
   useEffect(() => {
     if (!popover) return
@@ -330,7 +380,7 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
 
   useEffect(() => {
     const refresh = () => {
-      if (document.visibilityState === 'visible') void load()
+      if (document.visibilityState === 'visible' && !loadingRef.current && !accessDenied.current) void load()
     }
     const first = window.setTimeout(refresh, 0)
     const timer = window.setInterval(refresh, 5000)
@@ -339,6 +389,8 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
       window.clearTimeout(first)
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', refresh)
+      loadSequence.current += 1
+      loadingRef.current = false
     }
   }, [load])
 
@@ -616,6 +668,7 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
     if (!ok) return
     await run(async () => {
       await groupsRequest(`/${group.id}/delete`, {})
+      cache.delete(group.id)
       onClose()
       await reload()
     })
@@ -628,6 +681,7 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
     }
     await run(async () => {
       await groupsRequest(`/${group.id}/leave`, {})
+      cache.delete(group.id)
       onClose()
       await reload()
     })
@@ -685,6 +739,8 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
     }
   }
 
+  if (unavailable) return <p className="companion-alert" role="alert">{error ?? 'This group is unavailable.'}</p>
+
   return <>
     <header className="companion-chat-header">
       <span className="group-avatar" aria-hidden="true">{group.name.slice(0, 1).toLocaleUpperCase()}</span>
@@ -693,7 +749,7 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
         <span className={`companion-status-tag ${group.state === 'open' ? 'connected' : 'outgoing'}`}>{group.state === 'open' ? 'Open' : 'Closed'}</span>
       </div>
       <div className="companion-chat-header-actions">
-        <button className="companion-header-pill" type="button" aria-label="Search this group" aria-pressed={searchOpen} onClick={() => { setSearchOpen((open) => !open); setSearchError(null) }}><Search size={14} aria-hidden="true" /><span>Search</span></button>
+        <button className="companion-header-pill" type="button" aria-label="Search this group" aria-pressed={searchOpen} disabled={updating} onClick={() => { setSearchOpen((open) => !open); setSearchError(null) }}><Search size={14} aria-hidden="true" /><span>Search</span></button>
         <button className="companion-header-pill" type="button" aria-pressed={membersOpen} onClick={toggleMembers}><Users size={14} aria-hidden="true" /><span>{group.memberCount}</span></button>
         <details className="companion-row-menu companion-chat-menu">
           <summary className="companion-header-pill" aria-label="Group actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
@@ -777,8 +833,10 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
     <aside className="companion-practice-nudge group-rules-note" aria-label="Group reminder">
       <p>Everyone in this group can read what you write. Be kind, stay on topic, and report anything that is not.</p>
     </aside>
+    {updating && <p className="companion-empty-note" role="status">Updating messages…</p>}
     {error && <p className="companion-alert" role="alert">{error}</p>}
-    <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite">
+    <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating}>
+      <ChatMessageList updating={updating}>
       {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
       {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0
         ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Say hello to the group.</p><span>Ask a question, share a tip, or welcome someone new.</span></div>
@@ -880,8 +938,9 @@ export function GroupConversation({ group, canModerate, onClose, reload, wordToo
             </div>}
           </div>
         </article>)}
+      </ChatMessageList>
     </div>
-    <form className="companion-chat-composer" onSubmit={send}>
+    <form className="companion-chat-composer" onSubmit={send} inert={updating}>
       <label className="companion-visually-hidden" htmlFor="group-message">Message {group.name}</label>
       {replyTo && <div className="companion-reply-bar" style={replyColor(replyTo.id)}>
         <span>Replying to <strong>{replyTo.isMine ? 'yourself' : replyTo.sender?.username ?? 'a member'}</strong><em>{replyTo.text}</em></span>

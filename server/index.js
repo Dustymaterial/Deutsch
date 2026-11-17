@@ -279,7 +279,7 @@ if (mongoConnectionString) {
     sharedWords.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     conversations.createIndex({ pairKey: 1, connectionId: 1 }, { unique: true }),
     conversations.createIndex({ participants: 1, updatedAt: -1 }),
-    companionMessages.createIndex({ conversationId: 1, createdAt: 1 }),
+    companionMessages.createIndex({ conversationId: 1, createdAt: 1, _id: 1 }),
     companionReports.createIndex({ reporterId: 1, messageId: 1 }, { unique: true }),
     companionReports.createIndex({ createdAt: -1 }),
     companionReports.createIndex({ deleteAfter: 1 }, { expireAfterSeconds: 0 }),

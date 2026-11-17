@@ -48,7 +48,7 @@ export function createCompanionRouter({
     windowMs: 15 * 60 * 1000,
     limit: 300,
     keyGenerator: (req) => req.accountUser._id.toString(),
-    skip: (req) => req.method === 'GET',
+    skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/chats\/[^/]+\/read$/.test(req.path)),
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { error: 'Too many companion actions. Please try again later.' },
@@ -214,12 +214,22 @@ export function createCompanionRouter({
 
   const unreadLimit = 99
   const unreadCountFor = async (conversation, me) => {
-    const since = [conversation.readAt?.[me], conversation.hiddenAt?.[me]]
+    const readThrough = conversation.readThrough?.[me]
+    const readAt = conversation.readAt?.[me]
+    const hiddenAt = conversation.hiddenAt?.[me]
+    const cursorTime = readThrough ? new Date(readThrough.slice(0, 24)) : null
+    const since = [hiddenAt, ...(!cursorTime || (readAt && readAt > cursorTime) ? [readAt] : [])]
       .filter(Boolean).sort((a, b) => b - a)[0]
     const found = await companionMessages.find({
       conversationId: conversation._id.toString(),
       senderId: { $ne: me },
       ...(since ? { createdAt: { $gt: since } } : {}),
+      ...(readThrough ? {
+        $or: [
+          { createdAt: { $gt: new Date(readThrough.slice(0, 24)) } },
+          { createdAt: new Date(readThrough.slice(0, 24)), _id: { $gt: new ObjectId(readThrough.slice(25)) } },
+        ],
+      } : {}),
     }, { limit: unreadLimit }).toArray()
     return found.filter((message) => !message.unsentAt).length
   }
@@ -253,7 +263,7 @@ export function createCompanionRouter({
       if (!conversation) return null
       const conversationId = conversation._id.toString()
       const [lastMessage, companion, unreadCount] = await Promise.all([
-        companionMessages.findOne({ conversationId }, { sort: { createdAt: -1 } }),
+        companionMessages.findOne({ conversationId }, { sort: { createdAt: -1, _id: -1 } }),
         users.findOne({ _id: new ObjectId(them) }, { projection: { username: 1, avatarSeed: 1 } }),
         unreadCountFor(conversation, me),
       ])
@@ -264,12 +274,12 @@ export function createCompanionRouter({
         id: conversationId,
         companion: profile(companion),
         lastMessage: lastMessage ? {
+          id: lastMessage._id.toString(),
           text: lastMessage.unsentAt ? unsentText : lastMessage.text,
           isMine: lastMessage.senderId === me,
           createdAt: lastMessage.createdAt.toISOString(),
         } : null,
-        unread: Boolean(lastMessage && lastMessage.senderId !== me
-          && (!conversation.readAt?.[me] || lastMessage.createdAt > conversation.readAt[me])),
+        unread: unreadCount > 0,
         unreadCount,
         updatedAt: conversation.updatedAt.toISOString(),
       }
@@ -302,28 +312,61 @@ export function createCompanionRouter({
     const hiddenAt = active.conversation.hiddenAt?.[me]
     const before = req.query.before ? new Date(String(req.query.before)) : null
     if (before && !Number.isFinite(before.getTime())) return res.status(400).json({ error: 'Choose a valid message time.' })
+    const beforeId = req.query.beforeId
+    if (beforeId !== undefined && (!before || typeof beforeId !== 'string' || !objectIdSchema.safeParse(beforeId).success)) {
+      return res.status(400).json({ error: 'Choose a valid message cursor.' })
+    }
     const createdAt = {
       ...(hiddenAt ? { $gt: hiddenAt } : {}),
-      ...(before ? { $lt: before } : {}),
+      ...(before && !beforeId ? { $lt: before } : {}),
     }
     const filter = {
       conversationId,
       ...(Object.keys(createdAt).length ? { createdAt } : {}),
+      ...(before && beforeId ? {
+        $or: [{ createdAt: { $lt: before } }, { createdAt: before, _id: { $lt: new ObjectId(beforeId) } }],
+      } : {}),
     }
     const found = await companionMessages.find(
       filter,
-      { sort: { createdAt: -1 }, limit: 50 },
+      { sort: { createdAt: -1, _id: -1 }, limit: 51 },
     ).toArray()
-    if (!before && found[0]) {
+    if (!before && req.query.read !== '0' && found[0]) {
       await conversations.updateOne({ _id: active.conversation._id }, {
-        $set: { [`readAt.${me}`]: found[0].createdAt },
+        $max: {
+          [`readAt.${me}`]: found[0].createdAt,
+          [`readThrough.${me}`]: `${found[0].createdAt.toISOString()}/${found[0]._id.toString()}`,
+        },
       })
     }
-    const messages = found.reverse()
+    const messages = found.slice(0, 50).reverse()
     res.json({
-      hasMore: messages.length === 50,
+      hasMore: found.length > 50,
       messages: messages.map((message) => serializeMessage(message, me)),
     })
+  })
+
+  router.post('/chats/:id/read', rateLimit({
+    windowMs: 60 * 1000, limit: 120,
+    keyGenerator: (req) => req.accountUser._id.toString(),
+    standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Too many read updates. Please try again later.' },
+  }), async (req, res) => {
+    const result = targetSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid message.' })
+    const me = req.accountUser._id.toString()
+    const active = await activeConversation(me, req.params.id)
+    if (!active) return unavailable(res)
+    const message = await companionMessages.findOne({ _id: new ObjectId(result.data.id), conversationId: active.conversation._id.toString() })
+    const hiddenAt = active.conversation.hiddenAt?.[me]
+    if (!message || (hiddenAt && message.createdAt <= hiddenAt)) return unavailable(res)
+    await conversations.updateOne({ _id: active.conversation._id }, {
+      $max: {
+        [`readAt.${me}`]: message.createdAt,
+        [`readThrough.${me}`]: `${message.createdAt.toISOString()}/${message._id.toString()}`,
+      },
+    })
+    res.json({ ok: true })
   })
 
   router.get('/chats/:id/search', async (req, res) => {
@@ -379,8 +422,8 @@ export function createCompanionRouter({
       $set: {
         updatedAt: now,
         lastMessageAt: now,
-        [`readAt.${me}`]: now,
       },
+      $max: { [`readAt.${me}`]: now, [`readThrough.${me}`]: `${now.toISOString()}/${insertedId.toString()}` },
     })
     res.status(201).json({ message: serializeMessage({ ...message, _id: insertedId }, me) })
   })

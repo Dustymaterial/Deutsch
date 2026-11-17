@@ -61,8 +61,10 @@ export type GroupReview = {
 
 export class GroupsApiError extends Error {
   code?: string
-  constructor(message: string, code?: string) {
+  status: number
+  constructor(message: string, status: number, code?: string) {
     super(message)
+    this.status = status
     this.code = code
   }
 }
@@ -78,14 +80,15 @@ export async function groupsRequest<T>(path: string, body?: object, base = '/api
     data = JSON.parse(await response.text())
   } catch {
     if (response.status === 404) {
-      throw new GroupsApiError('The groups service was not found. Restart the API server and try again.')
+      throw new GroupsApiError('The groups service was not found. Restart the API server and try again.', response.status)
     }
-    throw new GroupsApiError(`The groups service returned an unexpected response (HTTP ${response.status}).`)
+    throw new GroupsApiError(`The groups service returned an unexpected response (HTTP ${response.status}).`, response.status)
   }
   if (!response.ok) {
     const details = data && typeof data === 'object' ? data as { error?: unknown; code?: unknown } : {}
     throw new GroupsApiError(
       typeof details.error === 'string' ? details.error : 'Could not complete the request.',
+      response.status,
       typeof details.code === 'string' ? details.code : undefined,
     )
   }

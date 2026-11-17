@@ -2344,6 +2344,7 @@ function App() {
 
   const companionWorkspace = (
     <CompanionPanel
+      key={accountUser?.email ?? 'signed-out'}
       cards={cards}
       onReceiveWord={receiveSharedWord}
       onAddStarterWord={addStarterWord}
