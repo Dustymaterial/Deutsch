@@ -283,6 +283,9 @@ try {
   const reply = await request(`/api/companions/chats/${openedChat.body.id}/messages`, { text: 'Danke!' }, other.cookie)
   assert.equal(reply.status, 201)
   assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats[0].unread, true)
+  assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats[0].unreadCount, 1)
+  assert.equal((await request('/api/companions/unread', null, learner.cookie)).body.count, 1)
+  assert.equal((await request('/api/companions/unread', null, other.cookie)).body.count, 0)
   const messagesPath = `/api/companions/chats/${openedChat.body.id}/messages`
   const wordCard = { prompt: 'die Lektion', article: 'die', meaning: 'lesson', example: 'Die Lektion ist kurz.', category: 'noun' }
   const wordMessage = await request(messagesPath, { card: wordCard }, learner.cookie)
