@@ -1,6 +1,7 @@
 export type CachedChatPage<T> = {
   messages: T[]
   hasMore: boolean
+  cursor?: string
 }
 
 export class ChatMemoryCache<T> {
@@ -30,7 +31,7 @@ export class ChatMemoryCache<T> {
   set(id: string, page: CachedChatPage<T>, now = Date.now()) {
     this.pages.delete(id)
     this.pages.set(id, {
-      page: { messages: page.messages.slice(-this.maxMessages), hasMore: page.hasMore || page.messages.length > this.maxMessages },
+      page: { ...page, messages: page.messages.slice(-this.maxMessages), hasMore: page.hasMore || page.messages.length > this.maxMessages },
       savedAt: now,
     })
     while (this.pages.size > this.maxConversations) {

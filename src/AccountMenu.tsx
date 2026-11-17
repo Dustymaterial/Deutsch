@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { avatarDataUri, avatarOptions, defaultAvatarSeed } from './pixelAvatar.mjs'
 import { Eye, EyeOff } from 'lucide-react'
 import { useFormValidation } from './formValidation'
@@ -58,6 +58,31 @@ export function AccountMenu({
   const [securityMode, setSecurityMode] = useState<'verify' | 'reset' | 'change' | null>(null)
   const [codeSent, setCodeSent] = useState(false)
   const { errors, validate, handleInput, clearErrors } = useFormValidation()
+  const modeEntry = useRef<string | null>(null)
+  useEffect(() => {
+    const active = open && (Boolean(securityMode) || registering)
+    if (active && !modeEntry.current && window.history.state?.__deutschAccountMenu) {
+      const token = crypto.randomUUID()
+      window.history.pushState({ ...window.history.state, __deutschAccountMode: token }, '', window.location.href)
+      modeEntry.current = token
+    } else if (!active && modeEntry.current) {
+      const token = modeEntry.current
+      modeEntry.current = null
+      if (window.history.state?.__deutschAccountMode === token) window.history.back()
+    }
+  }, [open, registering, securityMode])
+  useEffect(() => {
+    const handleBack = (event: PopStateEvent) => {
+      const token = modeEntry.current
+      if (!token || event.state?.__deutschAccountMode === token) return
+      modeEntry.current = null
+      setSecurityMode(null)
+      setRegistering(false)
+      setError(null)
+    }
+    window.addEventListener('popstate', handleBack)
+    return () => window.removeEventListener('popstate', handleBack)
+  }, [])
   useEffect(() => {
     let active = true
     fetch('/api/auth/me')

@@ -166,9 +166,11 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
         const page = record.page
         if (!page || typeof page !== 'object' || !('messages' in page) || !Array.isArray(page.messages)
           || !page.messages.every(this.isMessage) || !('hasMore' in page) || typeof page.hasMore !== 'boolean'
+          || ('cursor' in page && (typeof page.cursor !== 'string' || page.cursor.length > 2048))
           || typeof record.savedAt !== 'number' || !Number.isFinite(record.savedAt)
           || Date.now() - record.savedAt >= maxAge || record.savedAt > Date.now()) continue
-        super.set(record.id, { messages: page.messages, hasMore: page.hasMore }, record.savedAt)
+        const cursor = 'cursor' in page && typeof page.cursor === 'string' ? page.cursor : undefined
+        super.set(record.id, { messages: page.messages, hasMore: page.hasMore, ...(cursor ? { cursor } : {}) }, record.savedAt)
       }
     } catch (error) {
       if (epoch === this.epoch) {
@@ -233,7 +235,7 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
   override set(id: string, page: CachedChatPage<T>, now = Date.now()) {
     if (this.hydrating) this.changed.add(id)
     super.set(id, page, now)
-    const bounded = { messages: page.messages.slice(-maxMessages), hasMore: page.hasMore || page.messages.length > maxMessages }
+    const bounded = { ...page, messages: page.messages.slice(-maxMessages), hasMore: page.hasMore || page.messages.length > maxMessages }
     this.schedule((pages) => {
       pages.put({ accountId: this.accountId, kind: this.kind, id, savedAt: now, page: bounded })
       const request = pages.index('accountKind').getAll(IDBKeyRange.only([this.accountId, this.kind]))

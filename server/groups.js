@@ -82,15 +82,15 @@ const createLimiter = () => rateLimit({
 
 export function createGroupsRouter({
   users, groups, groupMembers, groupMessages, groupReports,
-  requireUser, isModerator, chatTyping, chatLive,
+  requireUser, isModerator, chatTyping, chatLive, chatReplay,
 }) {
   const router = Router()
   router.use(...guard({ requireUser, limiter: createLimiter() }))
 
-  const loadGroup = async (id) => ObjectId.isValid(id) ? groups.findOne({ _id: new ObjectId(id) }) : null
+  const loadGroup = async (id) => ObjectId.isValid(id) ? groups.findOne({ _id: new ObjectId(id) }, { readConcern: { level: 'majority' }, readPreference: 'primary' }) : null
   const notFound = (res) => res.status(404).json({ error: 'That group is unavailable.' })
   const canModerate = (group, req) => group.ownerId === req.accountUser._id.toString() || isModerator(req.accountUser)
-  const activeMember = (groupId, userId) => groupMembers.findOne({ groupId, userId, state: 'active' })
+  const activeMember = (groupId, userId) => groupMembers.findOne({ groupId, userId, state: 'active' }, { readConcern: { level: 'majority' }, readPreference: 'primary' })
 
   async function mentionedMembers(groupId, text, senderId) {
     const names = [...new Set([...text.matchAll(/(?<![A-Za-z0-9_@.-])@([A-Za-z0-9_-]{3,20})(?![A-Za-z0-9_-])/g)]
@@ -537,9 +537,15 @@ export function createGroupsRouter({
   })
 
   router.get('/:id/messages', async (req, res) => {
-    const group = await readableGroup(req, res)
+    let group = await readableGroup(req, res)
     if (!group) return undefined
     const me = req.accountUser._id.toString()
+    const cursor = !req.query.before && chatReplay
+      ? await chatReplay.snapshotCursor({ kind: 'group', chatId: group._id.toString(), userId: me }) : null
+    if (cursor) {
+      group = await readableGroup(req, res)
+      if (!group) return undefined
+    }
     const before = req.query.before ? new Date(String(req.query.before)) : null
     if (before && !Number.isFinite(before.getTime())) return res.status(400).json({ error: 'Choose a valid message time.' })
     const beforeId = req.query.beforeId
@@ -551,7 +557,7 @@ export function createGroupsRouter({
       ...(before && beforeId ? {
         $or: [{ createdAt: { $lt: before } }, { createdAt: before, _id: { $lt: new ObjectId(beforeId) } }],
       } : before ? { createdAt: { $lt: before } } : {}),
-    }, { sort: { createdAt: -1, _id: -1 }, limit: pageSize + 1 }).toArray()
+    }, { sort: { createdAt: -1, _id: -1 }, limit: pageSize + 1, readConcern: { level: 'majority' }, readPreference: 'primary' }).toArray()
     const lookup = profileCache()
     const moderating = canModerate(group, req)
     const messages = await mapInBatches(found, async (message) =>
@@ -585,7 +591,33 @@ export function createGroupsRouter({
       if (!await activeMember(group._id.toString(), entry.userId)) return null
       return lookup(entry.userId)
     }, 5)).filter(Boolean)
-    res.json({ hasMore: messages.length > pageSize, messages: page.reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }), typing })
+    res.json({ hasMore: messages.length > pageSize, messages: page.reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }), typing, cursor })
+  })
+
+  router.get('/:id/sync', async (req, res) => {
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    if (!chatReplay) return res.status(503).json({ error: 'Chat replay requires a MongoDB replica set.' })
+    const me = req.accountUser._id.toString()
+    const id = group._id.toString()
+    const result = await chatReplay.replay({ kind: 'group', chatId: id, userId: me }, req.query.cursor)
+    if (result.reset) return res.json({ reset: true })
+    const current = await readableGroup(req, res)
+    if (!current) return undefined
+    const found = await groupMessages.find({
+      groupId: id, _id: { $in: result.ids.map((messageId) => new ObjectId(messageId)) },
+    }, { readConcern: { level: 'majority' }, readPreference: 'primary' }).toArray()
+    if (found.length !== result.ids.length) return res.json({ reset: true })
+    const lookup = profileCache()
+    const messages = await mapInBatches(found, async (message) =>
+      serializeMessage(message, me, await lookup(message.senderId), canModerate(current, req), lookup), 5)
+    const typingRecords = await chatTyping.find(typingFilter('group', id, me), { limit: maxMembers }).toArray()
+    const typing = (await mapInBatches(typingRecords, async (entry) => {
+      if (!await activeMember(id, entry.userId)) return null
+      return lookup(entry.userId)
+    }, 5)).filter(Boolean)
+    res.json({ reset: false, messages, typing, cursor: result.cursor,
+      group: serializeGroup(current, me, await lookup(current.ownerId), { state: 'active' }) })
   })
 
   router.post('/:id/typing', typingRateLimit(), async (req, res) => {
