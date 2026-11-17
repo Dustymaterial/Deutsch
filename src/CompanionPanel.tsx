@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, Check, LayoutGridCircles, Languages, MessageCircle, Reply, Search, ShieldCheck, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, Check, LayoutGridCircles, Languages, Reply, Search, ShieldCheck, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
@@ -1540,14 +1540,12 @@ export function CompanionPanel({
             <aside className="companion-practice-nudge" aria-label="Practice suggestion">
               <p>Try using one word you reviewed recently in a sentence. A small practice moment counts.</p>
             </aside>
-            {chatUpdating && <p className="companion-empty-note" role="status">Updating messages…</p>}
             {chatError && <p className="companion-alert" role="alert">{chatError}</p>}
-            {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-typing" role="status">{selectedChat.companion.username} is typing…</p>}
             <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
               <ChatMessageList updating={chatUpdating}>
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy || chatUpdating} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
-                ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
+                ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className={`companion-message-row${highlightId === chatMessage.id ? ' highlighted' : ''}`} id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
                   <div className="companion-message-content">
                     {chatMessage.replyTo && <button className="companion-reply-quote" style={replyColor(chatMessage.replyTo.id)} type="button" onClick={() => jumpToMessage(chatMessage.replyTo!.id)} aria-label={`Replying to ${chatMessage.replyTo.isMine ? 'you' : selectedChat.companion.username}: ${chatMessage.replyTo.text}`}>
@@ -1659,6 +1657,10 @@ export function CompanionPanel({
                 if (element) element.scrollTo({ top: element.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
               }}><ChevronDown size={18} aria-hidden="true" /></button>}
             </div>
+            {(chatUpdating || (chatTyping?.id === selectedChat.id && chatTyping.typing)) && <div className="companion-chat-statuses">
+              {chatUpdating && <p className="companion-chat-status updating" role="status">Updating messages…</p>}
+              {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-chat-status typing" role="status">{selectedChat.companion.username} is typing…</p>}
+            </div>}
             <form className="companion-chat-composer" onSubmit={sendMessage} inert={chatUpdating}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
               {replyingTo && <div className="companion-reply-bar" style={replyColor(replyingTo.id)}>
