@@ -2213,6 +2213,7 @@
 @media (max-width: 760px) and (hover: none) and (pointer: coarse) {
   .companion-workspace-view {
     height: var(--companion-available-height, calc(100dvh - 112px));
+    max-height: var(--companion-available-height, calc(100dvh - 112px));
     min-height: 0;
   }
 
@@ -2221,6 +2222,33 @@
   .companion-chat-panel,
   .companion-chat-surface {
     min-height: 0;
+  }
+
+  /* Keep the companion directory inside its surface. The directory may scroll
+     when it genuinely has more content, but must not extend the document. */
+  .companion-workspace-view:not(.chat-active) .companion-workspace,
+  .companion-workspace-view:not(.chat-active) .companion-sidebar {
+    height: 100%;
+    max-height: 100%;
+  }
+
+  .companion-workspace-view:not(.chat-active) .companion-sidebar {
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  .companion-workspace-view:not(.chat-active) .companion-sidebar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .companion-workspace-view:not(.chat-active) .companion-sidebar-details {
+    position: sticky;
+    z-index: 2;
+    bottom: 0;
+    padding-top: 10px;
+    background: linear-gradient(to bottom, transparent, var(--companion-sidebar) 10px);
   }
 
   .companion-chat-composer {
