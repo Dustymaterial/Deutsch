@@ -1,12 +1,14 @@
 # Deutsch Daily Deck
 
-A calm German vocabulary companion for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
+A calm German vocabulary trainer for learners using a course such as the [vhs-Lernportal](https://www.vhs-lernportal.de/). It helps organize a learner's own vocabulary notes by lesson and build **usable recall**, not just familiarity with translations. It complements course instruction; it is not an official vhs-Lernportal product or a replacement for the course.
+
+Studying is a solo activity by default, and learning is easier with company. Verified learners can **invite companions** for private one-to-one chat, shared words, tap-to-translate and gentle sentence corrections. Everything social is optional, consent-based and free of streaks, rankings and notification pressure. Open, public spaces for learners to share resources and talk are planned and will be opt-in, moderated and separate from private chats.
 
 ![Deutsch Daily Deck showing a German vocabulary card and account setup](./public/Deck.PNG)
 
 Fresh installs include **2,593 German vocabulary cards**, organized into frequency-ranked core vocabulary and ten topical sets. The source supplies A1/A2 labels (919 A1 and 1,674 A2); these are supplemental, not vhs-Lernportal or Goethe course lists, and the labels are not independently validated. You can add your own course words or import a larger set. Study on this device or optionally create an account to sync your deck and goal across devices.
 
-On your first visit, a brief introduction explains what Deutsch Deck is and isn't; you can revisit it under **··· → About Deutsch Deck**.
+On your first visit, a brief introduction explains what Deutsch Deck is, how companions work and what it isn't; you can revisit it under **··· → About Deutsch Deck**.
 The footer links to the GitHub project and this documentation.
 
 ## Start the app
@@ -298,4 +300,4 @@ npm run lint
 npm run build
 ```
 
-See [AGENTS.md](./AGENTS.md) for the project's learning philosophy and implementation guidance, and [backlogs.md](./backlogs.md) for planned work. After changing API routes, restart the API server (`npm run dev` restarts it automatically on file changes). The API integration tests run against an in-memory database stand-in, so they need no MongoDB connection. To refresh the bundled open starter data from its source, run `npm run data:starter-pack`; to refresh the tap-to-translate dictionary, run `npm run data:dictionary` (both require internet access; the dictionary build caches its large download in a temporary folder and reuses it while the source file is unchanged).
+See [AGENTS.md](./AGENTS.md) for the project's learning philosophy and implementation guidance. After changing API routes, restart the API server (`npm run dev` restarts it automatically on file changes). The API integration tests run against an in-memory database stand-in, so they need no MongoDB connection. To refresh the bundled open starter data from its source, run `npm run data:starter-pack`; to refresh the tap-to-translate dictionary, run `npm run data:dictionary` (both require internet access; the dictionary build caches its large download in a temporary folder and reuses it while the source file is unchanged).

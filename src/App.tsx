@@ -326,11 +326,15 @@ function AboutContent({ onDone, introduction = false }: { onDone: () => void; in
       {introduction && <h1>Welcome to Deutsch Deck</h1>}
       <section>
         <h2>What Deutsch Deck is</h2>
-        <p>A companion for discovering and practising German vocabulary, on its own or alongside your course.</p>
+        <p>A vocabulary trainer for discovering and practising German, on its own or alongside your course. Study works fully on your own; if you like, invite a companion to learn alongside you.</p>
+      </section>
+      <section>
+        <h2>Learning with others</h2>
+        <p>Companions are optional and by invitation. You choose who you connect with, chat privately, and share words and gentle corrections. Nothing is posted publicly, and your messages are never sent to AI or other services.</p>
       </section>
       <section>
         <h2>What Deutsch Deck isn’t</h2>
-        <p>A complete German course, an official vhs-Lernportal product, or a guarantee of proficiency.</p>
+        <p>A complete German course, an official vhs-Lernportal product, a guarantee of proficiency, or a place with streak pressure and rankings.</p>
       </section>
       <button type="button" className="primary-button" onClick={onDone}>{introduction ? 'Start learning' : 'Done'}</button>
     </div>

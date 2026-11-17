@@ -25,3 +25,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local planning notes (not published)
+backlogs.md
+docs/
