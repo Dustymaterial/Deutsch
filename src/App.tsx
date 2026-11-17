@@ -2907,7 +2907,7 @@ function App() {
     <>
       <div inert={pauseVisible || undefined} aria-hidden={pauseVisible || undefined}>
       {appContent}
-      {accountUser && !companionWorkspaceOpen && !learnOpen && !showIntroduction && !pauseVisible && (
+      {accountUser && !companionWorkspaceOpen && !showIntroduction && !pauseVisible && (
         <button className="companion-launcher" type="button" onClick={openCompanionWorkspace} aria-label="Open companion community" title="Open companion community">
           <MessagesSquare size={22} strokeWidth={1.8} aria-hidden="true" />
         </button>

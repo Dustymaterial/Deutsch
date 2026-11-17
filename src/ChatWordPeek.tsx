@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { addReason, needsExample, preferredLanguage } from './dictionaryLookup'
 import type { WordEntry } from './wordLookup'
 
@@ -58,19 +58,32 @@ export function ChatWordPeek({ word, german, english, loading, unavailable, inDe
   ]
   const usesDictionary = [...german, ...english].some((item) => item.source === 'dictionary')
 
+  const both = german.length > 0 && english.length > 0
+  const heading = mode === 'de' && entry && !both
+    ? <div className="companion-word-peek-head">
+      <strong lang="de">{entry.prompt}</strong>
+      <em>{categoryLabel(entry.category)}</em>
+      {entry.level && <em className="level">{entry.level}</em>}
+    </div>
+    : null
+
   return (
     <div className="companion-word-peek" role="status">
-      <button className="companion-word-peek-close" type="button" aria-label="Close translation" onClick={onClose}><X size={13} aria-hidden="true" /></button>
-      {german.length > 0 && english.length > 0 && <div className="companion-word-peek-modes" role="group" aria-label="Which language is this word?">
-        <button type="button" aria-pressed={mode === 'de'} onClick={() => setChoice('de')}>German word</button>
-        <button type="button" aria-pressed={mode === 'en'} onClick={() => setChoice('en')}>English word</button>
-      </div>}
+      <div className="companion-word-peek-top">
+        {both
+          ? <div className="companion-word-peek-modes" role="group" aria-label="Which language is this word?">
+            <button type="button" aria-pressed={mode === 'de'} onClick={() => setChoice('de')}>German word</button>
+            <button type="button" aria-pressed={mode === 'en'} onClick={() => setChoice('en')}>English word</button>
+          </div>
+          : heading ?? <small>{mode === 'en' ? `“${word}” in German` : `“${word}”`}</small>}
+        <button className="companion-word-peek-close" type="button" aria-label="Collapse translation" title="Collapse" onClick={onClose}><ChevronDown size={16} aria-hidden="true" /></button>
+      </div>
       {mode === 'de' && entry && <>
-        <div className="companion-word-peek-head">
+        {both && <div className="companion-word-peek-head">
           <strong lang="de">{entry.prompt}</strong>
           <em>{categoryLabel(entry.category)}</em>
           {entry.level && <em className="level">{entry.level}</em>}
-        </div>
+        </div>}
         {entry.form && <small>“{entry.form}” is a form of <span lang="de">{entry.prompt}</span></small>}
         <p className="companion-word-peek-meaning">{entry.meaning}</p>
         {entry.plural && <small>Plural: <span lang="de">{entry.plural}</span></small>}
@@ -80,7 +93,6 @@ export function ChatWordPeek({ word, german, english, loading, unavailable, inDe
         <div className="companion-word-peek-actions"><AddControl entry={entry} inDeck={inDeck(entry)} onAdd={onAdd} /></div>
       </>}
       {mode === 'en' && english.length > 0 && <>
-        <small>“{word}” in German</small>
         <ul className="companion-word-peek-list">
           {english.map((item) => <li key={`${item.id}-${item.category}`}>
             <div className="companion-word-peek-head">

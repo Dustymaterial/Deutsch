@@ -1498,11 +1498,13 @@
   display: grid;
   gap: 3px;
   margin-top: 6px;
-  padding: 10px 34px 11px 14px;
+  padding: 10px 12px 11px;
   border-radius: 14px;
   background: #f0f2f0;
   color: #343937;
 }
+.companion-word-peek-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; }
+.companion-word-peek-top > small { font-weight: 550; }
 .companion-word-peek-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .companion-word-peek-head strong { font: 600 1rem Georgia, serif; }
 .companion-word-peek em {
@@ -1553,12 +1555,10 @@
 .companion-word-peek-list li { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.7); }
 .companion-word-peek-source a { color: inherit; }
 .companion-word-peek-close {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
   padding: 0;
   border: 0;
