@@ -68,7 +68,7 @@ const createLimiter = () => rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
   keyGenerator: (req) => req.accountUser._id.toString(),
-  skip: (req) => req.method === 'GET',
+  skip: (req) => req.method === 'GET' || (req.method === 'POST' && /^\/[^/]+\/read$/.test(req.path)),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Too many group actions. Please try again later.' },
@@ -489,7 +489,7 @@ export function createGroupsRouter({
     }
     messages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.id.localeCompare(a.id))
     const page = messages.slice(0, pageSize)
-    if (!before) {
+    if (!before && req.query.read !== '0') {
       const newest = page.find((message) => message.kind !== 'system')
       if (newest) {
         await groupMembers.updateOne(
@@ -499,6 +499,27 @@ export function createGroupsRouter({
       }
     }
     res.json({ hasMore: messages.length > pageSize, messages: page.reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }) })
+  })
+
+  router.post('/:id/read', rateLimit({
+    windowMs: 60 * 1000, limit: 120,
+    keyGenerator: (req) => req.accountUser._id.toString(),
+    standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Too many read updates. Please try again later.' },
+  }), async (req, res) => {
+    const result = memberSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a valid message.' })
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    const message = await groupMessages.findOne({ _id: new ObjectId(result.data.id), groupId: group._id.toString() })
+    if (!message) return notFound(res)
+    const me = req.accountUser._id.toString()
+    const updated = await groupMembers.updateOne(
+      { groupId: group._id.toString(), userId: me, state: 'active' },
+      { $max: { readThrough: `${message.createdAt.toISOString()}/${message._id.toString()}` } },
+    )
+    if (!updated.matchedCount) return notFound(res)
+    res.json({ ok: true })
   })
 
   router.post('/:id/messages', async (req, res) => {

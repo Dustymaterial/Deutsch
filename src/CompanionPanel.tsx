@@ -18,6 +18,10 @@ import { MessageActionMenu } from './MessageActionMenu'
 import { ReportPopover, type ReportReason } from './ReportPopover'
 import { ModerationQueue } from './ModerationQueue'
 import { useGroupDirectory } from './groupsApi'
+import type { GroupMessage } from './groupsApi'
+import { ChatMemoryCache } from './chatMemoryCache'
+import { useVisibleChatRead } from './useVisibleChatRead'
+import { ChatMessageList } from './ChatMessageList'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -47,7 +51,7 @@ type ChatMessage = {
 type ChatSummary = {
   id: string
   companion: Profile
-  lastMessage: { text: string; isMine: boolean; createdAt: string } | null
+  lastMessage: { id?: string; text: string; isMine: boolean; createdAt: string } | null
   unread: boolean
   updatedAt: string
 }
@@ -80,6 +84,14 @@ export type SharedWordPreview = {
   createdAt: string
 }
 
+class CompanionApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function request(path: string, body?: object): Promise<unknown> {
   const response = await fetch(`/api/companions${path}`, body ? {
     method: 'POST',
@@ -93,13 +105,13 @@ async function request(path: string, body?: object): Promise<unknown> {
   } catch {
     const status = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`
     if (response.status === 404) {
-      throw new Error(`The companion API route was not found (${status}). Restart the API server and make sure the app points to the correct API port.`)
+      throw new CompanionApiError(`The companion API route was not found (${status}). Restart the API server and make sure the app points to the correct API port.`, response.status)
     }
-    throw new Error(`The companion service returned a non-JSON response (${status}).`)
+    throw new CompanionApiError(`The companion service returned a non-JSON response (${status}).`, response.status)
   }
   if (!response.ok) {
     const error = data && typeof data === 'object' && 'error' in data ? data.error : null
-    throw new Error(typeof error === 'string' ? error : 'Could not complete the request.')
+    throw new CompanionApiError(typeof error === 'string' ? error : 'Could not complete the request.', response.status)
   }
   return data
 }
@@ -124,7 +136,7 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
     messages.set(message.id, message)
   })
   if (!changed) return current
-  return [...messages.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+  return [...messages.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))
 }
 
 const starterEntries = starterPack.cards.map((entry) => ({
@@ -181,6 +193,7 @@ export function CompanionPanel({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
   const [chatLoading, setChatLoading] = useState(false)
+  const [chatUpdating, setChatUpdating] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
   const [messageDraft, setMessageDraft] = useState('')
@@ -213,6 +226,10 @@ export function CompanionPanel({
   const wordPicker = useRef<HTMLDetailsElement>(null)
   const selectedChatId = useRef<string | null>(null)
   const chatOpenSequence = useRef(0)
+  const latestChatRequest = useRef(0)
+  const latestChatInFlight = useRef<{ id: string; sequence: number } | null>(null)
+  const privateCache = useRef(new ChatMemoryCache<ChatMessage>())
+  const [groupCache] = useState(() => new ChatMemoryCache<GroupMessage>())
   const conversationHistoryEntry = useRef(false)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory()
@@ -232,6 +249,7 @@ export function CompanionPanel({
     setSharedWords(accountData.sharedWords)
     setEmailsEnabled(accountData.emailsEnabled)
     setChats(chatData.chats)
+    privateCache.current.retain(new Set(chatData.chats.map((chat) => chat.id)))
     setError(null)
     setLoaded(true)
   }, [])
@@ -239,18 +257,33 @@ export function CompanionPanel({
   const loadMessages = useCallback(async (
     chatId: string,
     mode: 'replace' | 'merge' = 'replace',
-    before?: string,
+    before?: Pick<ChatMessage, 'createdAt' | 'id'>,
   ) => {
     const sequence = chatOpenSequence.current
-    const query = before ? `?before=${encodeURIComponent(before)}` : ''
-    const data = await request(`/chats/${chatId}/messages${query}`) as { messages: ChatMessage[]; hasMore: boolean }
+    const requestSequence = before ? null : ++latestChatRequest.current
+    const query = before ? `?before=${encodeURIComponent(before.createdAt)}&beforeId=${encodeURIComponent(before.id)}` : '?read=0'
+    const pending = before ? null : { id: chatId, sequence }
+    if (pending) latestChatInFlight.current = pending
+    let data: { messages: ChatMessage[]; hasMore: boolean }
+    try {
+      data = await request(`/chats/${chatId}/messages${query}`) as typeof data
+    } catch (failure) {
+      if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence
+        || (requestSequence !== null && requestSequence !== latestChatRequest.current)) return null
+      throw failure
+    } finally {
+      if (pending && latestChatInFlight.current === pending) latestChatInFlight.current = null
+    }
+    if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence
+      || (requestSequence !== null && requestSequence !== latestChatRequest.current)) return null
     if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean') {
       throw new Error('The chat service returned an incomplete response.')
     }
-    if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence) return null
+    if (!before) privateCache.current.set(chatId, { messages: data.messages.map(normalizeMessage), hasMore: data.hasMore })
     setChatMessages((current) => mode === 'replace' ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
     if (mode === 'replace' || before) setHasOlderMessages(data.hasMore)
     setChatError(null)
+    if (!before) setChatUpdating(false)
     return data
   }, [])
 
@@ -282,10 +315,25 @@ export function CompanionPanel({
   useEffect(() => {
     if (!selectedChat) return
     const chatId = selectedChat.id
+    const sequence = chatOpenSequence.current
     const refresh = () => {
       if (document.visibilityState !== 'visible') return
+      if (latestChatInFlight.current?.id === chatId && latestChatInFlight.current.sequence === sequence) return
       void loadMessages(chatId, 'merge').catch((failure: unknown) => {
-        if (selectedChatId.current === chatId) setChatError(failure instanceof Error ? failure.message : 'Could not refresh messages.')
+        if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence) return
+        if (failure instanceof CompanionApiError && [401, 403, 404].includes(failure.status)) {
+          privateCache.current.delete(chatId)
+          chatOpenSequence.current += 1
+          selectedChatId.current = null
+          setSelectedChat(null)
+          setChatMessages([])
+          setSearchFor(null)
+          setSearchState(null)
+          setError(failure.message)
+          return
+        }
+        setChatUpdating(false)
+        setChatError(failure instanceof Error ? failure.message : 'Could not refresh messages.')
       })
     }
     const timer = window.setInterval(() => {
@@ -297,6 +345,10 @@ export function CompanionPanel({
       document.removeEventListener('visibilitychange', refresh)
     }
   }, [loadMessages, selectedChat])
+
+  useEffect(() => {
+    if (groupDirectory) groupCache.retain(new Set(groupDirectory.groups.filter((group) => group.joined).map((group) => group.id)))
+  }, [groupCache, groupDirectory])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -374,6 +426,25 @@ export function CompanionPanel({
   }, [searchFor, searchTerm])
 
   const newestMessageId = chatMessages.at(-1)?.id ?? null
+  const markChatRead = useCallback(async (id: string) => {
+    if (selectedChat) await request(`/chats/${selectedChat.id}/read`, { id })
+  }, [selectedChat])
+  const onChatRead = useCallback(() => {
+    if (selectedChat) setChats((current) => current.map((chat) =>
+      chat.id === selectedChat.id && chat.lastMessage?.id === newestMessageId ? { ...chat, unread: false } : chat))
+  }, [newestMessageId, selectedChat])
+  const onChatReadError = useCallback((failure: unknown) => {
+    setChatError(failure instanceof Error ? failure.message : 'Could not mark messages as read.')
+  }, [])
+  useVisibleChatRead({
+    chatKey: selectedChat?.id ?? null,
+    messageId: newestMessageId,
+    enabled: sidebarView === 'chats' && !chatLoading && !chatUpdating,
+    stream: chatStream,
+    markRead: markChatRead,
+    onRead: onChatRead,
+    onError: onChatReadError,
+  })
   useEffect(() => {
     const composer = messageComposer.current
     if (!composer) return
@@ -525,6 +596,7 @@ export function CompanionPanel({
     const existing = chats.find((chat) => chat.companion.id === user.id)
     if (existing && selectedChatId.current === existing.id) return
     const sequence = ++chatOpenSequence.current
+    const cached = existing ? privateCache.current.get(existing.id) : null
     setSidebarView('chats')
     if (!conversationHistoryEntry.current) {
       window.history.pushState({ __deutschCompanionChat: true }, '', window.location.href)
@@ -539,9 +611,10 @@ export function CompanionPanel({
     scrollOnOpen.current = true
     setSelectedChat(existing ? { id: existing.id, companion: user } : null)
     setOpeningChat(existing ? null : user)
-    setChatMessages([])
-    setHasOlderMessages(false)
-    setChatLoading(true)
+    setChatMessages(cached?.messages ?? [])
+    setHasOlderMessages(cached?.hasMore ?? false)
+    setChatLoading(!cached)
+    setChatUpdating(Boolean(cached))
     setChatError(null)
     setError(null)
     void (async () => {
@@ -552,13 +625,20 @@ export function CompanionPanel({
         selectedChatId.current = data.id
         setSelectedChat({ id: data.id, companion: data.companion })
         setOpeningChat(null)
-        const loadedMessages = await loadMessages(data.id)
-        if (loadedMessages && chatOpenSequence.current === sequence) {
-          setChats((current) => current.map((chat) => chat.id === data.id ? { ...chat, unread: false } : chat))
-        }
+        await loadMessages(data.id)
       } catch (failure) {
         if (chatOpenSequence.current === sequence) {
+          privateCache.current.delete(existing?.id ?? '')
+          if (cached) setChatMessages([])
+          setChatUpdating(false)
           const description = failure instanceof Error ? failure.message : 'Could not open this conversation.'
+          if (failure instanceof CompanionApiError && [401, 403, 404].includes(failure.status)) {
+            chatOpenSequence.current += 1
+            selectedChatId.current = null
+            setSelectedChat(null)
+            setSearchFor(null)
+            setSearchState(null)
+          }
           setChatError(description)
           setError(description)
           setOpeningChat(null)
@@ -700,14 +780,14 @@ export function CompanionPanel({
     if (!selectedChat) return
     const chatId = selectedChat.id
     let found = chatMessages.some((item) => item.id === result.id)
-    let before = chatMessages[0]?.createdAt
+    let before = chatMessages[0]
     setLoadingOlder(true)
     try {
       for (let page = 0; !found && before && page < 20; page += 1) {
         const loaded = await loadMessages(chatId, 'merge', before)
         if (!loaded?.messages.length) break
         found = loaded.messages.some((item) => item.id === result.id)
-        before = loaded.messages[0].createdAt
+        before = loaded.messages[0]
         if (!loaded.hasMore) break
       }
     } catch (failure) {
@@ -789,7 +869,7 @@ export function CompanionPanel({
     if (!selectedChat || !chatMessages.length) return
     const chatId = selectedChat.id
     setLoadingOlder(true)
-    void loadMessages(chatId, 'merge', chatMessages[0].createdAt).catch((failure: unknown) => {
+    void loadMessages(chatId, 'merge', chatMessages[0]).catch((failure: unknown) => {
       setChatError(failure instanceof Error ? failure.message : 'Could not load earlier messages.')
     }).finally(() => setLoadingOlder(false))
   }
@@ -799,6 +879,7 @@ export function CompanionPanel({
     const chatId = selectedChat.id
     void run(async () => {
       await request(`/chats/${chatId}/delete`, {})
+      privateCache.current.delete(chatId)
       closeChat()
       onNotify('Conversation deleted.')
       await load()
@@ -1158,7 +1239,7 @@ export function CompanionPanel({
             </button>
           </div>
           <div className="companion-chat-surface">
-          {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} wordTools={wordTools}
+          {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} cache={groupCache} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} wordTools={wordTools}
             shareableCards={cards.filter((card) => card.status === 'active' && isShareableCard(card))} cardPayload={sharedCardPayload}
             cardInDeck={(card, id) => deckWordKeys.has(wordKey(card)) || cards.some((item) => item.sharedFrom?.shareId === id)}
             onReceiveWord={onReceiveWord} onNotify={onNotify} />
@@ -1173,7 +1254,7 @@ export function CompanionPanel({
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
               <div className="companion-chat-header-actions">
-                <button className="companion-header-pill" type="button" aria-label="Search this conversation" aria-pressed={searchOpen} onClick={toggleSearch}><Search size={14} aria-hidden="true" /><span>Search</span></button>
+                <button className="companion-header-pill" type="button" aria-label="Search this conversation" aria-pressed={searchOpen} disabled={chatUpdating} onClick={toggleSearch}><Search size={14} aria-hidden="true" /><span>Search</span></button>
                 <details className="companion-row-menu companion-chat-menu">
                   <summary className="companion-header-pill" aria-label="Conversation actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
                   <div className="companion-row-popover">
@@ -1182,7 +1263,7 @@ export function CompanionPanel({
                 </details>
               </div>
             </header>
-            {searchOpen && <div className="companion-search-panel">
+            {searchOpen && <div className="companion-search-panel" inert={chatUpdating}>
               <div className="companion-message-search">
                 <Search size={14} aria-hidden="true" />
                 <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setSearchFor(null) }} placeholder="Search words or phrases" aria-label="Search this conversation" maxLength={100} autoFocus />
@@ -1210,8 +1291,10 @@ export function CompanionPanel({
             <aside className="companion-practice-nudge" aria-label="Practice suggestion">
               <p>Try using one word you reviewed recently in a sentence. A small practice moment counts.</p>
             </aside>
+            {chatUpdating && <p className="companion-empty-note" role="status">Updating messages…</p>}
             {chatError && <p className="companion-alert" role="alert">{chatError}</p>}
-            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite">
+            <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
+              <ChatMessageList updating={chatUpdating}>
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
               {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0
                 ? <div className="companion-chat-empty"><MessageCircle size={25} aria-hidden="true" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
@@ -1320,8 +1403,9 @@ export function CompanionPanel({
                     </div>}
                   </div>
                 </article>)}
+              </ChatMessageList>
             </div>
-            <form className="companion-chat-composer" onSubmit={sendMessage}>
+            <form className="companion-chat-composer" onSubmit={sendMessage} inert={chatUpdating}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
               {replyingTo && <div className="companion-reply-bar" style={replyColor(replyingTo.id)}>
                 <span>Replying to <strong>{replyingTo.isMine ? 'yourself' : selectedChat.companion.username}</strong><em>{replyingTo.text}</em></span>
