@@ -5,8 +5,8 @@ import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
 import { useConfirm } from './confirmContext'
 import starterPack from './data/german-starter-pack.json'
-import { findWord, indexWords, normalizeWord, splitMessage, type WordEntry } from './wordLookup'
-import { addReason, lookupDictionary, type Dictionary } from './dictionaryLookup'
+import { findMeaning, findWord, indexMeanings, indexWords, normalizeWord, splitMessage, type WordEntry } from './wordLookup'
+import { lookupDictionary, lookupEnglish, type Dictionary } from './dictionaryLookup'
 import { loadDictionary } from './dictionaryLoader'
 import { ChatWordPeek } from './ChatWordPeek'
 import { CorrectionDiff } from './CorrectionDiff'
@@ -159,14 +159,23 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   return [...messages.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 }
 
-const starterWordIndex = indexWords(starterPack.cards.map((entry) => ({
+const starterEntries = starterPack.cards.map((entry) => ({
   id: entry.id,
   source: 'starter' as const,
   prompt: entry.article ? `${entry.article} ${entry.word}` : entry.word,
   meaning: entry.meaning,
   category: entry.category,
   plural: entry.plural,
-})))
+  example: entry.example,
+  translation: entry.translation,
+  level: entry.level,
+}))
+const starterWordIndex = indexWords(starterEntries)
+const starterMeaningIndex = indexMeanings(starterEntries)
+
+const distinctEntries = (entries: WordEntry[], limit: number) => entries
+  .filter((entry, index, all) => all.findIndex((other) => other.prompt === entry.prompt && other.category === entry.category) === index)
+  .slice(0, limit)
 
 function CompanionLoader({ label, compact = false }: { label: string; compact?: boolean }) {
   return <div className={`companion-loader${compact ? ' compact' : ''}`} role="status" aria-label={label}><span /></div>
@@ -858,16 +867,25 @@ export function CompanionPanel({
     .slice(0, 8)
   const deckWordKeys = new Set(cards.map(cardContentKey))
   const repliedToIds = new Set(chatMessages.flatMap((item) => item.replyTo ? [item.replyTo.id] : []))
-  const deckWordIndex = useMemo(() => indexWords(cards
+  const deckEntries = useMemo(() => cards
     .filter((card) => card.status === 'active')
-    .map((card) => ({ id: card.id, source: 'deck' as const, prompt: card.prompt, meaning: card.meaning, category: card.category, plural: card.plural }))), [cards])
-  const peekEntries = activeWord
-    ? [findWord(activeWord.key, deckWordIndex, starterWordIndex), ...(dictionary ? lookupDictionary(dictionary, activeWord.word) : [])]
-      .filter((entry): entry is WordEntry => Boolean(entry))
-      .filter((entry, index, all) => all.findIndex((other) => other.prompt === entry.prompt && other.category === entry.category) === index)
-      .slice(0, 3)
+    .map((card) => ({ id: card.id, source: 'deck' as const, prompt: card.prompt, meaning: card.meaning, category: card.category, plural: card.plural })), [cards])
+  const deckWordIndex = useMemo(() => indexWords(deckEntries), [deckEntries])
+  const deckMeaningIndex = useMemo(() => indexMeanings(deckEntries), [deckEntries])
+  const germanEntries = activeWord
+    ? distinctEntries([
+      findWord(activeWord.key, deckWordIndex, starterWordIndex),
+      ...(dictionary ? lookupDictionary(dictionary, activeWord.word) : []),
+    ].filter((entry): entry is WordEntry => Boolean(entry)), 3)
     : []
-  const peekInDeck = peekEntries[0] ? deckWordIndex.has(normalizeWord(peekEntries[0].prompt.replace(/^(der|die|das)\s+/i, ''))) : false
+  const englishEntries = activeWord
+    ? distinctEntries([
+      ...findMeaning(activeWord.word, deckMeaningIndex, starterMeaningIndex),
+      ...(dictionary ? lookupEnglish(dictionary, activeWord.word) : []),
+    ], 5)
+    : []
+  const isEntryInDeck = (entry: WordEntry) => entry.source === 'deck'
+    || deckWordIndex.has(normalizeWord(entry.prompt.replace(/^(der|die|das)\s+/i, '')))
 
   const pickWord = (messageId: string, word: string) => {
     const key = normalizeWord(word)
@@ -1174,12 +1192,13 @@ export function CompanionPanel({
                           {[...new Map(splitMessage(chatMessage.text).filter((part) => part.word).map((part) => [normalizeWord(part.text), part.text])).values()].map((word) => <button key={word} type="button" lang="de" aria-pressed={activeWord?.messageId === chatMessage.id && activeWord.key === normalizeWord(word)} onClick={() => pickWord(chatMessage.id, word)}>{word}</button>)}
                         </div>}
                         {activeWord?.messageId === chatMessage.id && <ChatWordPeek
+                          key={`${activeWord.messageId}-${activeWord.key}`}
                           word={activeWord.word}
-                          entries={peekEntries}
+                          german={germanEntries}
+                          english={englishEntries}
                           loading={!dictionary && !dictionaryFailed}
                           unavailable={dictionaryFailed}
-                          inDeck={peekInDeck}
-                          addReason={peekEntries[0] ? addReason(peekEntries[0]) : null}
+                          inDeck={isEntryInDeck}
                           onAdd={addPeekedWord}
                           onClose={() => setActiveWord(null)}
                         />}

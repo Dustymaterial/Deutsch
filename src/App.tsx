@@ -1917,6 +1917,7 @@ function App() {
   }
 
   const addDictionaryWord = (entry: WordEntry) => {
+    if (!entry.example?.trim()) return false
     const article = /^(der|die|das) /.test(entry.prompt) ? entry.prompt.split(' ')[0] : undefined
     const level = entry.level === 'A1' || entry.level === 'A2' ? [entry.level] : []
     const card = makeCard(

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { findWord, indexWords, splitMessage } from '../src/wordLookup.ts'
+import { englishVariants, findMeaning, findWord, glossKeys, indexMeanings, indexWords, splitMessage } from '../src/wordLookup.ts'
 
 const entry = (id, prompt, meaning, overrides = {}) => ({
   id, source: 'deck', prompt, meaning, category: 'noun', ...overrides,
@@ -40,4 +40,23 @@ test('the learner’s own deck takes priority over starter vocabulary', () => {
 
   assert.equal(findWord('Tisch', deck, starter)?.id, 'mine')
   assert.equal(findWord('Fenster', deck, starter)?.source, 'starter')
+})
+
+test('English glosses reduce to bare lookup words', () => {
+  assert.deepEqual(glossKeys('to learn; the past (time); art gallery, gallery').map((item) => item.key), ['learn', 'past', 'gallery'])
+  assert.deepEqual(englishVariants('Learning'), ['learning', 'learn', 'learne'])
+  assert.ok(englishVariants('stopped').includes('stop'))
+  assert.ok(englishVariants('babies').includes('baby'))
+})
+
+test('the deck can be searched by its English meanings', () => {
+  const entries = [
+    entry('1', 'die Gesundheit', 'health', { category: 'noun' }),
+    entry('2', 'gesund', 'healthy; well'),
+  ]
+  const index = indexMeanings(entries)
+  assert.equal(findMeaning('Health', index)[0].prompt, 'die Gesundheit')
+  assert.equal(findMeaning('health', index)[0].via, 'health')
+  assert.equal(findMeaning('well', index)[0].prompt, 'gesund')
+  assert.deepEqual(findMeaning('wealth', index), [])
 })

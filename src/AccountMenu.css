@@ -1537,6 +1537,20 @@
 .companion-word-peek-link { background: var(--companion-blue-bg); color: var(--companion-blue); }
 .companion-word-peek-status { background: var(--companion-green-bg); color: var(--companion-green); }
 .companion-word-peek-source { margin-top: 2px; }
+.companion-word-peek-modes { display: inline-flex; gap: 3px; width: fit-content; margin-bottom: 4px; padding: 2px; border-radius: 9px; background: #e3e6e3; }
+.companion-word-peek-modes button {
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #565c58;
+  font: 550 0.62rem system-ui, sans-serif;
+  cursor: pointer;
+}
+.companion-word-peek-modes button[aria-pressed="true"] { background: #fff; color: var(--companion-text); }
+.companion-word-peek-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.companion-word-peek-list li { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.7); }
 .companion-word-peek-source a { color: inherit; }
 .companion-word-peek-close {
   position: absolute;
@@ -2026,3 +2040,29 @@
   .companion-practice-nudge { margin-right: 10px; margin-left: 10px; padding: 10px; }
   .companion-sidebar-popover { width: min(292px, calc(100vw - 56px)); padding: 12px; }
 }
+.companion-word-peek-example-form { width: 100%; display: grid; gap: 6px; margin-top: 4px; }
+.companion-word-peek-example-form label { display: grid; gap: 3px; color: #565c58; font: 550 0.6rem system-ui, sans-serif; }
+.companion-word-peek-example-form input {
+  width: 100%;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 10px;
+  outline: 0;
+  background: #fff;
+  color: var(--companion-text);
+  font: inherit;
+  font-size: 0.72rem;
+}
+.companion-word-peek-example-form div { display: flex; gap: 6px; }
+.companion-word-peek-example-form button {
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #e3e6e3;
+  color: #3d433f;
+  font: 600 0.64rem system-ui, sans-serif;
+  cursor: pointer;
+}
+.companion-word-peek-example-form button[type="submit"] { background: var(--companion-blue-bg); color: var(--companion-blue); }
+.companion-word-peek-example-form button:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -6,10 +6,12 @@ Priority: **P1** next up · **P2** soon · **P3** when there is room.
 
 ## Translation and dictionary
 
-- [ ] **P1 · English → German lookup.** Tapping an English word (for example “update”) currently reports “No match”. Build a reverse index from the dictionary’s English glosses (and the starter pack) so an English word offers likely German words, ranked by gloss position and frequency. Detect likely-English tokens (no German match, matches an English gloss) so the card can say “English word — possible German: …”. Offline and deterministic; no new data source needed.
-- [ ] **P1 · Grow the dictionary.** The build uses the 15,000 most frequent source words and keeps about 5,900 headwords. Raise the candidate limit, then check size against the compressed budget (about 0.6 MB now). Known gaps: loanwords that Wiktionary lists but the frequency cut missed (for example *Update*), proper nouns, compounds, separable-verb forms (*fange … an*), and multi-word phrases.
-- [ ] **P2 · Compound and spelling help.** Split unknown compounds (*Sprachkurs* → *Sprache* + *Kurs*) and suggest the nearest spelling for near-misses, instead of “No match”.
+- [ ] **P1 · Example sentences for dictionary words.** Only about one in five dictionary words has an example, so most additions ask the learner to write one. Merge the curated A1/A2 examples from the starter source, or add a vetted example set, so more words can be added in one tap.
+- [ ] **P2 · Dictionary scope and size.** The dictionary keeps rank 30,000 or better (22,800 words, 1.2 MB compressed). Review whether to add rarer words, multi-word expressions and separable verbs (*fange … an*), and whether first load on mobile data needs a smaller core file plus an on-demand extension.
+- [ ] **P2 · Sense quality.** Glosses use Wiktionary’s sense order, trimmed. Rank senses by usefulness (everyday meaning first), and mark regional or informal senses instead of mixing them in.
+- [ ] **P2 · Compound and spelling help.** Split unknown compounds (*Wochenendausflug* → *Wochenende* + *Ausflug*) and suggest the nearest spelling for near-misses, instead of “No match”.
 - [ ] **P2 · Better ranking for shared forms.** Some forms list more than one base word (for example *ging* also reaches *untergehen*). Tighten ranking and the build rules, and add a few regression words to the dictionary tests.
+- [ ] **P3 · Refresh the dictionary.** Kaikki republishes its extract regularly; decide how often to rebuild and review the diff (new words, changed glosses) before committing.
 - [ ] **P2 · Pronunciation for looked-up words.** Reuse the existing learner-initiated audio approach where a verified recording exists; otherwise the device voice.
 - [ ] **P2 · LLM-assisted explanation (opt-in).** For words and phrases the dictionary misses, or to explain a whole sentence in context. See “LLM notes” below before building.
 
