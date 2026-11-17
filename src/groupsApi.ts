@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { SharedWordPreview } from './CompanionPanel'
 
 export type Profile = { id: string; username: string; avatarSeed: string }
 
@@ -14,6 +15,8 @@ export type GroupSummary = {
   removed: boolean
   createdAt: string
   lastActivityAt: string
+  lastMessage?: { text: string; sender: string; isMine: boolean; createdAt: string } | null
+  unreadCount?: number
 }
 
 export type GroupDirectory = {
@@ -31,9 +34,28 @@ export type GroupMessage = {
   isMine: boolean
   createdAt: string
   canHide: boolean
-  kind: 'text' | 'unsent' | 'hidden' | 'system'
+  kind: 'text' | 'word' | 'unsent' | 'hidden' | 'system'
   text: string
+  card?: SharedWordPreview['card']
+  reactions: { emoji: string; count: number; mine: boolean }[]
+  editedAt?: string
+  editableUntil?: string
+  reviewedByMe?: boolean
+  hasReviews?: boolean
+  corrections?: GroupReview[]
   replyTo?: { id: string; isMine: boolean; text: string }
+  reported: boolean
+}
+export type GroupReview = {
+  authorId: string
+  author: Profile | null
+  byMe: boolean
+  text?: string
+  approved?: boolean
+  tags?: string[]
+  note?: string
+  createdAt: string
+  response?: 'thanks' | 'saved'
   reported: boolean
 }
 

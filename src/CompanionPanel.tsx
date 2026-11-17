@@ -5,14 +5,17 @@ import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
 import { useConfirm } from './confirmContext'
 import starterPack from './data/german-starter-pack.json'
-import { findMeaning, findWord, indexMeanings, indexWords, normalizeWord, splitMessage, type WordEntry } from './wordLookup'
+import { findMeaning, findWord, indexMeanings, indexWords, normalizeWord, type WordEntry } from './wordLookup'
 import { lookupDictionary, lookupEnglish, type Dictionary } from './dictionaryLookup'
 import { loadDictionary } from './dictionaryLoader'
-import { ChatWordPeek } from './ChatWordPeek'
+import { MessageWords, type MessageWordTools } from './MessageWords'
 import { CorrectionDiff } from './CorrectionDiff'
+import { correctionTagLabels, reactionOptions } from './chatOptions'
 import { matchSnippet } from './messageSearch'
 import { replyColor } from './replyColor'
 import { GroupConversation, GroupsSidebar } from './GroupsPanel'
+import { MessageActionMenu } from './MessageActionMenu'
+import { ReportPopover, type ReportReason } from './ReportPopover'
 import { ModerationQueue } from './ModerationQueue'
 import { useGroupDirectory } from './groupsApi'
 
@@ -25,18 +28,6 @@ type Companion = Profile & {
 type Action = 'accept' | 'decline' | 'cancel' | 'remove' | 'block' | 'unblock'
 type Reaction = { emoji: string; count: number; mine: boolean }
 type ReplyPreview = { id: string; isMine: boolean; text: string }
-const correctionTagLabels: Record<string, string> = {
-  'verb-position': 'Verb position',
-  'verb-form': 'Verb form',
-  article: 'Article',
-  case: 'Case ending',
-  spelling: 'Spelling',
-  'word-choice': 'Word choice',
-  'word-order': 'Word order',
-  tense: 'Tense',
-  punctuation: 'Punctuation',
-  'more-natural': 'More natural',
-}
 type Correction = { text?: string; approved?: boolean; tags?: string[]; note?: string; byMe: boolean; createdAt: string; response?: 'thanks' | 'saved' }
 type ChatMessage = {
   id: string
@@ -61,9 +52,6 @@ type ChatSummary = {
   updatedAt: string
 }
 type SelectedChat = { id: string; companion: Profile }
-type ReportReason = 'spam' | 'harassment' | 'inappropriate' | 'other'
-
-const reactionOptions = ['👍', '🎉', '💡', '❤️', '👏']
 
 const shareableCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 
@@ -119,15 +107,6 @@ async function request(path: string, body?: object): Promise<unknown> {
 function formatChatTime(value: string) {
   const date = new Date(value)
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
-// Message menus sit inside a scrolling stream, so open upward when the bottom edge is too close.
-const placePopover = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
-  const menu = event.currentTarget
-  if (!menu.open) return
-  const stream = menu.closest('.companion-chat-stream')
-  if (!stream) return
-  menu.dataset.placement = stream.getBoundingClientRect().bottom - menu.getBoundingClientRect().bottom < 130 ? 'up' : 'down'
 }
 
 const normalizeMessage = (message: ChatMessage): ChatMessage => ({
@@ -198,6 +177,7 @@ export function CompanionPanel({
   const [error, setError] = useState<string | null>(null)
   const confirmDialog = useConfirm()
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null)
+  const [openingChat, setOpeningChat] = useState<Profile | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
   const [chatLoading, setChatLoading] = useState(false)
@@ -205,8 +185,8 @@ export function CompanionPanel({
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
   const [messageDraft, setMessageDraft] = useState('')
   const [reportingMessageId, setReportingMessageId] = useState<string | null>(null)
-  const [reportReason, setReportReason] = useState<ReportReason>('other')
-  const [reportDetails, setReportDetails] = useState('')
+  const reportAnchor = useRef<HTMLButtonElement | null>(null)
+  const closeReport = useCallback(() => setReportingMessageId(null), [])
   const [reply, setReply] = useState<{ chatId: string; message: ChatMessage } | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
@@ -225,12 +205,14 @@ export function CompanionPanel({
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
+  const workspace = useRef<HTMLDivElement>(null)
   const chatStream = useRef<HTMLDivElement>(null)
   const scrollOnOpen = useRef(false)
   const messageComposer = useRef<HTMLTextAreaElement>(null)
   const shareTools = useRef<HTMLDetailsElement>(null)
   const wordPicker = useRef<HTMLDetailsElement>(null)
   const selectedChatId = useRef<string | null>(null)
+  const chatOpenSequence = useRef(0)
   const conversationHistoryEntry = useRef(false)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const { directory: groupDirectory, error: groupsError, reload: reloadGroups } = useGroupDirectory()
@@ -259,12 +241,13 @@ export function CompanionPanel({
     mode: 'replace' | 'merge' = 'replace',
     before?: string,
   ) => {
+    const sequence = chatOpenSequence.current
     const query = before ? `?before=${encodeURIComponent(before)}` : ''
     const data = await request(`/chats/${chatId}/messages${query}`) as { messages: ChatMessage[]; hasMore: boolean }
     if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean') {
       throw new Error('The chat service returned an incomplete response.')
     }
-    if (selectedChatId.current !== chatId) return null
+    if (selectedChatId.current !== chatId || chatOpenSequence.current !== sequence) return null
     setChatMessages((current) => mode === 'replace' ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
     if (mode === 'replace' || before) setHasOlderMessages(data.hasMore)
     setChatError(null)
@@ -319,10 +302,15 @@ export function CompanionPanel({
     const handlePopState = () => {
       if (!conversationHistoryEntry.current) return
       conversationHistoryEntry.current = false
+      chatOpenSequence.current += 1
+      setOpeningChat(null)
+      setReportingMessageId(null)
       setSelectedGroupId(null)
       selectedChatId.current = null
       setSelectedChat(null)
       setChatMessages([])
+      setActiveWord(null)
+      setWordChipsFor(null)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -332,20 +320,22 @@ export function CompanionPanel({
 
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
-      const picker = wordPicker.current
-      if (picker?.open && !picker.contains(event.target as Node)) picker.open = false
+      const target = event.target
+      if (!(target instanceof Node)) return
+      workspace.current?.querySelectorAll<HTMLDetailsElement>('.companion-row-menu[open], .companion-message-menu[open], .companion-sidebar-details[open], .companion-word-picker[open]').forEach((menu) => {
+        if (!menu.contains(target)) menu.open = false
+      })
     }
     document.addEventListener('pointerdown', closeOutside)
     return () => document.removeEventListener('pointerdown', closeOutside)
   }, [])
 
-  const chatOpen = Boolean(selectedChat)
   useEffect(() => {
-    if (!chatOpen || dictionary || dictionaryFailed) return
+    if (!activeWord || dictionary || dictionaryFailed) return
     let active = true
     loadDictionary().then((loaded) => { if (active) setDictionary(loaded) }).catch(() => { if (active) setDictionaryFailed(true) })
     return () => { active = false }
-  }, [chatOpen, dictionary, dictionaryFailed])
+  }, [activeWord, dictionary, dictionaryFailed])
 
   useEffect(() => {
     if (!reactionPickerFor && !activeWord) return
@@ -532,32 +522,57 @@ export function CompanionPanel({
   }
 
   const openChat = (user: Profile) => {
+    const existing = chats.find((chat) => chat.companion.id === user.id)
+    if (existing && selectedChatId.current === existing.id) return
+    const sequence = ++chatOpenSequence.current
     setSidebarView('chats')
-    void run(async () => {
-      const data = await request('/chats/open', { id: user.id }) as { id: string; companion: Profile }
-      if (typeof data.id !== 'string' || !data.companion) throw new Error('The chat service returned an incomplete response.')
-      if (!conversationHistoryEntry.current) {
-        window.history.pushState({ __deutschCompanionChat: true }, '', window.location.href)
-        conversationHistoryEntry.current = true
-      }
-      setSelectedGroupId(null)
-      selectedChatId.current = data.id
-      lastScrolledMessage.current = null
-      scrollOnOpen.current = true
-      setSelectedChat({ id: data.id, companion: data.companion })
-      setChatMessages([])
-      setChatLoading(true)
-      setChatError(null)
+    if (!conversationHistoryEntry.current) {
+      window.history.pushState({ __deutschCompanionChat: true }, '', window.location.href)
+      conversationHistoryEntry.current = true
+    }
+    setSelectedGroupId(null)
+    setReportingMessageId(null)
+    setActiveWord(null)
+    setWordChipsFor(null)
+    selectedChatId.current = existing?.id ?? null
+    lastScrolledMessage.current = null
+    scrollOnOpen.current = true
+    setSelectedChat(existing ? { id: existing.id, companion: user } : null)
+    setOpeningChat(existing ? null : user)
+    setChatMessages([])
+    setHasOlderMessages(false)
+    setChatLoading(true)
+    setChatError(null)
+    setError(null)
+    void (async () => {
       try {
-        await loadMessages(data.id)
-        await load()
+        const data = existing ? { id: existing.id, companion: user } : await request('/chats/open', { id: user.id }) as { id: string; companion: Profile }
+        if (typeof data.id !== 'string' || !data.companion) throw new Error('The chat service returned an incomplete response.')
+        if (chatOpenSequence.current !== sequence) return
+        selectedChatId.current = data.id
+        setSelectedChat({ id: data.id, companion: data.companion })
+        setOpeningChat(null)
+        const loadedMessages = await loadMessages(data.id)
+        if (loadedMessages && chatOpenSequence.current === sequence) {
+          setChats((current) => current.map((chat) => chat.id === data.id ? { ...chat, unread: false } : chat))
+        }
+      } catch (failure) {
+        if (chatOpenSequence.current === sequence) {
+          const description = failure instanceof Error ? failure.message : 'Could not open this conversation.'
+          setChatError(description)
+          setError(description)
+          setOpeningChat(null)
+        }
       } finally {
-        setChatLoading(false)
+        if (chatOpenSequence.current === sequence) setChatLoading(false)
       }
-    })
+    })()
   }
 
   const closeChat = () => {
+    chatOpenSequence.current += 1
+    setOpeningChat(null)
+    setReportingMessageId(null)
     if (conversationHistoryEntry.current) {
       conversationHistoryEntry.current = false
       window.history.back()
@@ -566,9 +581,14 @@ export function CompanionPanel({
     selectedChatId.current = null
     setSelectedChat(null)
     setChatMessages([])
+    setActiveWord(null)
+    setWordChipsFor(null)
   }
 
   const openGroup = (id: string) => {
+    chatOpenSequence.current += 1
+    setOpeningChat(null)
+    setReportingMessageId(null)
     setSidebarView('groups')
     if (!conversationHistoryEntry.current) {
       window.history.pushState({ __deutschCompanionGroup: true }, '', window.location.href)
@@ -577,6 +597,8 @@ export function CompanionPanel({
     selectedChatId.current = null
     setSelectedChat(null)
     setChatMessages([])
+    setActiveWord(null)
+    setWordChipsFor(null)
     setSelectedGroupId(id)
   }
 
@@ -586,6 +608,8 @@ export function CompanionPanel({
       window.history.back()
     }
     setSelectedGroupId(null)
+    setActiveWord(null)
+    setWordChipsFor(null)
   }
 
   const backToDeck = () => {
@@ -781,18 +805,10 @@ export function CompanionPanel({
     })
   }
 
-  const reportMessage = (chatMessage: ChatMessage) => {
-    void run(async () => {
-      await request(`/messages/${chatMessage.id}/report`, {
-        reason: reportReason,
-        ...(reportDetails.trim() ? { details: reportDetails.trim() } : {}),
-      })
-      setChatMessages((current) => current.map((item) => item.id === chatMessage.id ? { ...item, reported: true } : item))
-      setReportingMessageId(null)
-      setReportDetails('')
-      setReportReason('other')
-      onNotify('Thanks. Your report was recorded.')
-    })
+  const reportMessage = async (messageId: string, reason: ReportReason, details: string) => {
+    await request(`/messages/${messageId}/report`, { reason, ...(details ? { details } : {}) })
+    setChatMessages((current) => current.map((item) => item.id === messageId ? { ...item, reported: true } : item))
+    onNotify('Thanks. Your report was recorded.')
   }
 
   const markNudgeRead = (user: Companion) => {
@@ -910,6 +926,20 @@ export function CompanionPanel({
     const result = entry.source === 'dictionary' ? onAddDictionaryWord(entry) : onAddStarterWord(entry.id)
     if (result === 'already-present') onNotify(`You already had ${entry.prompt} in your deck.`)
   }
+  const wordTools: MessageWordTools = {
+    activeWord,
+    wordChipsFor,
+    pickWord,
+    isKnown: (word) => Boolean(findWord(word, deckWordIndex, starterWordIndex)),
+    german: germanEntries,
+    english: englishEntries,
+    loading: !dictionary && !dictionaryFailed,
+    unavailable: dictionaryFailed,
+    inDeck: isEntryInDeck,
+    onAdd: addPeekedWord,
+    onClose: () => setActiveWord(null),
+    toggleChips: (id) => setWordChipsFor((current) => current === id ? null : id),
+  }
 
   const toggleCorrectionTag = (tag: string) => {
     setCorrecting((current) => {
@@ -951,8 +981,16 @@ export function CompanionPanel({
   </article>
 
   return (
-    <div className="companion-workspace-view">
-      <div className={`companion-workspace${(selectedChat && sidebarView === 'chats') || (selectedGroup && sidebarView === 'groups') ? ' chat-active' : ''}`}>
+    <div className="companion-workspace-view" ref={workspace} onKeyDown={(event) => {
+      if (event.key !== 'Escape' || !(event.target instanceof Element)) return
+      const menu = event.target.closest<HTMLDetailsElement>('.companion-row-menu[open], .companion-message-menu[open], .companion-sidebar-details[open], .companion-word-picker[open]')
+      if (!menu) return
+      event.preventDefault()
+      event.stopPropagation()
+      menu.open = false
+      menu.querySelector<HTMLElement>('summary')?.focus()
+    }}>
+      <div className={`companion-workspace${((selectedChat || openingChat) && sidebarView === 'chats') || (selectedGroup && sidebarView === 'groups') ? ' chat-active' : ''}`}>
         <aside className="companion-sidebar" aria-label="Learning companions">
           <div className="companion-sidebar-heading">
             <h1>Companions</h1>
@@ -1068,6 +1106,7 @@ export function CompanionPanel({
             <details className="companion-sidebar-details">
               <summary aria-label="More companion tools"><Ellipsis size={16} aria-hidden="true" /><span>More</span></summary>
               <div className="companion-sidebar-popover">
+              <strong className="companion-popover-title">Companion tools</strong>
               {blockedCompanions.length > 0 && <section className="companion-list-section">
                 <h2>Blocked learners <span>{blockedCompanions.length}</span></h2>
                 {blockedCompanions.map((user) => <article className="companion-person-card companion-blocked-card" key={user.id}>
@@ -1119,8 +1158,17 @@ export function CompanionPanel({
             </button>
           </div>
           <div className="companion-chat-surface">
-          {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} />
-          : sidebarView === 'chats' && selectedChat ? <>
+          {sidebarView === 'groups' && selectedGroup ? <GroupConversation key={selectedGroup.id} group={selectedGroup} canModerate={Boolean(groupDirectory?.canModerate)} onClose={closeGroup} reload={reloadGroups} wordTools={wordTools}
+            shareableCards={cards.filter((card) => card.status === 'active' && isShareableCard(card))} cardPayload={sharedCardPayload}
+            cardInDeck={(card, id) => deckWordKeys.has(wordKey(card)) || cards.some((item) => item.sharedFrom?.shareId === id)}
+            onReceiveWord={onReceiveWord} onNotify={onNotify} />
+          : sidebarView === 'chats' && openingChat ? <>
+            <header className="companion-chat-header">
+              <img src={avatarDataUri(openingChat.avatarSeed)} alt="" />
+              <div className="companion-chat-identity"><h2>{openingChat.username}</h2><span className="companion-status-tag connected">Connected</span></div>
+            </header>
+            <div className="companion-chat-stream"><CompanionLoader label="Opening conversation" /></div>
+          </> : sidebarView === 'chats' && selectedChat ? <>
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
@@ -1203,33 +1251,7 @@ export function CompanionPanel({
                           <button type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</button>
                         </div>
                       </form>
-                      : <>
-                        <p className="companion-message-text" onClick={(event) => {
-                          const target = (event.target as HTMLElement).closest<HTMLElement>('[data-word]')
-                          if (!target || window.getSelection()?.toString()) return
-                          pickWord(chatMessage.id, target.dataset.word ?? '')
-                        }}>{splitMessage(chatMessage.text).map((part, index) => {
-                          if (!part.word) return part.text
-                          const key = normalizeWord(part.text)
-                          const open = activeWord?.messageId === chatMessage.id && activeWord.key === key
-                          const known = Boolean(findWord(part.text, deckWordIndex, starterWordIndex))
-                          return <span className={`companion-word${known ? ' known' : ''}${open ? ' active' : ''}`} key={index} data-word={part.text}>{part.text}</span>
-                        })}</p>
-                        {wordChipsFor === chatMessage.id && <div className="companion-word-chips" role="group" aria-label="Look up a word from this message">
-                          {[...new Map(splitMessage(chatMessage.text).filter((part) => part.word).map((part) => [normalizeWord(part.text), part.text])).values()].map((word) => <button key={word} type="button" lang="de" aria-pressed={activeWord?.messageId === chatMessage.id && activeWord.key === normalizeWord(word)} onClick={() => pickWord(chatMessage.id, word)}>{word}</button>)}
-                        </div>}
-                        {activeWord?.messageId === chatMessage.id && <ChatWordPeek
-                          key={`${activeWord.messageId}-${activeWord.key}`}
-                          word={activeWord.word}
-                          german={germanEntries}
-                          english={englishEntries}
-                          loading={!dictionary && !dictionaryFailed}
-                          unavailable={dictionaryFailed}
-                          inDeck={isEntryInDeck}
-                          onAdd={addPeekedWord}
-                          onClose={() => setActiveWord(null)}
-                        />}
-                      </>}
+                      : <MessageWords id={chatMessage.id} text={chatMessage.text} tools={wordTools} />}
                     {chatMessage.kind === 'text' && correcting?.messageId === chatMessage.id && <form className="companion-correction-form" onSubmit={submitCorrection}>
                       <label>Suggested sentence
                         <textarea lang="de" rows={2} maxLength={2000} value={correcting.text} onChange={(event) => setCorrecting({ ...correcting, text: event.target.value })} autoFocus />
@@ -1283,47 +1305,19 @@ export function CompanionPanel({
                         </span>
                         : <button className="companion-tool-button" type="button" aria-label="Add reaction" onClick={() => setReactionPickerFor(chatMessage.id)}><SmilePlus size={15} aria-hidden="true" /></button>}
                       <button className="companion-tool-button" type="button" aria-label={`Reply to ${chatMessage.isMine ? 'your message' : selectedChat.companion.username}`} onClick={() => startReply(chatMessage)}><Reply size={15} aria-hidden="true" /></button>
-                      {chatMessage.kind === 'text' && <button className="companion-tool-button" type="button" aria-label="Look up words in this message" aria-pressed={wordChipsFor === chatMessage.id} title="Look up words" onClick={() => setWordChipsFor((current) => current === chatMessage.id ? null : chatMessage.id)}><Languages size={15} aria-hidden="true" /></button>}
+                      {chatMessage.kind === 'text' && <button className="companion-tool-button" type="button" aria-label="Look up words in this message" aria-pressed={wordChipsFor === chatMessage.id} title="Look up words" onClick={() => wordTools.toggleChips(chatMessage.id)}><Languages size={15} aria-hidden="true" /></button>}
                       {!chatMessage.isMine && chatMessage.kind === 'text' && !chatMessage.correction && correcting?.messageId !== chatMessage.id && <>
                         <button className="companion-review-pill" type="button" disabled={busy} onClick={() => startCorrection(chatMessage)}><SpellCheck size={13} aria-hidden="true" /><span>Suggest edit</span></button>
                         <button className="companion-review-pill" type="button" disabled={busy} onClick={() => approveMessage(chatMessage)}><Check size={13} aria-hidden="true" /><span>Looks good</span></button>
                       </>}
-                      {canModify(chatMessage) && <details className="companion-message-menu" onToggle={placePopover}>
-                        <summary aria-label="Edit or unsend this message"><Ellipsis size={15} aria-hidden="true" /></summary>
-                        <div className="companion-row-popover">
-                          {chatMessage.kind === 'text' && !chatMessage.correction && <button type="button" onClick={(event) => { closePopover(event); setEditing({ messageId: chatMessage.id, text: chatMessage.text }) }}>Edit message</button>}
-                          <button className="danger" type="button" onClick={(event) => { closePopover(event); void requestUnsend(chatMessage) }}>Unsend</button>
-                        </div>
-                      </details>}
-                      {!chatMessage.isMine && <details className="companion-message-menu" onToggle={placePopover}>
-                        <summary aria-label={`Actions for message from ${selectedChat.companion.username}`}><Ellipsis size={15} aria-hidden="true" /></summary>
-                        <div className="companion-row-popover">
-                          {chatMessage.reported ? <span>Reported</span> : <button type="button" onClick={(event) => {
-                            closePopover(event)
-                            setReportingMessageId(chatMessage.id)
-                            setReportDetails('')
-                            setReportReason('other')
-                          }}>Report message</button>}
-                        </div>
-                      </details>}
+                      {canModify(chatMessage) && <MessageActionMenu label="Edit or unsend this message" actions={[
+                        ...(chatMessage.kind === 'text' && !chatMessage.correction ? [{ label: 'Edit message', onSelect: () => setEditing({ messageId: chatMessage.id, text: chatMessage.text }) }] : []),
+                        { label: 'Unsend', danger: true, onSelect: () => void requestUnsend(chatMessage) },
+                      ]} />}
+                      {!chatMessage.isMine && <MessageActionMenu label={`Actions for message from ${selectedChat.companion.username}`} actions={[
+                        { label: chatMessage.reported ? 'Reported' : 'Report message', disabled: chatMessage.reported, onSelect: (anchor) => { reportAnchor.current = anchor; setReportingMessageId(chatMessage.id) } },
+                      ]} />}
                     </div>}
-                  {reportingMessageId === chatMessage.id && <form className="companion-report-form" onSubmit={(event) => { event.preventDefault(); reportMessage(chatMessage) }}>
-                    <label className="companion-field">Report reason
-                      <select value={reportReason} onChange={(event) => setReportReason(event.target.value as ReportReason)}>
-                        <option value="spam">Spam</option>
-                        <option value="harassment">Harassment</option>
-                        <option value="inappropriate">Inappropriate content</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </label>
-                    <label className="companion-field">Additional details (optional)
-                      <textarea maxLength={500} value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} />
-                    </label>
-                    <div className="companion-card-actions">
-                      <button type="submit" disabled={busy}>Submit report</button>
-                      <button type="button" disabled={busy} onClick={() => setReportingMessageId(null)}>Cancel</button>
-                    </div>
-                  </form>}
                   </div>
                 </article>)}
             </div>
@@ -1353,6 +1347,7 @@ export function CompanionPanel({
                 <span>{messageDraft.length}/2000</span>
               </div>
             </form>
+            {reportingMessageId && <ReportPopover key={reportingMessageId} anchorRef={reportAnchor} title="Report message" onClose={closeReport} onSubmit={(reason, details) => reportMessage(reportingMessageId, reason, details)} />}
           </> : <div className="companion-chat-welcome">
             <img className="companion-welcome-logo" src="/app-icon.svg" alt="" />
             <h2>Your learning community</h2>

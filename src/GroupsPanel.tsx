@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { ChevronLeft, Ellipsis, Lock, Plus, Reply, Search, Users, X } from 'lucide-react'
+import { BookOpen, Check, Ellipsis, Languages, Plus, Reply, Search, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useConfirm } from './confirmContext'
 import { useFormValidation } from './formValidation'
 import { replyColor } from './replyColor'
 import { FloatingPopover } from './FloatingPopover'
+import { MessageActionMenu } from './MessageActionMenu'
+import { ReportPopover, type ReportReason } from './ReportPopover'
+import { MessageWords, type MessageWordTools } from './MessageWords'
+import { matchSnippet } from './messageSearch'
+import { CorrectionDiff } from './CorrectionDiff'
+import { correctionTagLabels, reactionOptions } from './chatOptions'
+import type { Card } from './deckImport'
+import type { SharedWordPreview } from './CompanionPanel'
 import {
   errorMessage, groupsRequest,
-  type GroupDirectory, type GroupMessage, type GroupSummary, type Profile,
+  type GroupDirectory, type GroupMessage, type GroupReview, type GroupSummary, type Profile,
 } from './groupsApi'
 import './Groups.css'
 
@@ -36,6 +44,30 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const createPopoverId = useId()
+  const createTriggerRef = useRef<HTMLButtonElement>(null)
+  const createPopoverRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!creating) return
+    const focus = requestAnimationFrame(() => createPopoverRef.current?.querySelector<HTMLInputElement>('input[name="name"]')?.focus())
+    return () => cancelAnimationFrame(focus)
+  }, [creating])
+
+  useEffect(() => {
+    if (!creating) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || createPopoverRef.current?.contains(event.target) || createTriggerRef.current?.contains(event.target)) return
+      setCreating(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [creating])
+
+  const closeCreate = () => {
+    setCreating(false)
+    createTriggerRef.current?.focus()
+  }
 
   const run = async (task: () => Promise<void>) => {
     setBusy(true)
@@ -87,17 +119,26 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
   const needle = query.trim().toLocaleLowerCase()
   const matching = (directory?.groups ?? []).filter((group) =>
     !needle || `${group.name} ${group.description}`.toLocaleLowerCase().includes(needle))
-  const mine = matching.filter((group) => group.joined)
+  const mine = matching.filter((group) => group.joined).sort((a, b) =>
+    Date.parse(b.lastMessage?.createdAt ?? b.createdAt) - Date.parse(a.lastMessage?.createdAt ?? a.createdAt))
   const others = matching.filter((group) => !group.joined)
   const atLimit = directory ? directory.ownedCount >= directory.ownedLimit : true
 
   const card = (group: GroupSummary) => <article className={`group-card companion-contact-card${selectedId === group.id ? ' selected' : ''}`} key={group.id}>
-    <button className="group-card-open companion-contact-open" type="button" disabled={!group.joined} onClick={() => onOpen(group.id)} aria-label={group.joined ? `Open ${group.name}` : undefined}>
+    <button className="group-card-open companion-contact-open" type="button" disabled={!group.joined} onClick={() => onOpen(group.id)} aria-label={group.joined ? `Open ${group.name}${group.unreadCount ? `, ${group.unreadCount > 99 ? 'more than 99' : group.unreadCount} unread messages` : ''}` : undefined}>
       <span className="group-avatar" aria-hidden="true">{group.name.slice(0, 1).toLocaleUpperCase()}</span>
       <span className="group-card-copy">
-        <strong>{group.name}</strong>
-        <span>{group.description || `Run by ${group.owner.username}`}</span>
-        <small><Users size={11} aria-hidden="true" />{group.memberCount} {group.memberCount === 1 ? 'member' : 'members'}{group.state === 'closed' && <><Lock size={11} aria-hidden="true" />Closed</>}</small>
+        <span className="group-card-heading">
+          <strong>{group.name}</strong>
+          <small>{group.memberCount} {group.memberCount === 1 ? 'member' : 'members'}</small>
+        </span>
+        <span className="group-card-activity">
+          <span>{group.joined
+            ? group.lastMessage ? `${group.lastMessage.isMine ? 'You' : group.lastMessage.sender}: ${group.lastMessage.text}` : 'No messages yet'
+            : group.description || `Run by ${group.owner.username}`}</span>
+          {group.joined && Boolean(group.unreadCount) && <b className="group-unread-count" aria-hidden="true">{group.unreadCount && group.unreadCount > 99 ? '99+' : group.unreadCount}</b>}
+        </span>
+        {group.state === 'closed' && <small className="group-card-closed">Closed to new members</small>}
       </span>
     </button>
     {!group.joined && (group.removed
@@ -115,13 +156,18 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
         <Search size={13} aria-hidden="true" />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a group…" aria-label="Find a group" maxLength={40} />
       </div>
-      <button className="group-create-toggle" type="button" aria-expanded={creating} disabled={!directory || (atLimit && !creating)} title={atLimit ? `You run ${directory?.ownedLimit ?? 3} groups already` : undefined} onClick={() => setCreating((open) => !open)}>
-        {creating ? <X size={13} aria-hidden="true" /> : <Plus size={13} aria-hidden="true" />}<span>{creating ? 'Cancel' : 'Create'}</span>
+      <button ref={createTriggerRef} className="group-create-toggle" type="button" aria-haspopup="dialog" aria-expanded={creating} aria-controls={creating ? createPopoverId : undefined} disabled={!directory || (atLimit && !creating)} title={atLimit ? `You run ${directory?.ownedLimit ?? 3} groups already` : undefined} onClick={() => setCreating((open) => !open)}>
+        <Plus size={13} aria-hidden="true" /><span>Create</span>
       </button>
     </div>
-    {creating && <form className="group-create-form" noValidate onInput={handleInput} onSubmit={create}>
+    {creating && <FloatingPopover anchorRef={createTriggerRef} popoverRef={createPopoverRef} owner={createPopoverId} preferredWidth={340} preferredMaxHeight={640} id={createPopoverId}
+      className="group-details-popover group-create-popover" role="dialog" aria-label="Create group" onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeCreate() }
+      }}>
+      <form className="group-create-form" noValidate onInput={handleInput} onSubmit={create}>
+      <div className="group-popover-heading"><strong>Create group</strong></div>
       <label className="companion-field">Group name
-        <input name="name" value={name} onChange={(event) => setName(event.target.value)} minLength={3} maxLength={40} required aria-invalid={Boolean(errors.name) || undefined} placeholder="Beginners’ corner" />
+        <input name="name" value={name} onChange={(event) => setName(event.target.value)} minLength={3} maxLength={40} required aria-invalid={Boolean(errors.name) || undefined} placeholder="Beginners’ corner" autoFocus />
         {errors.name && <span className="field-error">{errors.name}</span>}
       </label>
       <label className="companion-field">What is it for? (optional)
@@ -129,8 +175,10 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
         <small>{description.length}/200</small>
       </label>
       <p className="group-create-note">You can run up to {directory?.ownedLimit ?? 3} groups ({directory?.ownedCount ?? 0} used). Close a group to stop new members from joining.</p>
+      {problem && <p className="companion-alert" role="alert">{problem}</p>}
       <button className="companion-primary-button" type="submit" disabled={busy}>Create group</button>
-    </form>}
+      </form>
+    </FloatingPopover>}
     {!directory ? <p className="companion-empty-note">Loading groups…</p> : <>
       <section className="companion-list-section" aria-labelledby="my-groups-heading">
         <h2 id="my-groups-heading">Your groups <span>{mine.length}</span></h2>
@@ -146,15 +194,27 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload }: 
 
 const mergeMessages = (current: GroupMessage[], incoming: GroupMessage[]) => {
   const map = new Map(current.map((message) => [message.id, message]))
-  for (const message of incoming) map.set(message.id, message)
-  return [...map.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+  let changed = false
+  for (const message of incoming) {
+    const previous = map.get(message.id)
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(message)) changed = true
+    map.set(message.id, message)
+  }
+  if (!changed) return current
+  return [...map.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))
 }
 
-export function GroupConversation({ group, canModerate, onClose, reload }: {
+export function GroupConversation({ group, canModerate, onClose, reload, wordTools, shareableCards, cardPayload, cardInDeck, onReceiveWord, onNotify }: {
   group: GroupSummary
   canModerate: boolean
   onClose: () => void
   reload: () => Promise<void>
+  wordTools: MessageWordTools
+  shareableCards: Card[]
+  cardPayload: (card: Card) => SharedWordPreview['card']
+  cardInDeck: (card: SharedWordPreview['card'], id: string) => boolean
+  onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
+  onNotify: (message: string) => void
 }) {
   const confirmDialog = useConfirm()
   const [messages, setMessages] = useState<GroupMessage[]>([])
@@ -167,12 +227,26 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
   const [busy, setBusy] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [members, setMembers] = useState<{ list: (Profile & { role: string })[]; canRemove: boolean } | null>(null)
-  const [reporting, setReporting] = useState<{ id: string; reason: string; details: string } | null>(null)
+  const [reporting, setReporting] = useState<{ messageId: string; authorId?: string } | null>(null)
+  const reportAnchor = useRef<HTMLButtonElement | null>(null)
+  const closeReport = useCallback(() => setReporting(null), [])
   const [popover, setPopover] = useState<'info' | 'edit' | null>(null)
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [messageCount, setMessageCount] = useState<number | null>(null)
   const [infoError, setInfoError] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchState, setSearchState] = useState<{ query: string; messages: GroupMessage[]; hasMore: boolean } | null>(null)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
+  const [editing, setEditing] = useState<{ messageId: string; text: string } | null>(null)
+  const [correcting, setCorrecting] = useState<{ messageId: string; text: string; note: string; tags: string[] } | null>(null)
+  const [savingCorrection, setSavingCorrection] = useState<{ messageId: string; authorId: string; meaning: string } | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const [wordPickerQuery, setWordPickerQuery] = useState('')
+  const wordPicker = useRef<HTMLDetailsElement>(null)
   const { errors: renameErrors, validate: validateRename, handleInput: handleRenameInput } = useFormValidation()
   const popoverId = useId()
   const groupNameRef = useRef<HTMLButtonElement>(null)
@@ -180,13 +254,50 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
   const stream = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const firstLoad = useRef(true)
+  const directorySignature = useRef<string | null>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
+  const searchTerm = searchQuery.trim()
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!reactionPickerFor) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setReactionPickerFor(null) }
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [reactionPickerFor])
+
+  useEffect(() => {
+    if (!searchOpen || searchTerm.length < 2) return
+    let active = true
+    const timer = window.setTimeout(() => {
+      void groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(`/${group.id}/search?q=${encodeURIComponent(searchTerm)}`)
+        .then((data) => {
+          if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean') throw new Error('The group service returned an incomplete search response.')
+          if (active) {
+            setSearchState({ query: searchTerm, messages: data.messages, hasMore: data.hasMore })
+            setSearchError(null)
+          }
+        })
+        .catch((failure: unknown) => {
+          if (active) setSearchError(errorMessage(failure, 'Could not search this group.'))
+        })
+    }, 300)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [group.id, searchOpen, searchTerm])
 
   const load = useCallback(async () => {
     try {
       const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary }>(`/${group.id}/messages`)
       setMessages((current) => mergeMessages(current, data.messages))
-      if (data.group.name !== group.name || data.group.description !== group.description) await reload()
+      const signature = JSON.stringify([data.messages, data.group.name, data.group.description])
+      if (directorySignature.current !== signature) {
+        directorySignature.current = signature
+        void reload()
+      }
       if (firstLoad.current) {
         firstLoad.current = false
         setHasOlder(data.hasMore)
@@ -197,24 +308,31 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
       setError(errorMessage(failure, 'Could not load messages.'))
       setLoaded(true)
     }
-  }, [group.id, group.name, group.description, reload])
+  }, [group.id, reload])
 
   useEffect(() => {
     if (!popover) return
+    const focus = requestAnimationFrame(() => {
+      if (popover === 'info') popoverRef.current?.focus()
+      else popoverRef.current?.querySelector<HTMLInputElement>('input[name="name"]')?.focus()
+    })
     const handlePointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && !popoverRef.current?.contains(event.target) && !groupNameRef.current?.contains(event.target)) {
         setPopover(null)
       }
     }
     document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
+    return () => {
+      cancelAnimationFrame(focus)
+      document.removeEventListener('pointerdown', handlePointerDown)
+    }
   }, [popover])
 
   useEffect(() => {
-    const first = window.setTimeout(() => void load(), 0)
     const refresh = () => {
       if (document.visibilityState === 'visible') void load()
     }
+    const first = window.setTimeout(refresh, 0)
     const timer = window.setInterval(refresh, 5000)
     document.addEventListener('visibilitychange', refresh)
     return () => {
@@ -251,7 +369,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     if (!oldest || !element) return
     setLoadingOlder(true)
     const previousHeight = element.scrollHeight
-    void groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(`/${group.id}/messages?before=${encodeURIComponent(oldest.createdAt)}`)
+    void groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(`/${group.id}/messages?before=${encodeURIComponent(oldest.createdAt)}&beforeId=${encodeURIComponent(oldest.id)}`)
       .then((data) => {
         setMessages((current) => mergeMessages(current, data.messages))
         setHasOlder(data.hasMore)
@@ -271,7 +389,128 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
       setMessages((current) => mergeMessages(current, [data.message]))
       setDraft('')
       setReplyTo(null)
+      await load()
     })
+  }
+
+  const toggleReaction = (message: GroupMessage, emoji: string) => {
+    const mine = message.reactions.find((reaction) => reaction.mine)?.emoji
+    setReactionPickerFor(null)
+    void run(async () => {
+      const data = await groupsRequest<{ reactions: GroupMessage['reactions'] }>(`/${group.id}/messages/${message.id}/reaction`, { emoji: mine === emoji ? null : emoji })
+      if (!Array.isArray(data.reactions)) throw new Error('The group service returned an incomplete response.')
+      setMessages((current) => current.map((item) => item.id === message.id ? { ...item, reactions: data.reactions } : item))
+    })
+  }
+
+  const submitEdit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!editing || !editing.text.trim()) return
+    void run(async () => {
+      const data = await groupsRequest<{ message: GroupMessage }>(`/${group.id}/messages/${editing.messageId}/edit`, { text: editing.text })
+      if (!data.message?.id) throw new Error('The group service returned an incomplete response.')
+      setMessages((current) => mergeMessages(current, [data.message]))
+      setEditing(null)
+      await reload()
+    })
+  }
+
+  const submitReview = (messageId: string, review: { approve: true } | { text: string; note?: string; tags?: string[] }) => {
+    void run(async () => {
+      const data = await groupsRequest<{ message: GroupMessage }>(`/${group.id}/messages/${messageId}/reviews`, review)
+      if (!data.message?.id) throw new Error('The group service returned an incomplete response.')
+      setMessages((current) => mergeMessages(current, [data.message]))
+      setCorrecting(null)
+      onNotify('Review shared with the group.')
+    })
+  }
+
+  const respondToReview = async (message: GroupMessage, review: GroupReview, response: 'thanks' | 'saved') => {
+    const data = await groupsRequest<{ message: GroupMessage }>(`/${group.id}/messages/${message.id}/reviews/${review.authorId}/respond`, { response })
+    if (!data.message?.id) throw new Error('The group service returned an incomplete response.')
+    setMessages((current) => mergeMessages(current, [data.message]))
+  }
+
+  const saveReview = (message: GroupMessage, review: GroupReview, meaning: string) => {
+    if (!review.text || !meaning.trim()) return
+    const result = onReceiveWord({
+      id: `correction-${message.id}-${review.authorId}`,
+      card: { prompt: review.text, meaning: meaning.trim(), example: review.text, translation: meaning.trim(), category: 'phrase' },
+      note: review.note ?? '', sender: review.author ?? { id: review.authorId, username: 'Former member', avatarSeed: '' }, createdAt: review.createdAt,
+    })
+    if (!result) return
+    if (result === 'already-present') onNotify('That sentence is already in your deck.')
+    void run(async () => { await respondToReview(message, review, 'saved'); setSavingCorrection(null) })
+  }
+
+  const removeReviewFromSearch = (messageId: string, authorId: string) => {
+    setSearchState((current) => current && {
+      ...current,
+      messages: current.messages.flatMap((item) => {
+        if (item.id !== messageId) return [item]
+        const corrections = item.corrections?.filter((review) => review.authorId !== authorId)
+        const updated = { ...item, corrections }
+        return matchSnippet(updated, current.query) || corrections?.some((correction) => matchSnippet({ ...updated, text: '', card: undefined, correction }, current.query)) ? [updated] : []
+      }),
+    })
+  }
+
+  const hideReview = async (message: GroupMessage, review: GroupReview) => {
+    const confirmed = await confirmDialog({ title: 'Hide this review?', message: 'It will be hidden from everyone in the group.', confirmLabel: 'Hide review', tone: 'danger' })
+    if (!confirmed) return
+    await run(async () => {
+      await groupsRequest(`/${group.id}/messages/${message.id}/reviews/${review.authorId}/hide`, {})
+      setMessages((current) => current.map((item) => item.id === message.id ? { ...item, corrections: item.corrections?.filter((entry) => entry.authorId !== review.authorId) } : item))
+      removeReviewFromSearch(message.id, review.authorId)
+    })
+  }
+
+  const submitReport = async (report: { messageId: string; authorId?: string }, reason: ReportReason, details: string) => {
+    if (report.authorId) {
+      const data = await groupsRequest<{ hidden: boolean }>(`/${group.id}/messages/${report.messageId}/reviews/${report.authorId}/report`, { reason, ...(details ? { details } : {}) })
+      setMessages((current) => current.map((item) => item.id !== report.messageId ? item : {
+        ...item, corrections: item.corrections?.flatMap((review) => review.authorId !== report.authorId ? [review] : data.hidden ? [] : [{ ...review, reported: true }]),
+      }))
+      if (data.hidden) removeReviewFromSearch(report.messageId, report.authorId)
+    } else {
+      const data = await groupsRequest<{ hidden: boolean }>(`/${group.id}/messages/${report.messageId}/report`, { reason, ...(details ? { details } : {}) })
+      if (data.hidden) redactLoadedMessage(report.messageId, 'hidden')
+      else setMessages((current) => current.map((item) => item.id === report.messageId ? { ...item, reported: true } : item))
+    }
+    onNotify('Thanks. Your report was recorded.')
+  }
+
+  const shareWord = (card: Card) => {
+    void run(async () => {
+      const data = await groupsRequest<{ message: GroupMessage }>(`/${group.id}/messages`, {
+        card: cardPayload(card), ...(replyTo ? { replyToId: replyTo.id } : {}),
+      })
+      if (!data.message?.id) throw new Error('The group service returned an incomplete response.')
+      stickToBottom.current = true
+      setMessages((current) => mergeMessages(current, [data.message]))
+      setReplyTo(null)
+      setWordPickerQuery('')
+      if (wordPicker.current) wordPicker.current.open = false
+      await load()
+    })
+  }
+
+  const addWord = (message: GroupMessage) => {
+    if (!message.card) return
+    const result = onReceiveWord({
+      id: message.id, card: message.card, note: '',
+      sender: message.sender ?? { id: '', username: 'Former member', avatarSeed: '' }, createdAt: message.createdAt,
+    })
+    if (result === 'already-present') onNotify(`You already had ${message.card.prompt} in your deck.`)
+  }
+
+  const redactLoadedMessage = (id: string, kind: 'hidden' | 'unsent') => {
+    const text = kind === 'hidden' ? 'Hidden by a moderator' : 'Message unsent'
+    setMessages((current) => current.map((item) => item.id === id
+      ? { ...item, kind, text, card: undefined, replyTo: undefined, reactions: [] }
+      : item.replyTo?.id === id ? { ...item, replyTo: { ...item.replyTo, text } } : item))
+    setSearchState((current) => current && { ...current, messages: current.messages.filter((item) => item.id !== id) })
+    setReplyTo((current) => current?.id === id ? null : current)
   }
 
   const unsend = async (message: GroupMessage) => {
@@ -279,6 +518,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     if (!ok) return
     await run(async () => {
       await groupsRequest(`/${group.id}/messages/${message.id}/unsend`, {})
+      redactLoadedMessage(message.id, 'unsent')
       await load()
     })
   }
@@ -288,16 +528,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     if (!ok) return
     await run(async () => {
       await groupsRequest(`/${group.id}/messages/${message.id}/hide`, {})
-      await load()
-    })
-  }
-
-  const submitReport = (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!reporting) return
-    void run(async () => {
-      await groupsRequest(`/${group.id}/messages/${reporting.id}/report`, { reason: reporting.reason, ...(reporting.details.trim() ? { details: reporting.details.trim() } : {}) })
-      setReporting(null)
+      redactLoadedMessage(message.id, 'hidden')
       await load()
     })
   }
@@ -407,15 +638,62 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     target?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   }
 
+  const showSearchResult = async (result: GroupMessage) => {
+    let loadedMessages = messages
+    let fetchedMessages: GroupMessage[] = []
+    let found = loadedMessages.some((message) => message.id === result.id && (message.kind === 'text' || message.kind === 'word'))
+    let hasMore = hasOlder
+    setLoadingOlder(true)
+    setError(null)
+    try {
+      const current = await groupsRequest<{ message: GroupMessage }>(`/${group.id}/messages/${result.id}`)
+      if (!current.message?.id) throw new Error('The group service returned an incomplete response.')
+      if (current.message.kind !== 'text' && current.message.kind !== 'word') {
+        setMessages((items) => items.map((item) => item.id === current.message.id ? current.message : item))
+        setSearchState((state) => state && { ...state, messages: state.messages.filter((item) => item.id !== result.id) })
+        setError('That message is no longer available.')
+        return
+      }
+      for (let page = 0; !found && hasMore && page < 42; page += 1) {
+        const oldest = loadedMessages[0]
+        if (!oldest) break
+        const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean }>(
+          `/${group.id}/messages?before=${encodeURIComponent(oldest.createdAt)}&beforeId=${encodeURIComponent(oldest.id)}`,
+        )
+        if (!Array.isArray(data.messages) || typeof data.hasMore !== 'boolean') throw new Error('The group service returned an incomplete response.')
+        if (!data.messages.length) break
+        loadedMessages = mergeMessages(loadedMessages, data.messages)
+        fetchedMessages = mergeMessages(fetchedMessages, data.messages)
+        hasMore = data.hasMore
+        found = data.messages.some((message) => message.id === result.id && (message.kind === 'text' || message.kind === 'word'))
+        if (data.messages.some((message) => message.id === result.id && message.kind !== 'text' && message.kind !== 'word')) break
+      }
+      setMessages((items) => mergeMessages(items, [...fetchedMessages, current.message]))
+      setHasOlder(hasMore)
+      if (!found) {
+        setError('That message is no longer available or is too far back to show.')
+        return
+      }
+      setSearchOpen(false)
+      setHighlightId(result.id)
+      window.setTimeout(() => jumpTo(result.id), 60)
+      window.setTimeout(() => setHighlightId((current) => current === result.id ? null : current), 2600)
+    } catch (failure) {
+      setError(errorMessage(failure, 'Could not load earlier messages.'))
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+
   return <>
     <header className="companion-chat-header">
-      <button className="group-back" type="button" onClick={onClose} aria-label="Back to groups"><ChevronLeft size={17} aria-hidden="true" /></button>
       <span className="group-avatar" aria-hidden="true">{group.name.slice(0, 1).toLocaleUpperCase()}</span>
       <div className="companion-chat-identity">
         <h2><button ref={groupNameRef} className="group-name-trigger" type="button" aria-haspopup="dialog" aria-expanded={Boolean(popover)} aria-controls={popover ? popoverId : undefined} onClick={() => popover ? setPopover(null) : openInfo()}>{group.name}</button></h2>
         <span className={`companion-status-tag ${group.state === 'open' ? 'connected' : 'outgoing'}`}>{group.state === 'open' ? 'Open' : 'Closed'}</span>
       </div>
       <div className="companion-chat-header-actions">
+        <button className="companion-header-pill" type="button" aria-label="Search this group" aria-pressed={searchOpen} onClick={() => { setSearchOpen((open) => !open); setSearchError(null) }}><Search size={14} aria-hidden="true" /><span>Search</span></button>
         <button className="companion-header-pill" type="button" aria-pressed={membersOpen} onClick={toggleMembers}><Users size={14} aria-hidden="true" /><span>{group.memberCount}</span></button>
         <details className="companion-row-menu companion-chat-menu">
           <summary className="companion-header-pill" aria-label="Group actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
@@ -428,13 +706,13 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         </details>
       </div>
     </header>
-    {popover && <FloatingPopover anchorRef={groupNameRef} popoverRef={popoverRef} owner={popoverId} preferredWidth={300}
-      id={popoverId} className="group-details-popover" role="dialog" aria-label={popover === 'info' ? 'Group information' : 'Edit group details'}
+    {popover && <FloatingPopover anchorRef={groupNameRef} popoverRef={popoverRef} owner={popoverId} preferredWidth={300} preferredMaxHeight={640}
+      id={popoverId} className="group-details-popover" role="dialog" tabIndex={-1} aria-label={popover === 'info' ? 'Group information' : 'Edit group details'}
       onKeyDown={(event) => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeGroupPopover() }
       }}>
       {popover === 'info' ? <>
-        <div className="group-popover-heading"><strong>{group.name}</strong><button type="button" onClick={closeGroupPopover} aria-label="Close group information" autoFocus><X size={15} aria-hidden="true" /></button></div>
+        <div className="group-popover-heading"><strong>{group.name}</strong></div>
         <p className="group-info-description">{group.description || 'No description yet.'}</p>
         <dl className="group-info-stats">
           <div><dt>Messages</dt><dd>{infoError ? 'Unavailable' : messageCount ?? '…'}</dd></div>
@@ -444,7 +722,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         {infoError && <p className="companion-alert" role="alert">{infoError}</p>}
         {(group.isOwner || canModerate) && <button className="group-edit-details" type="button" onClick={openEditor}>Edit group details</button>}
       </> : <form className="group-rename-form" noValidate onInput={handleRenameInput} onSubmit={saveDetails}>
-        <div className="group-popover-heading"><strong>Edit group details</strong><button type="button" onClick={closeGroupPopover} aria-label="Close editor"><X size={15} aria-hidden="true" /></button></div>
+        <div className="group-popover-heading"><strong>Edit group details</strong></div>
         <label className="companion-field">Group name
           <input name="name" value={newName} onChange={(event) => setNewName(event.target.value)} minLength={3} maxLength={40} required aria-invalid={Boolean(renameErrors.name) || undefined} aria-describedby={renameErrors.name ? 'group-rename-error' : undefined} autoFocus />
           {renameErrors.name && <span className="field-error" id="group-rename-error">{renameErrors.name}</span>}
@@ -460,6 +738,32 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         </div>
       </form>}
     </FloatingPopover>}
+    {searchOpen && <div className="companion-search-panel">
+      <div className="companion-message-search">
+        <Search size={14} aria-hidden="true" />
+        <input value={searchQuery} onChange={(event) => { setSearchQuery(event.target.value); setSearchError(null) }} onKeyDown={(event) => { if (event.key === 'Escape') setSearchOpen(false) }} placeholder="Search words or phrases" aria-label="Search this group" maxLength={100} autoFocus />
+        {searchQuery && <button type="button" aria-label="Clear search" onClick={() => setSearchQuery('')}><X size={13} aria-hidden="true" /></button>}
+      </div>
+      {searchError ? <p className="companion-alert" role="alert">{searchError}</p> : searchTerm.length >= 2 && (
+        searchState?.query === searchTerm
+          ? searchState.messages.length
+            ? <>
+              <ul className="companion-search-results">
+                {searchState.messages.map((result) => {
+                  const snippet = matchSnippet(result, searchTerm) ?? result.corrections?.map((correction) => matchSnippet({ ...result, text: '', card: undefined, correction }, searchTerm)).find(Boolean)
+                  return <li key={result.id}><button type="button" disabled={loadingOlder} onClick={() => void showSearchResult(result)}>
+                    <span><strong>{result.isMine ? 'You' : result.sender?.username ?? 'Former member'}</strong><time dateTime={result.createdAt}>{formatTime(result.createdAt)}</time></span>
+                    <span>{snippet ? <>{snippet.before}<mark>{snippet.match}</mark>{snippet.after}</> : result.text}</span>
+                  </button></li>
+                })}
+              </ul>
+              {searchState.hasMore && <p className="companion-search-note">Showing the 30 most recent matches.</p>}
+            </>
+            : <p className="companion-search-note">No messages match “{searchTerm}”.</p>
+          : <p className="companion-search-note" role="status">Searching…</p>
+      )}
+      <p className="companion-search-note">Searches the latest 1,000 group messages.</p>
+    </div>}
     {membersOpen && <div className="companion-search-panel group-members">
       {group.description && <p className="group-description">{group.description}</p>}
       {!members ? <p className="companion-search-note">Loading members…</p> : <ul>
@@ -480,43 +784,100 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Say hello to the group.</p><span>Ask a question, share a tip, or welcome someone new.</span></div>
         : messages.map((message) => message.kind === 'system'
           ? <p className="group-system-message" key={message.id}>{message.text}</p>
-          : <article className="companion-message-row group-message" id={`group-message-${message.id}`} key={message.id}>
+          : <article className={`companion-message-row group-message${highlightId === message.id ? ' highlighted' : ''}`} id={`group-message-${message.id}`} key={message.id}>
           <div className="companion-message-content">
-            {message.replyTo && message.kind === 'text' && <button className="companion-reply-quote" style={replyColor(message.replyTo.id)} type="button" onClick={() => jumpTo(message.replyTo!.id)}>
+            {message.replyTo && (message.kind === 'text' || message.kind === 'word') && <button className="companion-reply-quote" style={replyColor(message.replyTo.id)} type="button" onClick={() => jumpTo(message.replyTo!.id)}>
               <strong>{message.replyTo.isMine ? 'You' : 'Replying to a message'}</strong><span>{message.replyTo.text}</span>
             </button>}
             <div className="companion-message-meta">
               {message.sender && <img className="group-message-avatar" src={avatarDataUri(message.sender.avatarSeed)} alt="" />}
               <strong>{message.isMine ? 'You' : message.sender?.username ?? 'Former member'}</strong>
               <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
+              {message.editedAt && <span className="companion-edited">edited</span>}
             </div>
-            {message.kind === 'text'
-              ? <p className="companion-message-text">{message.text}</p>
+            {message.kind === 'word' && message.card
+              ? <div className="companion-word-card">
+                <span className="companion-word-card-label">Shared a word <em>{message.card.category}</em></span>
+                <p className="companion-word-card-prompt" lang="de">{message.card.prompt}</p>
+                {message.card.plural && <small>Plural: <span lang="de">{message.card.plural}</span></small>}
+                <p className="companion-word-card-meaning">{message.card.meaning}</p>
+                <p className="companion-word-card-example" lang="de">{message.card.example}</p>
+                {message.card.translation && <p className="companion-word-card-translation">{message.card.translation}</p>}
+                {!message.isMine && (cardInDeck(message.card, message.id) ? <span className="companion-word-card-status">In your deck</span> : <button className="companion-word-card-add" type="button" onClick={() => addWord(message)}>Add to deck</button>)}
+              </div>
+              : message.kind === 'text' && editing?.messageId === message.id
+              ? <form className="companion-edit-form" onSubmit={submitEdit}>
+                <textarea rows={2} maxLength={1000} value={editing.text} autoFocus aria-label="Edit your message" onChange={(event) => setEditing({ ...editing, text: event.target.value })} onKeyDown={(event) => {
+                  if (event.key === 'Escape') { event.stopPropagation(); setEditing(null) }
+                  else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) event.currentTarget.form?.requestSubmit()
+                }} />
+                <div className="companion-card-actions">
+                  <button type="submit" disabled={busy || !editing.text.trim() || editing.text.trim() === message.text}>Save</button>
+                  <button type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</button>
+                </div>
+              </form>
+              : message.kind === 'text'
+              ? <MessageWords id={message.id} text={message.text} tools={wordTools} />
               : <p className="companion-message-unsent">{message.text}</p>}
-            {message.kind === 'text' && <div className="group-message-actions">
-              <button type="button" onClick={() => { setReplyTo(message); composer.current?.focus() }}><Reply size={12} aria-hidden="true" />Reply</button>
-              {message.isMine && <button type="button" disabled={busy} onClick={() => void unsend(message)}>Unsend</button>}
-              {!message.isMine && !message.reported && <button type="button" disabled={busy} onClick={() => setReporting({ id: message.id, reason: 'other', details: '' })}>Report</button>}
-              {message.reported && <span>Reported</span>}
-              {message.canHide && !message.isMine && <button type="button" disabled={busy} onClick={() => void hide(message)}>Hide</button>}
-            </div>}
-            {reporting?.id === message.id && <form className="companion-report-form" onSubmit={submitReport}>
-              <label className="companion-field">Report reason
-                <select value={reporting.reason} onChange={(event) => setReporting({ ...reporting, reason: event.target.value })}>
-                  <option value="spam">Spam</option>
-                  <option value="harassment">Harassment</option>
-                  <option value="inappropriate">Inappropriate content</option>
-                  <option value="other">Other</option>
-                </select>
+            {message.kind === 'text' && correcting?.messageId === message.id && <form className="companion-correction-form" onSubmit={(event) => {
+              event.preventDefault()
+              if (!correcting.text.trim()) return
+              submitReview(message.id, { text: correcting.text, ...(correcting.note.trim() ? { note: correcting.note } : {}), ...(correcting.tags.length ? { tags: correcting.tags } : {}) })
+            }}>
+              <label>Suggested sentence
+                <textarea lang="de" rows={2} maxLength={1000} value={correcting.text} onChange={(event) => setCorrecting({ ...correcting, text: event.target.value })} autoFocus />
               </label>
-              <label className="companion-field">Additional details (optional)
-                <textarea maxLength={500} value={reporting.details} onChange={(event) => setReporting({ ...reporting, details: event.target.value })} />
-              </label>
+              {correcting.text.trim() && correcting.text.trim() !== message.text && <div className="companion-correction-preview" aria-label="Preview of your suggestion"><CorrectionDiff original={message.text} corrected={correcting.text.trim()} /></div>}
+              <div className="companion-correction-tags" role="group" aria-label="What changed (optional, up to 3)">
+                {Object.entries(correctionTagLabels).map(([tag, label]) => <button key={tag} type="button" aria-pressed={correcting.tags.includes(tag)} disabled={!correcting.tags.includes(tag) && correcting.tags.length >= 3} onClick={() => setCorrecting({ ...correcting, tags: correcting.tags.includes(tag) ? correcting.tags.filter((item) => item !== tag) : [...correcting.tags, tag] })}>{label}</button>)}
+              </div>
+              <label>Short note (optional)<input maxLength={200} value={correcting.note} onChange={(event) => setCorrecting({ ...correcting, note: event.target.value })} placeholder="e.g. The verb goes in second position" /></label>
+              <p>Be kind and specific: say what to revisit and why.</p>
               <div className="companion-card-actions">
-                <button type="submit" disabled={busy}>Submit report</button>
-                <button type="button" disabled={busy} onClick={() => setReporting(null)}>Cancel</button>
+                <button type="submit" disabled={busy || !correcting.text.trim() || correcting.text.trim() === message.text}>Send suggestion</button>
+                <button type="button" disabled={busy} onClick={() => setCorrecting(null)}>Cancel</button>
               </div>
             </form>}
+            {message.kind === 'text' && message.corrections?.map((review) => <div className="companion-correction" key={review.authorId}>
+              <span className="companion-correction-label">{review.approved ? <><Check size={12} aria-hidden="true" /> Looks good</> : 'Suggested rewrite'} · {review.byMe ? 'by you' : `by ${review.author?.username ?? 'Former member'}`}</span>
+              {review.text && <CorrectionDiff original={message.text} corrected={review.text} />}
+              {!!review.tags?.length && <div className="companion-correction-tags static">{review.tags.map((tag) => <span key={tag}>{correctionTagLabels[tag] ?? tag}</span>)}</div>}
+              {review.note && <p className="companion-correction-note">{review.note}</p>}
+              {message.isMine && (review.response === 'saved' ? <span className="companion-correction-status">Saved to your deck</span>
+                : savingCorrection?.messageId === message.id && savingCorrection.authorId === review.authorId
+                  ? <form className="companion-correction-save" onSubmit={(event) => { event.preventDefault(); saveReview(message, review, savingCorrection.meaning) }}>
+                    <input value={savingCorrection.meaning} maxLength={200} onChange={(event) => setSavingCorrection({ ...savingCorrection, meaning: event.target.value })} placeholder="What does it mean? (English)" aria-label="English meaning" autoFocus />
+                    <button type="submit" disabled={busy || !savingCorrection.meaning.trim()}>Save</button>
+                    <button type="button" onClick={() => setSavingCorrection(null)}>Cancel</button>
+                  </form>
+                  : <div className="companion-correction-actions">
+                    {review.response === 'thanks' ? <span className="companion-correction-status">You said thanks</span> : <button type="button" disabled={busy} onClick={() => void run(() => respondToReview(message, review, 'thanks'))}>Thanks</button>}
+                    {!review.approved && <button type="button" disabled={busy} onClick={() => setSavingCorrection({ messageId: message.id, authorId: review.authorId, meaning: '' })}>Add to my deck</button>}
+                  </div>)}
+              {!message.isMine && review.byMe && review.response && <span className="companion-correction-status">{review.response === 'saved' ? 'They saved it to their deck' : 'They said thanks'}</span>}
+              <div className="companion-correction-actions">
+                {!review.byMe && (review.reported ? <span>Reported</span> : <button type="button" onClick={(event) => { reportAnchor.current = event.currentTarget; setReporting({ messageId: message.id, authorId: review.authorId }) }}>Report review</button>)}
+                {message.canHide && <button type="button" disabled={busy} onClick={() => void hideReview(message, review)}>Hide review</button>}
+              </div>
+            </div>)}
+            {(message.kind === 'text' || message.kind === 'word') && <div className="companion-message-tools">
+              {(message.reactions ?? []).map((reaction) => <button className={`companion-reaction${reaction.mine ? ' mine' : ''}`} key={reaction.emoji} type="button" aria-pressed={reaction.mine} aria-label={`${reaction.emoji} ${reaction.count}`} onClick={() => toggleReaction(message, reaction.emoji)}><span aria-hidden="true">{reaction.emoji}</span>{reaction.count}</button>)}
+              {reactionPickerFor === message.id
+                ? <span className="companion-reaction-picker" role="group" aria-label="Choose a reaction">{reactionOptions.map((emoji) => <button key={emoji} type="button" aria-label={`React with ${emoji}`} onClick={() => toggleReaction(message, emoji)}>{emoji}</button>)}</span>
+                : <button className="companion-tool-button" type="button" aria-label="Add reaction" onClick={() => setReactionPickerFor(message.id)}><SmilePlus size={15} aria-hidden="true" /></button>}
+              <button className="companion-tool-button" type="button" aria-label={`Reply to ${message.isMine ? 'your message' : message.sender?.username ?? 'this message'}`} onClick={() => { setReplyTo(message); composer.current?.focus() }}><Reply size={15} aria-hidden="true" /></button>
+              {message.kind === 'text' && <button className="companion-tool-button" type="button" aria-label="Look up words in this message" aria-pressed={wordTools.wordChipsFor === message.id} title="Look up words" onClick={() => wordTools.toggleChips(message.id)}><Languages size={15} aria-hidden="true" /></button>}
+              {!message.isMine && message.kind === 'text' && !message.reviewedByMe && correcting?.messageId !== message.id && <>
+                <button className="companion-review-pill" type="button" disabled={busy} onClick={() => setCorrecting({ messageId: message.id, text: message.text, note: '', tags: [] })}><SpellCheck size={13} aria-hidden="true" /><span>Suggest edit</span></button>
+                <button className="companion-review-pill" type="button" disabled={busy} onClick={() => submitReview(message.id, { approve: true })}><Check size={13} aria-hidden="true" /><span>Looks good</span></button>
+              </>}
+              <MessageActionMenu label={message.isMine ? 'Actions for your message' : `Actions for message from ${message.sender?.username ?? 'a member'}`} actions={[
+                ...(message.isMine && message.kind === 'text' && !message.hasReviews && message.editableUntil && Date.parse(message.editableUntil) > now ? [{ label: 'Edit message', onSelect: () => setEditing({ messageId: message.id, text: message.text }) }] : []),
+                ...(message.isMine ? [{ label: 'Unsend', danger: true, disabled: busy, onSelect: () => void unsend(message) }] : []),
+                ...(!message.isMine ? [{ label: message.reported ? 'Reported' : 'Report message', disabled: busy || message.reported, onSelect: (anchor: HTMLButtonElement) => { reportAnchor.current = anchor; setReporting({ messageId: message.id }) } }] : []),
+                ...(message.canHide && !message.isMine ? [{ label: 'Hide message', danger: true, disabled: busy, onSelect: () => void hide(message) }] : []),
+              ]} />
+            </div>}
           </div>
         </article>)}
     </div>
@@ -532,7 +893,20 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         }} placeholder="Write to the group…" disabled={busy} />
         <button className="companion-send-button" type="submit" disabled={busy || !draft.trim()}>Send</button>
       </div>
-      <div className="companion-composer-footer"><span>{draft.length}/1000</span></div>
+      <div className="companion-composer-footer">
+        <details className="companion-word-picker" ref={wordPicker}>
+          <summary><BookOpen size={13} aria-hidden="true" /><span>Share a word</span></summary>
+          <div className="companion-word-picker-panel">
+            <input value={wordPickerQuery} onChange={(event) => setWordPickerQuery(event.target.value)} placeholder="Search your words…" aria-label="Search your words" />
+            <div className="companion-word-picker-results" role="group" aria-label="Words to share in this group">
+              {shareableCards.filter((card) => !wordPickerQuery.trim() || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(wordPickerQuery.trim().toLocaleLowerCase())).sort((a, b) => Date.parse(b.lastReviewedAt ?? b.createdAt) - Date.parse(a.lastReviewedAt ?? a.createdAt)).slice(0, 8).map((card) => <button key={card.id} type="button" disabled={busy} onClick={() => shareWord(card)}><strong lang="de">{card.prompt}</strong><span>{card.meaning}</span></button>)}
+              {!shareableCards.some((card) => !wordPickerQuery.trim() || `${card.prompt} ${card.meaning}`.toLocaleLowerCase().includes(wordPickerQuery.trim().toLocaleLowerCase())) && <p className="companion-empty-note">No matching shareable words.</p>}
+            </div>
+          </div>
+        </details>
+        <span>{draft.length}/1000</span>
+      </div>
     </form>
+    {reporting && <ReportPopover key={`${reporting.messageId}-${reporting.authorId ?? 'message'}`} anchorRef={reportAnchor} title={reporting.authorId ? 'Report review' : 'Report message'} onClose={closeReport} onSubmit={(reason, details) => submitReport(reporting, reason, details)} />}
   </>
 }

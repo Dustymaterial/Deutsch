@@ -27,12 +27,14 @@ const matches = (object, query) => Object.entries(query).every(([key, expected])
     return Object.entries(expected).every(([operator, value]) => {
       if (operator === '$exists') return (actual !== undefined) === value
       if (operator === '$lte') return actual !== undefined && actual <= value
+      if (operator === '$gte') return actual !== undefined && actual >= value
       if (operator === '$lt') return actual !== undefined && actual < value
       if (operator === '$gt') return actual !== undefined && actual > value
       if (operator === '$ne') return actual !== value
       throw new Error(`Unknown operator ${operator}`)
     })
   }
+  if (expected instanceof Date) return actual instanceof Date && actual.getTime() === expected.getTime()
   if (Array.isArray(expected)) return Array.isArray(actual) && JSON.stringify(actual) === JSON.stringify(expected)
   return Array.isArray(actual) ? actual.includes(expected) : actual === expected
 })
@@ -67,7 +69,11 @@ const collection = (name) => ({
       const entries = Object.entries(options.sort)
       result.sort((left, right) => {
         for (const [field, direction] of entries) {
-          const difference = get(left, field) - get(right, field)
+          const a = get(left, field)
+          const b = get(right, field)
+          const difference = a instanceof ObjectId && b instanceof ObjectId
+            ? a.toString().localeCompare(b.toString())
+            : a - b
           if (difference) return direction * difference
         }
         return 0
@@ -79,8 +85,18 @@ const collection = (name) => ({
   async findOne(query, options = {}) {
     let matchesQuery = records[name].filter((item) => matches(item, query))
     if (options.sort) {
-      const [[field, direction]] = Object.entries(options.sort)
-      matchesQuery = matchesQuery.sort((left, right) => direction * (get(left, field) - get(right, field)))
+      const entries = Object.entries(options.sort)
+      matchesQuery = matchesQuery.sort((left, right) => {
+        for (const [field, direction] of entries) {
+          const a = get(left, field)
+          const b = get(right, field)
+          const difference = a instanceof ObjectId && b instanceof ObjectId
+            ? a.toString().localeCompare(b.toString())
+            : a - b
+          if (difference) return direction * difference
+        }
+        return 0
+      })
     }
     const record = matchesQuery[0]
     return record ? { ...record, otp: record.otp ? structuredClone(record.otp) : undefined } : null
@@ -136,13 +152,13 @@ mock.module('dotenv', { defaultExport: { config: () => ({ parsed: {} }) } })
 
 process.env.MONGODB_URI = 'mongodb://test:test@localhost:27017/deutsch'
 process.env.SESSION_SECRET = 'test-secret-with-at-least-thirty-two-characters'
+process.env.GROUP_MIN_ACCOUNT_AGE_HOURS = '24'
 process.env.MAILJET_API_KEY = 'test-key'
 process.env.MAILJET_SECRET_KEY = 'test-secret'
 process.env.SENDER_EMAIL = 'sender@example.test'
 process.env.PORT = '0'
 process.env.TRUST_PROXY = '1'
 process.env.MODERATOR_USER_IDS = 'aaaaaaaaaaaaaaaaaaaaaaaa'
-process.env.GROUP_MIN_ACCOUNT_AGE_HOURS = '1'
 const deliveries = []
 let failCompanionDelivery = false
 const nativeFetch = globalThis.fetch
@@ -508,9 +524,7 @@ try {
   assert.equal((await request('/api/groups', { name: 'Anfänger' }, learner.cookie)).status, 403)
   assert.equal((await request('/api/groups', { name: 'Anfänger' }, learner.cookie)).body.code, 'rules')
   assert.equal((await request('/api/groups/rules', {}, learner.cookie)).status, 200)
-  const newAccount = await request('/api/groups', { name: 'Anfänger' }, learner.cookie)
-  assert.equal(newAccount.body.code, 'new-account')
-  learnerRecord.createdAt = new Date(Date.now() - 48 * 60 * 60 * 1000)
+  learnerRecord.createdAt = new Date()
   const created = await request('/api/groups', { name: 'Anfänger  Treff', description: 'A1 and A2 questions' }, learner.cookie)
   assert.equal(created.status, 201)
   assert.equal(created.body.group.name, 'Anfänger Treff')
@@ -527,6 +541,7 @@ try {
 
   assert.equal((await request(`/api/groups/${groupId}/join`, {}, other.cookie)).body.code, 'rules')
   await request('/api/groups/rules', {}, other.cookie)
+  companion.createdAt = new Date()
   assert.equal((await request(`/api/groups/${groupId}/join`, {}, other.cookie)).status, 200)
   assert.equal((await request(`/api/groups/${groupId}/join`, {}, other.cookie)).status, 200)
   await request('/api/groups/rules', {}, third.cookie)
@@ -552,28 +567,86 @@ try {
 
   const outsider = await makeUser('Outsider')
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, outsider.cookie)).status, 404)
+  const beforeJoin = { _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: 'Old message', createdAt: new Date(0) }
+  records.groupMessages.push(beforeJoin)
+  assert.equal((await request('/api/groups', null, third.cookie)).body.groups.find((item) => item.id === groupId).unreadCount, 0)
+  records.groupMessages = records.groupMessages.filter((message) => message !== beforeJoin)
   assert.equal((await groupPost(groupId, learnerUser, 'Hallo zusammen!')).status, 201)
   const first = await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?')
   assert.equal(first.status, 201)
   assert.equal(first.body.message.sender.username, 'Companion')
+  assert.equal((await request(`/api/groups/${groupId}/search?q=thanks`, null, outsider.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/search?q=x`, null, learner.cookie)).status, 400)
+  assert.equal((await request(`/api/groups/${groupId}/search?q=${'x'.repeat(101)}`, null, learner.cookie)).status, 400)
   assert.equal((await request(`/api/groups/${groupId}/messages`, { text: 'Too fast' }, other.cookie)).status, 429)
   assert.equal((await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?')).status, 429)
   assert.equal((await groupPost(groupId, otherUser, 'a http://a.example http://b.example http://c.example')).status, 400)
   const answer = await groupPost(groupId, learnerUser, 'Danke!', { replyToId: first.body.message.id })
   assert.equal(answer.status, 201)
   assert.equal(answer.body.message.replyTo.text, 'Wie sagt man "thanks"?')
+  const firstPath = `/api/groups/${groupId}/messages/${first.body.message.id}`
+  assert.equal((await request(`${firstPath}/reaction`, { emoji: '👍' }, outsider.cookie)).status, 404)
+  assert.equal((await request(`${firstPath}/reaction`, { emoji: '🤔' }, learner.cookie)).status, 400)
+  assert.deepEqual((await request(`${firstPath}/reaction`, { emoji: '👍' }, learner.cookie)).body.reactions, [{ emoji: '👍', count: 1, mine: true }])
+  assert.deepEqual((await request(`${firstPath}/reaction`, { emoji: '👍' }, third.cookie)).body.reactions, [{ emoji: '👍', count: 2, mine: true }])
+  assert.deepEqual((await request(`${firstPath}/reaction`, { emoji: null }, learner.cookie)).body.reactions, [{ emoji: '👍', count: 1, mine: false }])
+  assert.equal((await request(`${firstPath}/edit`, { text: 'Change' }, learner.cookie)).status, 404)
+  assert.equal((await request(`${firstPath}/edit`, { text: 'http://a.example http://b.example http://c.example' }, other.cookie)).status, 400)
+  const editedGroupMessage = await request(`${firstPath}/edit`, { text: 'Wie sagt man thanks?' }, other.cookie)
+  assert.equal(editedGroupMessage.status, 200)
+  assert.ok(editedGroupMessage.body.message.editedAt)
+  assert.equal(records.groupMessages.find((item) => item._id.toString() === answer.body.message.id).replyTo.text, 'Wie sagt man thanks?')
+  const firstStored = records.groupMessages.find((item) => item._id.toString() === first.body.message.id)
+  const originalCreatedAt = firstStored.createdAt
+  firstStored.createdAt = new Date(Date.now() - 11 * 60 * 1000)
+  assert.equal((await request(`${firstPath}/edit`, { text: 'Too late' }, other.cookie)).status, 403)
+  firstStored.createdAt = originalCreatedAt
+  const groupEntry = async (cookie) => (await request('/api/groups', null, cookie)).body.groups.find((item) => item.id === groupId)
+  const outsiderEntry = await groupEntry(outsider.cookie)
+  assert.equal(outsiderEntry.lastMessage, undefined)
+  assert.equal(outsiderEntry.unreadCount, undefined)
+  const thirdEntry = await groupEntry(third.cookie)
+  assert.equal(thirdEntry.unreadCount, 3)
+  assert.equal(thirdEntry.lastMessage.text, 'Danke!')
+  assert.equal(thirdEntry.lastMessage.sender, 'learner')
+  assert.equal((await groupEntry(learner.cookie)).unreadCount, 1)
   const history = await request(`/api/groups/${groupId}/messages`, null, third.cookie)
   assert.equal(history.body.messages.length, 3)
   assert.equal(history.body.messages[0].canHide, false)
+  assert.equal((await groupEntry(third.cookie)).unreadCount, 0)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages[0].canHide, true)
+
+  const sameTime = new Date(Date.now() + 1000)
+  const firstAtSameTime = { _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: 'First at this time', createdAt: sameTime }
+  records.groupMessages.push(firstAtSameTime)
+  await request(`/api/groups/${groupId}/messages`, null, fourth.cookie)
+  const secondAtSameTime = { _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: 'Second at this time', createdAt: sameTime }
+  records.groupMessages.push(secondAtSameTime)
+  assert.equal((await groupEntry(fourth.cookie)).unreadCount, 1)
+  assert.equal((await groupEntry(fourth.cookie)).lastMessage.text, 'Second at this time')
+  await request(`/api/groups/${groupId}/messages?before=${encodeURIComponent(sameTime.toISOString())}`, null, fourth.cookie)
+  assert.equal((await groupEntry(fourth.cookie)).unreadCount, 1)
+  await request(`/api/groups/${groupId}/messages`, null, fourth.cookie)
+  assert.equal((await groupEntry(fourth.cookie)).unreadCount, 0)
+  const burst = Array.from({ length: 101 }, (_, index) => ({
+    _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: `Burst ${index}`,
+    createdAt: new Date(sameTime.getTime() + index + 1),
+  }))
+  records.groupMessages.push(...burst)
+  assert.equal((await groupEntry(fourth.cookie)).unreadCount, 100)
+  records.groupMessages = records.groupMessages.filter((message) => !burst.includes(message))
+  records.groupMessages = records.groupMessages.filter((message) => message !== firstAtSameTime && message !== secondAtSameTime)
+  delete records.groupMembers.find((member) => member.groupId === groupId && member.userId === fourth.id).readThrough
 
   const mine = await groupPost(groupId, third, 'Ich bin neu hier.')
   assert.equal((await request(`/api/groups/${groupId}/messages/${mine.body.message.id}/unsend`, {}, other.cookie)).status, 404)
   assert.equal((await request(`/api/groups/${groupId}/messages/${mine.body.message.id}/unsend`, {}, third.cookie)).status, 200)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, other.cookie)).body.messages.at(-1).kind, 'unsent')
+  assert.equal((await groupEntry(fourth.cookie)).lastMessage.text, 'Danke!')
 
   const spam = await groupPost(groupId, otherUser, 'Buy cheap followers')
   const spamId = spam.body.message.id
+  assert.equal((await groupEntry(learner.cookie)).unreadCount, 1)
   const reportPath = `/api/groups/${groupId}/messages/${spamId}/report`
   assert.equal((await request(reportPath, { reason: 'spam' }, other.cookie)).status, 404)
   assert.equal((await request(reportPath, { reason: 'spam' }, learner.cookie)).status, 201)
@@ -582,6 +655,97 @@ try {
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, fourth.cookie)).body.messages.at(-1).kind, 'text')
   assert.equal((await request(reportPath, { reason: 'harassment', details: 'Repeated' }, fourth.cookie)).status, 201)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, fourth.cookie)).body.messages.at(-1).kind, 'hidden')
+  assert.equal((await groupEntry(fourth.cookie)).lastMessage.text, 'Danke!')
+  assert.equal((await groupEntry(learner.cookie)).unreadCount, 0)
+  assert.equal((await request(`/api/groups/${groupId}/search?q=followers`, null, learner.cookie)).body.messages.length, 0)
+  assert.equal((await request(`/api/groups/${groupId}/search?q=neu`, null, learner.cookie)).body.messages.length, 0)
+  assert.equal((await request(`/api/groups/${groupId}/messages/${spamId}`, null, outsider.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/messages/${spamId}`, null, learner.cookie)).body.message.kind, 'hidden')
+
+  const card = { prompt: 'der Baum', article: 'der', meaning: 'tree', example: 'Der Baum ist groß.', category: 'noun' }
+  delete learnerRecord.lastGroupPostAt
+  const sharedGroupWord = await request(`/api/groups/${groupId}/messages`, { card }, learner.cookie)
+  assert.equal(sharedGroupWord.status, 201)
+  assert.equal(sharedGroupWord.body.message.kind, 'word')
+  assert.equal((await request(`/api/groups/${groupId}/search?q=tree`, null, other.cookie)).body.messages[0].card.prompt, 'der Baum')
+  assert.equal((await request(`/api/groups/${groupId}/messages/${sharedGroupWord.body.message.id}/edit`, { text: 'Change' }, learner.cookie)).status, 404)
+  assert.equal((await request(`/api/groups/${groupId}/messages/${sharedGroupWord.body.message.id}/report`, { reason: 'other' }, other.cookie)).status, 201)
+  assert.match(records.groupReports.find((item) => item.messageId === sharedGroupWord.body.message.id).messageText, /tree/)
+  records.groupReports = records.groupReports.filter((item) => item.messageId !== sharedGroupWord.body.message.id)
+  records.groupMessages = records.groupMessages.filter((item) => item._id.toString() !== sharedGroupWord.body.message.id)
+
+  const reviewsPath = `${firstPath}/reviews`
+  assert.equal((await request(reviewsPath, { approve: true }, outsider.cookie)).status, 404)
+  assert.equal((await request(reviewsPath, { approve: true }, other.cookie)).status, 404)
+  assert.equal((await request(reviewsPath, { text: 'Überprüfung', note: 'Test' }, learner.cookie)).status, 201)
+  assert.equal((await request(reviewsPath, { approve: true }, third.cookie)).status, 201)
+  assert.equal((await request(reviewsPath, { approve: true }, learner.cookie)).status, 409)
+  assert.equal((await request(`${firstPath}/edit`, { text: 'Changed after review' }, other.cookie)).status, 409)
+  const reviewResult = await request(`/api/groups/${groupId}/search?q=uberprufung`, null, fourth.cookie)
+  assert.equal(reviewResult.body.messages[0].corrections.length, 2)
+  assert.equal((await request(`${reviewsPath}/${learnerRecord._id}/respond`, { response: 'thanks' }, third.cookie)).status, 404)
+  assert.equal((await request(`${reviewsPath}/${learnerRecord._id}/respond`, { response: 'thanks' }, other.cookie)).status, 200)
+  const reviewReportPath = `${reviewsPath}/${learnerRecord._id}/report`
+  assert.equal((await request(reviewReportPath, { reason: 'harassment' }, learner.cookie)).status, 404)
+  assert.equal((await request(reviewReportPath, { reason: 'harassment' }, other.cookie)).status, 201)
+  assert.equal((await request(reviewReportPath, { reason: 'harassment' }, other.cookie)).status, 409)
+  assert.equal((await request(reviewReportPath, { reason: 'harassment' }, third.cookie)).status, 201)
+  assert.equal((await request(reviewReportPath, { reason: 'harassment' }, fourth.cookie)).body.hidden, true)
+  assert.equal((await request(`/api/groups/${groupId}/search?q=uberprufung`, null, fourth.cookie)).body.messages.length, 0)
+  const reviewReports = records.groupReports.filter((item) => item.parentMessageId === first.body.message.id)
+  assert.equal(reviewReports[0].reportedUserId, learnerRecord._id.toString())
+  assert.equal((await request(`/api/moderation/reports/group/${reviewReports[0]._id}/resolve`, { action: 'hide' }, moderator.cookie)).status, 200)
+  assert.equal(firstStored.hiddenAt, undefined)
+  assert.ok(firstStored.corrections[learnerRecord._id.toString()].hiddenAt)
+  records.groupReports = records.groupReports.filter((item) => !reviewReports.includes(item))
+
+  const searchTime = Date.now() + 3000
+  const searchable = Array.from({ length: 1032 }, (_, index) => ({
+    _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(),
+    text: index === 0 ? 'oldneedle' : index >= 1001 ? 'Überraschung' : 'different',
+    createdAt: new Date(searchTime + index),
+  }))
+  records.groupMessages.push(...searchable)
+  const searchMembership = records.groupMembers.find((member) => member.groupId === groupId && member.userId === otherUser.record._id.toString())
+  const cursorBeforeSearch = searchMembership.readThrough
+  const groupSearch = await request(`/api/groups/${groupId}/search?q=uberraschung`, null, other.cookie)
+  assert.equal(groupSearch.status, 200)
+  assert.equal(groupSearch.body.messages.length, 30)
+  assert.equal(groupSearch.body.hasMore, true)
+  assert.equal(groupSearch.body.messages[0].text, 'Überraschung')
+  assert.equal(searchMembership.readThrough, cursorBeforeSearch)
+  assert.equal((await request(`/api/groups/${groupId}/search?q=oldneedle`, null, learner.cookie)).body.messages.length, 0)
+  records.groupMessages = records.groupMessages.filter((message) => !searchable.includes(message))
+
+  const tieTime = new Date(Date.now() + 6000)
+  const groupRecord = records.groups.find((item) => item._id.toString() === groupId)
+  const oldNotices = groupRecord.nameChanges
+  const tied = Array.from({ length: 60 }, (_, index) => ({
+    _id: new ObjectId(), groupId, senderId: learnerRecord._id.toString(), text: `Tied ${index}`, createdAt: tieTime,
+  }))
+  records.groupMessages.push(...tied)
+  groupRecord.nameChanges = Array.from({ length: 30 }, () => ({
+    id: new ObjectId().toString(), actor: 'learner', name: 'Group', createdAt: tieTime,
+  }))
+  const noticesOnly = Array.from({ length: 50 }, () => ({
+    id: new ObjectId().toString(), actor: 'learner', name: 'Group', createdAt: new Date(tieTime.getTime() + 1),
+  }))
+  groupRecord.nameChanges.push(...noticesOnly)
+  const membership = records.groupMembers.find((member) => member.groupId === groupId && member.userId === fourth.id)
+  const cursorBeforeNotices = membership.readThrough
+  const noticePage = await request(`/api/groups/${groupId}/messages`, null, fourth.cookie)
+  assert.ok(noticePage.body.messages.every((message) => message.kind === 'system'))
+  assert.equal(membership.readThrough, cursorBeforeNotices)
+  groupRecord.nameChanges = groupRecord.nameChanges.filter((notice) => !noticesOnly.includes(notice))
+  const tiePage = (await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body
+  const tieOldest = tiePage.messages[0]
+  const nextTiePage = (await request(`/api/groups/${groupId}/messages?before=${encodeURIComponent(tieOldest.createdAt)}&beforeId=${tieOldest.id}`, null, learner.cookie)).body
+  const ids = [...tiePage.messages, ...nextTiePage.messages].map((message) => message.id)
+  assert.equal(new Set(ids).size, ids.length)
+  assert.ok(tied.every((message) => ids.includes(message._id.toString())))
+  assert.equal((await request(`/api/groups/${groupId}/messages?beforeId=bad`, null, learner.cookie)).status, 400)
+  records.groupMessages = records.groupMessages.filter((message) => !tied.includes(message))
+  groupRecord.nameChanges = oldNotices
 
   assert.equal((await request('/api/moderation/reports', null, learner.cookie)).status, 404)
   const queue = await request('/api/moderation/reports', null, moderator.cookie)

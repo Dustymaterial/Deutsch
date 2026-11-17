@@ -289,7 +289,7 @@ if (mongoConnectionString) {
     groups.createIndex({ lastActivityAt: -1 }),
     groupMembers.createIndex({ groupId: 1, userId: 1 }, { unique: true }),
     groupMembers.createIndex({ userId: 1, state: 1 }),
-    groupMessages.createIndex({ groupId: 1, createdAt: 1 }),
+    groupMessages.createIndex({ groupId: 1, createdAt: 1, _id: 1 }),
     groupMessages.createIndex({ createdAt: 1 }, { expireAfterSeconds: groupRetention.groupMessageRetention / 1000 }),
     groupReports.createIndex({ reporterId: 1, messageId: 1 }, { unique: true }),
     groupReports.createIndex({ createdAt: -1 }),
@@ -499,10 +499,8 @@ if (relationships) {
     requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
   }))
   const isModerator = createModeratorCheck((configuration.MODERATOR_USER_IDS ?? '').split(','))
-  const minAccountAgeHours = Number(configuration.GROUP_MIN_ACCOUNT_AGE_HOURS || (isLocalDevelopment ? 0 : 24))
   app.use('/api/groups', createGroupsRouter({
     users, groups, groupMembers, groupMessages, groupReports, requireUser, isModerator,
-    minAccountAgeHours: Number.isFinite(minAccountAgeHours) ? minAccountAgeHours : 24,
   }))
   app.use('/api/moderation', createModerationRouter({
     users, groupMessages, groupReports, companionReports, requireUser, isModerator,

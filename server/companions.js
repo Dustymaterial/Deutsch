@@ -2,6 +2,11 @@ import { Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { ObjectId } from 'mongodb'
 import { z } from 'zod'
+import { foldText, searchResultLimit, searchScanLimit } from './messageSearch.js'
+import { reactionSchema, summarizeReactions } from './chatReactions.js'
+import { sharedCardSchema } from './sharedCard.js'
+import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
+import { mapInBatches } from './mapInBatches.js'
 
 const usernameSchema = z.object({ username: z.string().trim().min(3).max(20).regex(/^[A-Za-z0-9_-]+$/) })
 const targetSchema = z.object({ id: z.string().regex(/^[a-f\d]{24}$/) })
@@ -11,46 +16,19 @@ const reportSchema = z.object({
   reason: z.enum(['spam', 'harassment', 'inappropriate', 'other']),
   details: z.string().trim().max(500).optional(),
 })
-const sharedCardSchema = z.object({
-  prompt: z.string().trim().min(1).max(500),
-  article: z.enum(['der', 'die', 'das']).optional(),
-  meaning: z.string().trim().min(1).max(1000),
-  plural: z.string().max(500).optional(),
-  example: z.string().trim().min(1).max(2000),
-  translation: z.string().max(2000).optional(),
-  category: z.enum(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase']),
-}).refine((card) => card.category !== 'noun' || Boolean(card.article), { message: 'Nouns require an article.' })
-const reactionEmojis = ['👍', '🎉', '💡', '❤️', '👏']
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/)
 const chatMessageSchema = z.object({
   text: z.string().trim().min(1).max(2000).optional(),
   card: sharedCardSchema.optional(),
   replyToId: objectIdSchema.optional(),
 }).refine((message) => Boolean(message.text) !== Boolean(message.card))
-const reactionSchema = z.object({ emoji: z.enum(reactionEmojis).nullable() })
 const messageEditSchema = z.object({ text: z.string().trim().min(1).max(2000) })
-const correctionTags = [
-  'verb-position', 'verb-form', 'article', 'case', 'spelling',
-  'word-choice', 'word-order', 'tense', 'punctuation', 'more-natural',
-]
-const correctionSchema = z.object({
-  text: z.string().trim().min(1).max(2000).optional(),
-  note: z.string().trim().max(200).optional(),
-  tags: z.array(z.enum(correctionTags)).max(3).optional(),
-  approve: z.literal(true).optional(),
-}).refine((value) => value.approve
-  ? !value.text && !value.note && !value.tags?.length
-  : Boolean(value.text))
-const correctionResponseSchema = z.object({ response: z.enum(['thanks', 'saved']) })
 const shareSchema = z.object({
   recipientId: z.string().regex(/^[a-f\d]{24}$/),
   card: sharedCardSchema,
   note: z.string().trim().max(240).optional(),
 })
 const hour = 60 * 60 * 1000
-const searchScanLimit = 1000
-const searchResultLimit = 30
-const foldText = (value) => value.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('de-DE')
 const searchableFields = (message) => [
   ...(message.card ? [] : [message.text]),
   ...(message.card ? [message.card.prompt, message.card.meaning, message.card.example, message.card.translation] : []),
@@ -89,10 +67,6 @@ export function createCompanionRouter({
   const sentNudgeAt = (userId) => `nudges.sentAt.${userId}`
   const readNudgeAt = (userId) => `nudges.readAt.${userId}`
   const previewText = (message) => message.text.slice(0, 140)
-  const summarizeReactions = (reactions, me) => reactionEmojis.flatMap((emoji) => {
-    const users = Object.entries(reactions ?? {}).filter(([, value]) => value === emoji).map(([id]) => id)
-    return users.length ? [{ emoji, count: users.length, mine: users.includes(me) }] : []
-  })
   const serializeMessage = (message, me) => {
     const base = {
       id: message._id.toString(),
@@ -253,14 +227,14 @@ export function createCompanionRouter({
   router.get('/unread', async (req, res) => {
     const me = req.accountUser._id.toString()
     const pairs = await relationships.find({ participants: me, state: 'connected', blockedBy: [] }).toArray()
-    let count = 0
-    for (const pair of pairs) {
+    const counts = await mapInBatches(pairs, async (pair) => {
       const them = pair.participants.find((participant) => participant !== me)
       const connection = await currentConnection(me, them)
-      if (!connection) continue
+      if (!connection) return 0
       const conversation = await getOrCreateConversation(connection)
-      if (conversation) count += await unreadCountFor(conversation, me)
-    }
+      return conversation ? unreadCountFor(conversation, me) : 0
+    })
+    const count = counts.reduce((total, item) => total + item, 0)
     res.json({ count })
   })
 
@@ -271,26 +245,22 @@ export function createCompanionRouter({
       state: 'connected',
       blockedBy: [],
     }).toArray()
-    const chats = []
-    for (const pair of pairs) {
+    const chats = (await mapInBatches(pairs, async (pair) => {
       const them = pair.participants.find((participant) => participant !== me)
       const connection = await currentConnection(me, them)
-      if (!connection) continue
+      if (!connection) return null
       const conversation = await getOrCreateConversation(connection)
-      if (!conversation) continue
+      if (!conversation) return null
       const conversationId = conversation._id.toString()
-      const lastMessage = await companionMessages.findOne(
-        { conversationId },
-        { sort: { createdAt: -1 } },
-      )
+      const [lastMessage, companion, unreadCount] = await Promise.all([
+        companionMessages.findOne({ conversationId }, { sort: { createdAt: -1 } }),
+        users.findOne({ _id: new ObjectId(them) }, { projection: { username: 1, avatarSeed: 1 } }),
+        unreadCountFor(conversation, me),
+      ])
       const hiddenAt = conversation.hiddenAt?.[me]
-      if (hiddenAt && (!lastMessage || lastMessage.createdAt <= hiddenAt)) continue
-      const companion = await users.findOne(
-        { _id: new ObjectId(them) },
-        { projection: { username: 1, avatarSeed: 1 } },
-      )
-      if (!companion) continue
-      chats.push({
+      if (hiddenAt && (!lastMessage || lastMessage.createdAt <= hiddenAt)) return null
+      if (!companion) return null
+      return {
         id: conversationId,
         companion: profile(companion),
         lastMessage: lastMessage ? {
@@ -300,10 +270,10 @@ export function createCompanionRouter({
         } : null,
         unread: Boolean(lastMessage && lastMessage.senderId !== me
           && (!conversation.readAt?.[me] || lastMessage.createdAt > conversation.readAt[me])),
-        unreadCount: await unreadCountFor(conversation, me),
+        unreadCount,
         updatedAt: conversation.updatedAt.toISOString(),
-      })
-    }
+      }
+    })).filter(Boolean)
     chats.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     res.json({ chats })
   })
