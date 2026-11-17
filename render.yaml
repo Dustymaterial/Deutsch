@@ -21,3 +21,5 @@ services:
         sync: false
       - key: SENDER_EMAIL
         sync: false
+      - key: MODERATOR_USERNAMES
+        sync: false

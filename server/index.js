@@ -14,6 +14,9 @@ import { createAccountMailer } from './accountMail.js'
 import { accountAvatarPng } from './accountAvatar.js'
 import { createAccountSecurity } from './accountSecurity.js'
 import { createCompanionRouter } from './companions.js'
+import {
+  createGroupsRouter, createModerationRouter, createModeratorCheck, groupRetention,
+} from './groups.js'
 
 const isLocalDevelopment = process.argv.includes('--local')
 const envFile = dotenv.config()
@@ -167,6 +170,10 @@ let sharedWords
 let conversations
 let companionMessages
 let companionReports
+let groups
+let groupMembers
+let groupMessages
+let groupReports
 let accountSecurity
 const accountMailer = createAccountMailer(configuration)
 
@@ -234,6 +241,10 @@ if (mongoConnectionString) {
   conversations = db.collection('companionConversations')
   companionMessages = db.collection('companionMessages')
   companionReports = db.collection('companionReports')
+  groups = db.collection('groups')
+  groupMembers = db.collection('groupMembers')
+  groupMessages = db.collection('groupMessages')
+  groupReports = db.collection('groupReports')
   accountSecurity = createAccountSecurity({
     users,
     secret: configuration.SESSION_SECRET,
@@ -253,6 +264,17 @@ if (mongoConnectionString) {
     companionMessages.createIndex({ conversationId: 1, createdAt: 1 }),
     companionReports.createIndex({ reporterId: 1, messageId: 1 }, { unique: true }),
     companionReports.createIndex({ createdAt: -1 }),
+    companionReports.createIndex({ deleteAfter: 1 }, { expireAfterSeconds: 0 }),
+    groups.createIndex({ nameKey: 1 }, { unique: true }),
+    groups.createIndex({ ownerId: 1 }),
+    groups.createIndex({ lastActivityAt: -1 }),
+    groupMembers.createIndex({ groupId: 1, userId: 1 }, { unique: true }),
+    groupMembers.createIndex({ userId: 1, state: 1 }),
+    groupMessages.createIndex({ groupId: 1, createdAt: 1 }),
+    groupMessages.createIndex({ createdAt: 1 }, { expireAfterSeconds: groupRetention.groupMessageRetention / 1000 }),
+    groupReports.createIndex({ reporterId: 1, messageId: 1 }, { unique: true }),
+    groupReports.createIndex({ createdAt: -1 }),
+    groupReports.createIndex({ deleteAfter: 1 }, { expireAfterSeconds: 0 }),
   ])
 
   app.use(session({
@@ -456,6 +478,15 @@ if (relationships) {
   app.use('/api/companions', createCompanionRouter({
     users, relationships, sharedWords, conversations, companionMessages, companionReports,
     requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng,
+  }))
+  const isModerator = createModeratorCheck((configuration.MODERATOR_USERNAMES ?? '').split(','))
+  const minAccountAgeHours = Number(configuration.GROUP_MIN_ACCOUNT_AGE_HOURS ?? (isLocalDevelopment ? 0 : 24))
+  app.use('/api/groups', createGroupsRouter({
+    users, groups, groupMembers, groupMessages, groupReports, requireUser, isModerator,
+    minAccountAgeHours: Number.isFinite(minAccountAgeHours) ? minAccountAgeHours : 24,
+  }))
+  app.use('/api/moderation', createModerationRouter({
+    users, groupMessages, groupReports, companionReports, requireUser, isModerator,
   }))
 }
 
