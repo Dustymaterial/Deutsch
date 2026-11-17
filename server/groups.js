@@ -2,6 +2,11 @@ import { Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { ObjectId } from 'mongodb'
 import { z } from 'zod'
+import { foldText, searchResultLimit, searchScanLimit } from './messageSearch.js'
+import { reactionSchema, summarizeReactions } from './chatReactions.js'
+import { sharedCardSchema } from './sharedCard.js'
+import { correctionResponseSchema, correctionSchema } from './chatReviews.js'
+import { mapInBatches } from './mapInBatches.js'
 
 export const maxGroupsPerOwner = 3
 const maxMembers = 100
@@ -15,6 +20,7 @@ const duplicateWindow = 60 * 1000
 const autoHideReports = 3
 const resolvedReportRetention = 90 * day
 const groupMessageRetention = 365 * day
+const editWindow = 10 * 60 * 1000
 
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/)
 const createSchema = z.object({
@@ -23,9 +29,11 @@ const createSchema = z.object({
 })
 const renameSchema = createSchema.pick({ name: true })
 const messageSchema = z.object({
-  text: z.string().trim().min(1).max(1000),
+  text: z.string().trim().min(1).max(1000).optional(),
+  card: sharedCardSchema.optional(),
   replyToId: objectIdSchema.optional(),
-})
+}).refine((message) => Boolean(message.text) !== Boolean(message.card))
+const editSchema = z.object({ text: z.string().trim().min(1).max(1000) })
 const stateSchema = z.object({ state: z.enum(['open', 'closed']) })
 const memberSchema = z.object({ id: objectIdSchema })
 const reportSchema = z.object({
@@ -68,7 +76,7 @@ const createLimiter = () => rateLimit({
 
 export function createGroupsRouter({
   users, groups, groupMembers, groupMessages, groupReports,
-  requireUser, isModerator, minAccountAgeHours,
+  requireUser, isModerator,
 }) {
   const router = Router()
   router.use(...guard({ requireUser, limiter: createLimiter() }))
@@ -78,10 +86,10 @@ export function createGroupsRouter({
   const canModerate = (group, req) => group.ownerId === req.accountUser._id.toString() || isModerator(req.accountUser)
   const activeMember = (groupId, userId) => groupMembers.findOne({ groupId, userId, state: 'active' })
 
-  // Blocks creating, joining and posting until the learner accepts the rules, and while suspended or too new.
+  // Blocks creating, joining and posting until the learner accepts the rules, and while suspended.
   async function requireGroupAccess(req, res) {
     const account = await users.findOne({ _id: req.accountUser._id }, {
-      projection: { createdAt: 1, groupRulesAcceptedAt: 1, groupsSuspendedUntil: 1 },
+      projection: { groupRulesAcceptedAt: 1, groupsSuspendedUntil: 1 },
     })
     if (!account) {
       res.status(401).json({ error: 'Your session has expired. Please sign in again.' })
@@ -98,14 +106,6 @@ export function createGroupsRouter({
       res.status(403).json({ error: 'Read and accept the group rules first.', code: 'rules' })
       return false
     }
-    if (minAccountAgeHours > 0 && account.createdAt
-      && Date.now() - new Date(account.createdAt).getTime() < minAccountAgeHours * hour) {
-      res.status(403).json({
-        error: `Groups open ${minAccountAgeHours} hours after you create your account.`,
-        code: 'new-account',
-      })
-      return false
-    }
     return true
   }
 
@@ -114,10 +114,10 @@ export function createGroupsRouter({
     return async (id) => {
       if (!cache.has(id)) {
         cache.set(id, ObjectId.isValid(id)
-          ? await users.findOne({ _id: new ObjectId(id) }, { projection: { username: 1, avatarSeed: 1 } })
-          : null)
+          ? users.findOne({ _id: new ObjectId(id) }, { projection: { username: 1, avatarSeed: 1 } })
+          : Promise.resolve(null))
       }
-      const user = cache.get(id)
+      const user = await cache.get(id)
       return user ? profile(user) : null
     }
   }
@@ -136,7 +136,7 @@ export function createGroupsRouter({
     lastActivityAt: (group.lastActivityAt ?? group.createdAt).toISOString(),
   })
 
-  const serializeMessage = (message, me, sender, moderating) => {
+  const serializeMessage = async (message, me, sender, moderating, lookup = profileCache()) => {
     const base = {
       id: message._id.toString(),
       sender,
@@ -144,12 +144,31 @@ export function createGroupsRouter({
       createdAt: message.createdAt.toISOString(),
       canHide: moderating,
     }
-    if (message.unsentAt) return { ...base, kind: 'unsent', text: 'Message unsent', reported: false }
-    if (message.hiddenAt) return { ...base, kind: 'hidden', text: 'Hidden by a moderator', reported: false }
+    if (message.unsentAt) return { ...base, kind: 'unsent', text: 'Message unsent', reactions: [], reported: false }
+    if (message.hiddenAt) return { ...base, kind: 'hidden', text: 'Hidden by a moderator', reactions: [], reported: false }
+    const corrections = await mapInBatches(Object.entries(message.corrections ?? {}).filter(([, review]) => !review.hiddenAt), async ([authorId, review]) => ({
+        authorId,
+        author: await lookup(authorId),
+        byMe: authorId === me,
+        ...(review.text ? { text: review.text } : {}),
+        ...(review.approved ? { approved: true } : {}),
+        ...(review.tags?.length ? { tags: review.tags } : {}),
+        ...(review.note ? { note: review.note } : {}),
+        createdAt: review.createdAt.toISOString(),
+        ...(review.response ? { response: review.response } : {}),
+        reported: review.reporterIds?.includes(me) ?? false,
+    }), 10)
     return {
       ...base,
-      kind: 'text',
+      kind: message.card ? 'word' : 'text',
       text: message.text,
+      ...(message.card ? { card: message.card } : {}),
+      reactions: summarizeReactions(message.reactions, me),
+      corrections,
+      hasReviews: Boolean(message.corrections && Object.keys(message.corrections).length),
+      reviewedByMe: Boolean(message.corrections?.[me]),
+      ...(message.editedAt ? { editedAt: message.editedAt.toISOString() } : {}),
+      ...(message.senderId === me ? { editableUntil: new Date(message.createdAt.getTime() + editWindow).toISOString() } : {}),
       ...(message.replyTo ? {
         replyTo: { id: message.replyTo.id, isMine: message.replyTo.senderId === me, text: message.replyTo.text },
       } : {}),
@@ -173,16 +192,41 @@ export function createGroupsRouter({
     const memberships = new Map(mine.map((item) => [item.groupId, item]))
     const lookup = profileCache()
     const allGroups = new Map([...found, ...owned].map((group) => [group._id.toString(), group]))
-    for (const membership of mine) {
-      if (membership.state !== 'active' || allGroups.has(membership.groupId)) continue
-      const group = await loadGroup(membership.groupId)
-      if (group) allGroups.set(membership.groupId, group)
-    }
-    const items = []
-    for (const group of allGroups.values()) {
+    const missingGroups = await Promise.all(mine.filter((membership) => membership.state === 'active' && !allGroups.has(membership.groupId))
+      .map((membership) => loadGroup(membership.groupId)))
+    for (const group of missingGroups) if (group) allGroups.set(group._id.toString(), group)
+    const items = (await mapInBatches([...allGroups.values()], async (group) => {
+      const groupId = group._id.toString()
+      const membership = memberships.get(groupId)
       const owner = await lookup(group.ownerId)
-      if (owner) items.push(serializeGroup(group, me, owner, memberships.get(group._id.toString())))
-    }
+      if (!owner) return null
+      const item = serializeGroup(group, me, owner, membership)
+      if (membership?.state === 'active') {
+        const visible = { groupId, unsentAt: { $exists: false }, hiddenAt: { $exists: false } }
+        const [lastMessage, unread] = await Promise.all([
+          groupMessages.findOne(visible, { sort: { createdAt: -1, _id: -1 } }),
+          groupMessages.find({
+            ...visible,
+            senderId: { $ne: me },
+            ...(membership.readThrough ? {
+              $or: [
+                { createdAt: { $gt: new Date(membership.readThrough.slice(0, 24)) } },
+                { createdAt: new Date(membership.readThrough.slice(0, 24)), _id: { $gt: new ObjectId(membership.readThrough.slice(25)) } },
+              ],
+            } : { createdAt: { $gte: membership.joinedAt } }),
+          }, { limit: 100 }).toArray(),
+        ])
+        const sender = lastMessage ? await lookup(lastMessage.senderId) : null
+        item.lastMessage = lastMessage ? {
+          text: previewText(lastMessage.text),
+          sender: sender?.username ?? 'Former member',
+          isMine: lastMessage.senderId === me,
+          createdAt: lastMessage.createdAt.toISOString(),
+        } : null
+        item.unreadCount = unread.length
+      }
+      return item
+    })).filter(Boolean)
     res.json({
       groups: items,
       ownedCount: owned.length,
@@ -390,24 +434,48 @@ export function createGroupsRouter({
     res.json({ messageCount })
   })
 
+  router.get('/:id/search', async (req, res) => {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    if (query.length < 2 || query.length > 100) return res.status(400).json({ error: 'Search for 2 to 100 characters.' })
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    const recent = await groupMessages.find({
+      groupId: group._id.toString(),
+    }, { sort: { createdAt: -1, _id: -1 }, limit: searchScanLimit }).toArray()
+    const needle = foldText(query)
+    const matches = recent.filter((message) => !message.unsentAt && !message.hiddenAt
+      && [message.text, ...(message.card ? [message.card.prompt, message.card.meaning, message.card.example, message.card.translation] : []),
+        ...Object.values(message.corrections ?? {}).filter((review) => !review.hiddenAt).flatMap((review) => [review.text, review.note])]
+        .filter(Boolean).some((text) => foldText(text).includes(needle)))
+    const lookup = profileCache()
+    const messages = await mapInBatches(matches.slice(0, searchResultLimit), async (message) =>
+      serializeMessage(message, me, await lookup(message.senderId), canModerate(group, req), lookup), 5)
+    res.json({ messages, hasMore: matches.length > searchResultLimit })
+  })
+
   router.get('/:id/messages', async (req, res) => {
     const group = await readableGroup(req, res)
     if (!group) return undefined
     const me = req.accountUser._id.toString()
     const before = req.query.before ? new Date(String(req.query.before)) : null
     if (before && !Number.isFinite(before.getTime())) return res.status(400).json({ error: 'Choose a valid message time.' })
+    const beforeId = req.query.beforeId
+    if (beforeId !== undefined && (!before || typeof beforeId !== 'string' || !objectIdSchema.safeParse(beforeId).success)) {
+      return res.status(400).json({ error: 'Choose a valid message cursor.' })
+    }
     const found = await groupMessages.find({
       groupId: group._id.toString(),
-      ...(before ? { createdAt: { $lt: before } } : {}),
-    }, { sort: { createdAt: -1 }, limit: pageSize + 1 }).toArray()
+      ...(before && beforeId ? {
+        $or: [{ createdAt: { $lt: before } }, { createdAt: before, _id: { $lt: new ObjectId(beforeId) } }],
+      } : before ? { createdAt: { $lt: before } } : {}),
+    }, { sort: { createdAt: -1, _id: -1 }, limit: pageSize + 1 }).toArray()
     const lookup = profileCache()
     const moderating = canModerate(group, req)
-    const messages = []
-    for (const message of found) {
-      messages.push(serializeMessage(message, me, await lookup(message.senderId), moderating))
-    }
+    const messages = await mapInBatches(found, async (message) =>
+      serializeMessage(message, me, await lookup(message.senderId), moderating, lookup), 5)
     for (const change of group.nameChanges ?? []) {
-      if (before && change.createdAt >= before) continue
+      if (before && (change.createdAt > before || (change.createdAt.getTime() === before.getTime() && (!beforeId || change.id >= beforeId)))) continue
       messages.push({
         id: change.id,
         kind: 'system',
@@ -419,14 +487,26 @@ export function createGroupsRouter({
         reported: false,
       })
     }
-    messages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-    res.json({ hasMore: messages.length > pageSize, messages: messages.slice(0, pageSize).reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }) })
+    messages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.id.localeCompare(a.id))
+    const page = messages.slice(0, pageSize)
+    if (!before) {
+      const newest = page.find((message) => message.kind !== 'system')
+      if (newest) {
+        await groupMembers.updateOne(
+          { groupId: group._id.toString(), userId: me, state: 'active' },
+          { $max: { readThrough: `${newest.createdAt}/${newest.id}` } },
+        )
+      }
+    }
+    res.json({ hasMore: messages.length > pageSize, messages: page.reverse(), group: serializeGroup(group, me, await lookup(group.ownerId), { state: 'active' }) })
   })
 
   router.post('/:id/messages', async (req, res) => {
     const result = messageSchema.safeParse(req.body)
-    if (!result.success) return res.status(400).json({ error: 'Write a message of up to 1,000 characters.' })
-    if (linkCount(result.data.text) > maxLinks) return res.status(400).json({ error: `Share at most ${maxLinks} links in one message.` })
+    if (!result.success) return res.status(400).json({ error: 'Write a message of up to 1,000 characters or share a valid word.' })
+    const text = result.data.card ? `Shared a word: ${result.data.card.prompt}` : result.data.text
+    const content = result.data.card ? Object.values(result.data.card).join(' ') : text
+    if (linkCount(content) > maxLinks) return res.status(400).json({ error: `Share at most ${maxLinks} links in one message.` })
     const group = await readableGroup(req, res)
     if (!group) return undefined
     if (!await requireGroupAccess(req, res)) return undefined
@@ -434,7 +514,7 @@ export function createGroupsRouter({
     const groupId = group._id.toString()
     const now = new Date()
     const last = await groupMessages.findOne({ groupId, senderId: me }, { sort: { createdAt: -1 } })
-    if (last && !last.unsentAt && last.text === result.data.text && now - last.createdAt < duplicateWindow) {
+    if (last && !last.unsentAt && last.text === text && now - last.createdAt < duplicateWindow) {
       return res.status(429).json({ error: 'You just sent that message.' })
     }
     const spaced = await users.updateOne({
@@ -462,14 +542,15 @@ export function createGroupsRouter({
     const message = {
       groupId,
       senderId: me,
-      text: result.data.text,
+      text,
+      ...(result.data.card ? { card: result.data.card } : {}),
       ...(replyTo ? { replyTo } : {}),
       createdAt: now,
     }
     const { insertedId } = await groupMessages.insertOne(message)
     await groups.updateOne({ _id: group._id }, { $set: { lastActivityAt: now } })
     res.status(201).json({
-      message: serializeMessage({ ...message, _id: insertedId }, me, profile(req.accountUser), canModerate(group, req)),
+      message: await serializeMessage({ ...message, _id: insertedId }, me, profile(req.accountUser), canModerate(group, req)),
     })
   })
 
@@ -482,6 +563,145 @@ export function createGroupsRouter({
     if (!message) { notFound(res); return {} }
     return { group, message }
   }
+
+  router.get('/:id/messages/:mid', async (req, res) => {
+    const { group, message } = await ownMessage(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    res.json({ message: await serializeMessage(message, me, await profileCache()(message.senderId), canModerate(group, req)) })
+  })
+
+  router.post('/:id/messages/:mid/reaction', async (req, res) => {
+    const result = reactionSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose one of the available reactions.' })
+    const { group, message } = await ownMessage(req, res)
+    if (!group) return undefined
+    if (message.unsentAt || message.hiddenAt) return notFound(res)
+    if (!await requireGroupAccess(req, res)) return undefined
+    const me = req.accountUser._id.toString()
+    const path = `reactions.${me}`
+    const updated = await groupMessages.updateOne({ _id: message._id, unsentAt: { $exists: false }, hiddenAt: { $exists: false } },
+      result.data.emoji ? { $set: { [path]: result.data.emoji } } : { $unset: { [path]: '' } })
+    if (!updated.matchedCount) return notFound(res)
+    const latest = await groupMessages.findOne({ _id: message._id })
+    if (!latest || latest.unsentAt || latest.hiddenAt) return notFound(res)
+    res.json({ reactions: summarizeReactions(latest.reactions, me) })
+  })
+
+  router.post('/:id/messages/:mid/reviews', async (req, res) => {
+    const result = correctionSchema.safeParse(req.body)
+    if (!result.success || (result.data.text && result.data.text.length > 1000)) return res.status(400).json({ error: 'Write a suggested sentence of up to 1,000 characters, or mark it as looking good.' })
+    if (linkCount(`${result.data.text ?? ''} ${result.data.note ?? ''}`) > maxLinks) return res.status(400).json({ error: `Share at most ${maxLinks} links in one review.` })
+    const { group, message } = await ownMessage(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    if (message.senderId === me || message.card || message.unsentAt || message.hiddenAt) return notFound(res)
+    if (!await requireGroupAccess(req, res)) return undefined
+    if (message.corrections?.[me]) return res.status(409).json({ error: 'You already reviewed this message.' })
+    if (!result.data.approve && result.data.text === message.text) return res.status(400).json({ error: 'Change something in the sentence to suggest a correction.' })
+    const now = new Date()
+    const hourly = await users.updateOne({
+      _id: req.accountUser._id,
+      $or: [{ 'groupMessageHistory.59': { $exists: false } }, { 'groupMessageHistory.59': { $lte: new Date(now.getTime() - hour) } }],
+    }, { $push: { groupMessageHistory: { $each: [now], $position: 0, $slice: 60 } } })
+    if (!hourly.modifiedCount) return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
+    const tags = [...new Set(result.data.tags ?? [])]
+    const review = {
+      ...(result.data.approve ? { approved: true } : { text: result.data.text }),
+      ...(result.data.note ? { note: result.data.note } : {}),
+      ...(tags.length ? { tags } : {}),
+      createdAt: now,
+    }
+    const updated = await groupMessages.updateOne({
+      _id: message._id, text: message.text, unsentAt: { $exists: false }, hiddenAt: { $exists: false },
+      [`corrections.${me}`]: { $exists: false },
+    }, { $set: { [`corrections.${me}`]: review } })
+    if (!updated.matchedCount) return res.status(409).json({ error: 'This message changed or you already reviewed it. Refresh and try again.' })
+    const latest = await groupMessages.findOne({ _id: message._id })
+    if (!latest || latest.hiddenAt || latest.unsentAt) return notFound(res)
+    res.status(201).json({ message: await serializeMessage(latest, me, await profileCache()(latest.senderId), canModerate(group, req)) })
+  })
+
+  router.post('/:id/messages/:mid/reviews/:authorId/respond', async (req, res) => {
+    const result = correctionResponseSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose how you want to respond.' })
+    const { group, message } = await ownMessage(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    const authorId = req.params.authorId
+    const review = objectIdSchema.safeParse(authorId).success ? message.corrections?.[authorId] : null
+    if (message.senderId !== me || message.hiddenAt || message.unsentAt || !review || review.hiddenAt) return notFound(res)
+    if (review.approved && result.data.response === 'saved') return res.status(400).json({ error: 'There is no corrected sentence to save.' })
+    const path = `corrections.${authorId}`
+    if (review.response !== 'saved' && review.response !== result.data.response) {
+      await groupMessages.updateOne({
+        _id: message._id, unsentAt: { $exists: false }, hiddenAt: { $exists: false },
+        [`${path}.hiddenAt`]: { $exists: false }, [`${path}.response`]: { $ne: 'saved' },
+      }, { $set: { [`${path}.response`]: result.data.response } })
+    }
+    const latest = await groupMessages.findOne({ _id: message._id })
+    if (!latest || latest.hiddenAt || latest.unsentAt) return notFound(res)
+    res.json({ message: await serializeMessage(latest, me, profile(req.accountUser), canModerate(group, req)) })
+  })
+
+  router.post('/:id/messages/:mid/reviews/:authorId/hide', async (req, res) => {
+    const { group, message } = await ownMessage(req, res)
+    if (!group) return undefined
+    const authorId = req.params.authorId
+    const review = objectIdSchema.safeParse(authorId).success ? message.corrections?.[authorId] : null
+    if (!canModerate(group, req) || !review || review.hiddenAt || message.hiddenAt || message.unsentAt) return notFound(res)
+    await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${authorId}.hiddenAt`]: new Date() } })
+    res.json({ ok: true })
+  })
+
+  router.post('/:id/messages/:mid/reviews/:authorId/report', async (req, res) => {
+    const result = reportSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Choose a reason and keep details under 500 characters.' })
+    const { group, message } = await ownMessage(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    const authorId = req.params.authorId
+    const review = objectIdSchema.safeParse(authorId).success ? message.corrections?.[authorId] : null
+    if (!review || authorId === me || review.hiddenAt || message.hiddenAt || message.unsentAt) return notFound(res)
+    const targetId = `${message._id.toString()}:${authorId}`
+    try {
+      await groupReports.insertOne({
+        groupId: group._id.toString(), groupName: group.name, messageId: targetId,
+        parentMessageId: message._id.toString(), reviewAuthorId: authorId,
+        reporterId: me, reportedUserId: authorId, messageText: [review.text ?? 'Looks good', review.note].filter(Boolean).join('\n'),
+        reason: result.data.reason, ...(result.data.details ? { details: result.data.details } : {}), status: 'open', createdAt: new Date(),
+      })
+    } catch (error) {
+      if (error?.code !== 11000) throw error
+      return res.status(409).json({ error: 'You have already reported this review.' })
+    }
+    await groupMessages.updateOne({ _id: message._id }, { $addToSet: { [`corrections.${authorId}.reporterIds`]: me } })
+    const reports = await groupReports.find({ messageId: targetId }).toArray()
+    if (reports.length >= autoHideReports) await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${authorId}.hiddenAt`]: new Date() } })
+    res.status(201).json({ ok: true, hidden: reports.length >= autoHideReports })
+  })
+
+  router.post('/:id/messages/:mid/edit', async (req, res) => {
+    const result = editSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Write a message of up to 1,000 characters.' })
+    if (linkCount(result.data.text) > maxLinks) return res.status(400).json({ error: `Share at most ${maxLinks} links in one message.` })
+    const { group, message } = await ownMessage(req, res)
+    if (!group) return undefined
+    const me = req.accountUser._id.toString()
+    if (message.senderId !== me || message.unsentAt || message.hiddenAt || message.card) return notFound(res)
+    if (!await requireGroupAccess(req, res)) return undefined
+    if (Date.now() - message.createdAt.getTime() > editWindow) return res.status(403).json({ error: 'Messages can be edited for 10 minutes after sending.' })
+    if (message.corrections && Object.keys(message.corrections).length) return res.status(409).json({ error: 'This message has been reviewed, so it can no longer be edited.' })
+    const editedAt = new Date()
+    const updated = await groupMessages.updateOne({
+      _id: message._id, unsentAt: { $exists: false }, hiddenAt: { $exists: false }, corrections: { $exists: false },
+      createdAt: { $gte: new Date(editedAt.getTime() - editWindow) },
+    }, { $set: { text: result.data.text, editedAt } })
+    if (!updated.matchedCount) return res.status(409).json({ error: 'This message changed or can no longer be edited.' })
+    await groupMessages.updateMany({ groupId: group._id.toString(), 'replyTo.id': message._id.toString() },
+      { $set: { 'replyTo.text': previewText(result.data.text) } })
+    res.json({ message: await serializeMessage({ ...message, text: result.data.text, editedAt }, me, profile(req.accountUser), canModerate(group, req)) })
+  })
 
   router.post('/:id/messages/:mid/unsend', async (req, res) => {
     const { group, message } = await ownMessage(req, res)
@@ -518,7 +738,9 @@ export function createGroupsRouter({
         messageId,
         reporterId: me,
         reportedUserId: message.senderId,
-        messageText: message.text,
+        messageText: message.card
+          ? [message.text, message.card.meaning, message.card.plural, message.card.example, message.card.translation].filter(Boolean).join('\n')
+          : message.text,
         reason: result.data.reason,
         ...(result.data.details ? { details: result.data.details } : {}),
         status: 'open',
@@ -534,7 +756,7 @@ export function createGroupsRouter({
       await groupMessages.updateOne({ _id: message._id }, { $set: { hiddenAt: new Date(), hiddenBy: 'reports' } })
       await redactQuotes(messageId, 'Hidden by a moderator')
     }
-    res.status(201).json({ ok: true })
+    res.status(201).json({ ok: true, hidden: reports.length >= autoHideReports })
   })
 
   return router
@@ -596,8 +818,11 @@ export function createModerationRouter({
     }
     const now = new Date()
     if (action === 'hide' || (action === 'suspend' && req.params.kind === 'group')) {
-      const message = await groupMessages.findOne({ _id: new ObjectId(report.messageId) })
-      if (message && !message.hiddenAt) {
+      const targetId = report.parentMessageId ?? report.messageId
+      const message = ObjectId.isValid(targetId) ? await groupMessages.findOne({ _id: new ObjectId(targetId) }) : null
+      if (message && report.reviewAuthorId && objectIdSchema.safeParse(report.reviewAuthorId).success) {
+        await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${report.reviewAuthorId}.hiddenAt`]: now } })
+      } else if (message && !message.hiddenAt) {
         await groupMessages.updateOne({ _id: message._id }, { $set: { hiddenAt: now, hiddenBy: req.accountUser._id.toString() } })
         await groupMessages.updateMany({ 'replyTo.id': report.messageId }, { $set: { 'replyTo.text': 'Hidden by a moderator' } })
       }

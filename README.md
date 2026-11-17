@@ -19,7 +19,7 @@ Local study works without an account server. To enable account creation and clou
 
 Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and `SENDER_EMAIL` on the server to send account codes and optional companion request notifications. Verify the sender or domain with Mailjet. Without these settings, existing accounts can still sign in, but new registrations and code requests are unavailable; companion requests remain visible in the app. Mailjet receives the recipient address and email content, including the recipient's avatar and, as applicable, the one-time code or sender's username. Never put credentials in the client or commit them.
 
-Set `MODERATOR_USER_IDS` to a comma-separated list of trusted accounts' MongoDB user IDs to give them the **Moderation** view. Do not use usernames: they can change. `GROUP_MIN_ACCOUNT_AGE_HOURS` sets how long a new account waits before it can create, join or post in groups (default 24; 0 in local development).
+Set `MODERATOR_USER_IDS` to a comma-separated list of trusted accounts' MongoDB user IDs to give them the **Moderation** view. Do not use usernames: they can change.
 
 The development command starts both the Vite app and account API:
 
@@ -252,7 +252,7 @@ Companions are optional and need a verified, signed-in account and a connection 
 
 ### Chatting
 
-- Messages are private 1:1 plain text, up to 2,000 characters, and refresh automatically while a conversation is open (background tabs pause refresh). Opening a conversation starts at its newest message. Chat messages are not emailed.
+- Messages are private 1:1 plain text, up to 2,000 characters, and refresh automatically while a conversation is open (background tabs pause refresh). Opening a conversation shows its header immediately while messages load, then starts at its newest message. Chat messages are not emailed.
 - **Reply** to a message; the reply shows a quote of the original, color-coded per replied-to message. **React** with one of five emoji; each learner has at most one reaction per message and can remove it.
 - **Share a word** under the message box sends a word card from your deck (word, meaning, example, any plural) that the recipient can add with **Add to deck**.
 - For 10 minutes after sending you can **edit** a text message or **unsend** any message. Edited messages show “edited”; an unsent message becomes “Message unsent”, its text, word card, reactions and review are removed, and replies that quoted it show the same. A copy already retained in a moderation report is not removed.
@@ -264,7 +264,7 @@ Companions are optional and need a verified, signed-in account and a connection 
 
 Tap any word in a message, or use **Look up words** under it to pick from its words. Lookup works in both directions and sends nothing about the message anywhere:
 
-- **German word:** checks your deck, then the bundled open starter vocabulary, then a larger bundled dictionary (about 22,800 frequent words and 128,000 word forms; a separate file of about 1.2 MB compressed that is downloaded only when you open a chat, then kept for offline use). It recognizes inflected forms (*ging* and *gelernt* for *gehen*, *Häuser* for *Haus*, *kleinen* for *klein*) and shows the base word, English meaning, article, plural and, where available, an example.
+- **German word:** checks your deck, then the bundled open starter vocabulary, then a larger bundled dictionary (about 22,800 frequent words and 128,000 word forms; a separate file of about 1.2 MB compressed that is downloaded when you first look up a word, then kept for offline use). It recognizes inflected forms (*ging* and *gelernt* for *gehen*, *Häuser* for *Haus*, *kleinen* for *klein*) and shows the base word, English meaning, article, plural and, where available, an example.
 - **English word:** lists matching German words (for example *update*, *beautiful*, *working*), best meaning and most frequent first. When a word could be either language, the more common reading is shown first and a **German word / English word** switch lets you choose.
 - **Add to deck** is offered for nouns, verbs, adjectives, adverbs and numbers. Only about one in five dictionary words has an example sentence, so otherwise you write your own first.
 - It does not translate sentences, and meanings are short single-word glosses that can miss context. Words it does not know (names, compounds, spelling variants) offer links to Wiktionary and dict.cc, which open only when you choose them.
@@ -283,11 +283,14 @@ Groups are open spaces for any verified learner, separate from private chat. Ope
 
 - **Create and join.** Any verified learner can create up to **3 groups** (a name and an optional description), and others can find and join them. A group holds up to 100 members and a learner can be in up to 20. Delete a group to free a slot.
 - **Open or closed.** The creator can close a group so nobody new can join; members stay and can keep talking. The creator can open it again.
-- **Rules first.** Before a learner's first create or join, they read and agree to short group rules. Creating, joining and posting need an account at least 24 hours old (`GROUP_MIN_ACCOUNT_AGE_HOURS`).
-- **Messages.** Plain text up to 1,000 characters with replies. Messages are visible to every member, so a note in the group says so. Learners can unsend their own messages. At most two links per message, no repeated message within a minute, a short pause between messages and 60 messages per hour.
+- **Rules first.** Before a learner's first create or join, they read and agree to short group rules. Verified learners can create, join and post without an account-age waiting period.
+- **Messages.** Text up to 1,000 characters with replies, reactions and shared word cards. Messages are visible to every member, so a note in the group says so. Learners can edit their own text for 10 minutes, until it is reviewed, and unsend their messages at any time. At most two links per message or word card, no repeated message within a minute, a short pause between messages and 60 messages or reviews per hour.
+- **Look up and search.** Tap a word or use the word lookup button to look it up and optionally save it to your deck, just as in companion chat. Group search ignores case and accents and checks the latest 1,000 messages and their visible reviews, showing up to 30 matches; only members can search, and hidden or unsent content is excluded.
+- **Sentence reviews.** Members can suggest edits or mark another member's text as looking good. Each member can review a message once; multiple reviews appear beneath it. The author can say thanks or save a suggested sentence to their deck. Reviews count toward the hourly message limit and can be reported or hidden separately from the original message.
+- **Group activity.** Joined groups show the latest visible message and an unread count (up to 99+), shared across devices. Opening a group marks the loaded recent messages as read; unread counts include other members' visible messages since joining, excluding hidden or unsent messages. Message previews are available only to members.
 - **Owners.** A group's creator can edit its name and description, hide a message, remove a member (who cannot rejoin), close or open the group, or delete it. Members see a chat notice when the name changes; the latest 1,000 notices are retained with the group. Select the group name to see its description, creation date, member count, and count of visible messages (excluding hidden and unsent messages).
-- **Reporting and moderation.** Any member can report another member's message. Three reports from different members hide it automatically. Reports from groups and from private chats appear in the **Moderation** view for the accounts listed in `MODERATOR_USER_IDS`, who can dismiss, hide the message or suspend the learner from groups for 1 to 90 days. Closed reports are deleted 90 days later, and group messages are deleted after one year.
-- **Privacy.** Members see only usernames and avatars. Group messages are never sent to a third-party or AI service. Tap-to-translate and sentence check are not yet available in groups.
+- **Reporting and moderation.** Any member can report another member's message or review. Three reports from different members hide the reported item automatically. Reports from groups and from private chats appear in the **Moderation** view for the accounts listed in `MODERATOR_USER_IDS`, who can dismiss, hide the reported item or suspend the learner from groups for 1 to 90 days. Closed reports are deleted 90 days later, and group messages are deleted after one year.
+- **Privacy.** Members see only usernames and avatars. Group messages and reviews are never sent to a third-party or AI service.
 
 ### Confirmation, limits and email
 

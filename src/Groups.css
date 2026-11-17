@@ -51,10 +51,14 @@
 .group-create-form {
   display: grid;
   gap: 10px;
-  padding: 12px;
-  border-radius: 14px;
-  background: #ffffff;
 }
+
+.group-create-form .companion-primary-button {
+  border: 1px solid #292a2d;
+  background: #292a2d;
+  color: #fffefa;
+}
+.group-create-form .companion-primary-button:hover:not(:disabled) { background: #111; }
 
 .group-create-note {
   margin: 0;
@@ -67,9 +71,10 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.group-card-open {
+.group-card .group-card-open {
   min-width: 0;
   gap: 8px;
+  padding: 10px 11px;
   border-radius: 8px;
 }
 
@@ -87,26 +92,46 @@
   font: 700 0.9rem system-ui, sans-serif;
 }
 
-.group-card:nth-child(3n + 2) .group-avatar { background: #c6e8be; color: #356442; }
-.group-card:nth-child(3n) .group-avatar { background: #f6d1e8; color: #8a3a69; }
-
-.group-card-copy { min-width: 0; display: grid; gap: 2px; }
-.group-card-copy strong { color: var(--companion-text); font: 620 0.69rem system-ui, sans-serif; }
-.group-card-copy > span {
+.group-card-copy { min-width: 0; width: 100%; display: grid; gap: 5px; }
+.group-card-heading,
+.group-card-activity { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.group-card-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--companion-text);
+  font: 650 0.72rem system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-card-heading small {
+  flex: 0 0 auto;
+  color: #77717b;
+  font: 500 0.61rem system-ui, sans-serif;
+}
+.group-card-activity > span {
+  min-width: 0;
   overflow: hidden;
   color: #77717b;
   font-size: 0.62rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.group-card-copy small {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.group-card-closed {
   color: #88837d;
   font-size: 0.62rem;
 }
-.group-card-copy small svg + svg { margin-left: 6px; }
+.group-unread-count {
+  min-width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #292a2d;
+  color: #fffefa;
+  font: 650 0.6rem system-ui, sans-serif;
+}
 .group-card-note { padding-right: 7px; color: #88837d; font-size: 0.64rem; }
 
 .group-name-trigger {
@@ -127,12 +152,15 @@
 
 .group-details-popover {
   box-sizing: border-box;
-  padding: 14px;
-  border: 1px solid #e1e3e1;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 8px 26px rgba(34, 40, 35, 0.16);
+  padding: 16px;
+  border: 1px solid rgba(68, 55, 62, 0.12);
+  border-radius: 16px;
+  background: #fcf8f4;
+  box-shadow: 0 16px 40px rgba(67, 50, 62, 0.18);
+  color: #292a2d;
+  scrollbar-width: none;
 }
+.group-details-popover::-webkit-scrollbar { display: none; }
 
 .group-rename-form {
   display: grid;
@@ -143,27 +171,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #292b2a;
-  font: 650 0.8rem system-ui, sans-serif;
+  color: #292a2d;
+  font: 400 1.35rem/normal Georgia, "Times New Roman", serif;
+  letter-spacing: -0.05em;
 }
 
-.group-popover-heading strong { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.group-popover-heading button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: #f0f2f0;
-  color: #565c58;
-  cursor: pointer;
-}
-
+.group-popover-heading strong { min-width: 0; flex: 1; font-weight: inherit; overflow-wrap: anywhere; }
 .group-info-description {
   margin: 10px 0;
-  color: #565c58;
+  color: #625b65;
   font: 400 0.72rem/1.5 system-ui, sans-serif;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -174,8 +190,7 @@
   gap: 8px;
   margin: 0;
   padding: 10px 0;
-  border-top: 1px solid #e1e3e1;
-  color: #565c58;
+  color: #625b65;
   font: 500 0.68rem system-ui, sans-serif;
 }
 
@@ -185,11 +200,27 @@
   padding: 6px 10px;
   border: 0;
   border-radius: 999px;
-  background: #e2e4e2;
-  color: #565c58;
+  background: #292a2d;
+  color: #fffefa;
   font: 600 0.66rem system-ui, sans-serif;
   cursor: pointer;
 }
+.group-edit-details:hover:not(:disabled) { background: #111; }
+
+.group-rename-form .companion-card-actions button[type="submit"] {
+  border: 1px solid #292a2d;
+  border-radius: 9px;
+  background: #292a2d;
+  color: #fffefa;
+}
+.group-rename-form .companion-card-actions button[type="submit"]:hover:not(:disabled) { background: #111; }
+.group-rename-form .companion-card-actions button[type="button"] {
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #504a53;
+}
+.group-rename-form .companion-card-actions button[type="button"]:hover:not(:disabled) { background: #f1eae5; }
 
 .group-system-message {
   width: fit-content;
@@ -202,20 +233,6 @@
   font: 500 0.65rem/1.4 system-ui, sans-serif;
   text-align: center;
   overflow-wrap: anywhere;
-}
-
-.group-back {
-  display: none;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: #e2e4e2;
-  color: #565c58;
-  cursor: pointer;
 }
 
 .group-members ul {
@@ -250,35 +267,6 @@
 .group-description { margin: 0 0 8px; color: #6b706d; font-size: 0.7rem; line-height: 1.45; }
 
 .group-message-avatar { width: 18px; height: 18px; align-self: center; border-radius: 50%; }
-
-.group-message-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  margin-top: 3px;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.group-message:hover .group-message-actions,
-.group-message:focus-within .group-message-actions { opacity: 1; }
-@media (hover: none) { .group-message-actions { opacity: 1; } }
-
-.group-message-actions button,
-.group-message-actions span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 0;
-  border-radius: 999px;
-  background: #eceeec;
-  color: #565c58;
-  font: 550 0.6rem system-ui, sans-serif;
-}
-.group-message-actions button { cursor: pointer; }
-.group-message-actions button:hover:not(:disabled) { background: #dfe3e0; }
 
 .moderation-refresh {
   align-self: flex-start;
@@ -327,6 +315,9 @@
 }
 .moderation-card .companion-card-actions button.danger { color: #8c3028; }
 
-@media (max-width: 760px) {
-  .group-back { display: grid; }
+@media (max-height: 700px) {
+  .group-create-popover { padding: 12px; }
+  .group-create-form { gap: 7px; }
+  .group-create-form .companion-field { gap: 4px; }
+  .group-create-form .companion-field textarea { min-height: 56px; }
 }

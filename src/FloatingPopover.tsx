@@ -6,6 +6,7 @@ export function FloatingPopover({
   popoverRef,
   owner,
   preferredWidth,
+  preferredMaxHeight,
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
@@ -13,6 +14,7 @@ export function FloatingPopover({
   popoverRef: RefObject<HTMLDivElement | null>
   owner: string
   preferredWidth?: number
+  preferredMaxHeight?: number
 }) {
   const [position, setPosition] = useState<React.CSSProperties>({ visibility: 'hidden' })
 
@@ -23,11 +25,12 @@ export function FloatingPopover({
       if (!anchor || !popover) return
       const rect = anchor.getBoundingClientRect()
       const width = Math.min(Math.max(preferredWidth ?? rect.width, 150), window.innerWidth - 32)
+      popover.style.width = `${width}px`
       const below = window.innerHeight - rect.bottom - 16
       const above = rect.top - 16
       const desiredHeight = popover.scrollHeight
-      const placeAbove = below < Math.min(desiredHeight, 240) && above > below
-      const maxHeight = Math.max(0, Math.min(320, placeAbove ? above : below))
+      const placeAbove = below - 6 < Math.min(desiredHeight, preferredMaxHeight ?? 240) && above > below
+      const maxHeight = Math.max(0, Math.min(preferredMaxHeight ?? 320, (placeAbove ? above : below) - 6))
       const height = Math.min(desiredHeight, maxHeight)
       setPosition({
         position: 'fixed',
@@ -46,7 +49,7 @@ export function FloatingPopover({
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
-  }, [anchorRef, popoverRef, preferredWidth, children])
+  }, [anchorRef, popoverRef, preferredWidth, preferredMaxHeight, children])
 
   return createPortal(
     <div {...props} ref={popoverRef} data-panel-owner={owner} style={position}>
