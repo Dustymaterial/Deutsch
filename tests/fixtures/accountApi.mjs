@@ -58,6 +58,9 @@ const applyUpdate = (record, update) => {
 }
 const collection = (name) => ({
   async createIndex() {},
+  async countDocuments(query) {
+    return records[name].filter((item) => matches(item, query)).length
+  },
   find(query, options = {}) {
     let result = records[name].filter((item) => matches(item, query)).map((item) => ({ ...item }))
     if (options.sort) {
@@ -619,16 +622,32 @@ try {
   assert.equal((await request('/api/groups', null, learner.cookie)).body.groups.find((item) => item.id === groupId).memberCount, 2)
 
   const renamePath = `/api/groups/${groupId}/name`
+  const detailsPath = `/api/groups/${groupId}/details`
+  assert.equal((await request(`/api/groups/${groupId}/info`, null, outsider.cookie)).status, 404)
+  const info = await request(`/api/groups/${groupId}/info`, null, other.cookie)
+  assert.equal(info.body.messageCount, records.groupMessages.filter((item) =>
+    item.groupId === groupId && !item.unsentAt && !item.hiddenAt).length)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: 'No' }, other.cookie)).status, 404)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: 'x'.repeat(201) }, learner.cookie)).status, 400)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: '  Study together  ' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).description, 'Study together')
+  assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages.filter((item) => item.kind === 'system').length, 0)
+  assert.equal((await request(detailsPath, { name: 'Anfänger Treff', description: '' }, learner.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).description, '')
   assert.equal((await request(renamePath, { name: 'New name' }, other.cookie)).status, 404)
   assert.equal((await request(renamePath, { name: 'ab' }, learner.cookie)).status, 400)
   assert.equal((await request(renamePath, { name: 'zweite gruppe' }, learner.cookie)).status, 409)
   assert.equal((await request(renamePath, { name: 'Anfänger Treff' }, learner.cookie)).status, 200)
   assert.equal((await request(`/api/groups/${groupId}/messages`, null, learner.cookie)).body.messages.filter((item) => item.kind === 'system').length, 0)
-  assert.equal((await request(renamePath, { name: '  Deutsch   zusammen  ' }, learner.cookie)).status, 200)
-  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).name, 'Deutsch zusammen')
+  assert.equal((await request(detailsPath, { name: '  Deutsch   zusammen  ', description: 'Learning together' }, learner.cookie)).status, 200)
+  const updatedGroup = (await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId)
+  assert.equal(updatedGroup.name, 'Deutsch zusammen')
+  assert.equal(updatedGroup.description, 'Learning together')
   const notice = (await request(`/api/groups/${groupId}/messages`, null, other.cookie)).body.messages.find((item) => item.kind === 'system')
   assert.equal(notice.text, 'learner changed the group name to Deutsch zusammen.')
   assert.equal((await request(`/api/groups/${groupId}/messages/${notice.id}/unsend`, {}, learner.cookie)).status, 404)
+  assert.equal((await request(detailsPath, { name: 'Deutsch zusammen', description: 'Practice' }, moderator.cookie)).status, 200)
+  assert.equal((await request('/api/groups', null, other.cookie)).body.groups.find((item) => item.id === groupId).description, 'Practice')
   for (let index = 0; index < 55; index++) {
     records.groupMessages.push({
       _id: new ObjectId(), groupId, senderId: otherId, text: `Later message ${index}`,

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ChevronLeft, Ellipsis, Lock, Plus, Reply, Search, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useConfirm } from './confirmContext'
 import { useFormValidation } from './formValidation'
 import { replyColor } from './replyColor'
+import { FloatingPopover } from './FloatingPopover'
 import {
   errorMessage, groupsRequest,
   type GroupDirectory, type GroupMessage, type GroupSummary, type Profile,
@@ -167,9 +168,15 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
   const [membersOpen, setMembersOpen] = useState(false)
   const [members, setMembers] = useState<{ list: (Profile & { role: string })[]; canRemove: boolean } | null>(null)
   const [reporting, setReporting] = useState<{ id: string; reason: string; details: string } | null>(null)
-  const [renaming, setRenaming] = useState(false)
+  const [popover, setPopover] = useState<'info' | 'edit' | null>(null)
   const [newName, setNewName] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+  const [messageCount, setMessageCount] = useState<number | null>(null)
+  const [infoError, setInfoError] = useState<string | null>(null)
   const { errors: renameErrors, validate: validateRename, handleInput: handleRenameInput } = useFormValidation()
+  const popoverId = useId()
+  const groupNameRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
   const stream = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const firstLoad = useRef(true)
@@ -179,7 +186,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     try {
       const data = await groupsRequest<{ messages: GroupMessage[]; hasMore: boolean; group: GroupSummary }>(`/${group.id}/messages`)
       setMessages((current) => mergeMessages(current, data.messages))
-      if (data.group.name !== group.name) await reload()
+      if (data.group.name !== group.name || data.group.description !== group.description) await reload()
       if (firstLoad.current) {
         firstLoad.current = false
         setHasOlder(data.hasMore)
@@ -190,7 +197,18 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
       setError(errorMessage(failure, 'Could not load messages.'))
       setLoaded(true)
     }
-  }, [group.id, group.name, reload])
+  }, [group.id, group.name, group.description, reload])
+
+  useEffect(() => {
+    if (!popover) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !popoverRef.current?.contains(event.target) && !groupNameRef.current?.contains(event.target)) {
+        setPopover(null)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [popover])
 
   useEffect(() => {
     const first = window.setTimeout(() => void load(), 0)
@@ -314,24 +332,48 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
     })
   }
 
-  const rename = (event: React.FormEvent<HTMLFormElement>) => {
+  const openInfo = () => {
+    setPopover('info')
+    setMessageCount(null)
+    setInfoError(null)
+    void groupsRequest<{ messageCount: number }>(`/${group.id}/info`)
+      .then((data) => setMessageCount(data.messageCount))
+      .catch((failure: unknown) => setInfoError(errorMessage(failure, 'Could not load group information.')))
+  }
+
+  const openEditor = () => {
+    setNewName(group.name)
+    setNewDescription(group.description)
+    setError(null)
+    setPopover('edit')
+  }
+
+  const closeGroupPopover = () => {
+    setPopover(null)
+    groupNameRef.current?.focus()
+  }
+
+  const saveDetails = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!validateRename(event.currentTarget)) return
     const name = newName.trim().replace(/\s+/g, ' ')
-    if (name === group.name) {
-      setRenaming(false)
+    const description = newDescription.trim()
+    if (name === group.name && description === group.description) {
+      closeGroupPopover()
       return
     }
     void (async () => {
       const confirmed = await confirmDialog({
-        title: 'Change group name?',
-        message: `The group will be called “${name}” and members will see a notice in the chat.`,
-        confirmLabel: 'Change name',
+        title: 'Change group details?',
+        message: name !== group.name
+          ? `The group will be called “${name}” and members will see a notice in the chat.`
+          : 'The updated description will be visible to learners browsing the group.',
+        confirmLabel: 'Save changes',
       })
       if (!confirmed) return
       await run(async () => {
-        await groupsRequest(`/${group.id}/name`, { name })
-        setRenaming(false)
+        await groupsRequest(`/${group.id}/details`, { name, description })
+        closeGroupPopover()
         await reload()
         await load()
       })
@@ -370,7 +412,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
       <button className="group-back" type="button" onClick={onClose} aria-label="Back to groups"><ChevronLeft size={17} aria-hidden="true" /></button>
       <span className="group-avatar" aria-hidden="true">{group.name.slice(0, 1).toLocaleUpperCase()}</span>
       <div className="companion-chat-identity">
-        <h2>{group.name}</h2>
+        <h2><button ref={groupNameRef} className="group-name-trigger" type="button" aria-haspopup="dialog" aria-expanded={Boolean(popover)} aria-controls={popover ? popoverId : undefined} onClick={() => popover ? setPopover(null) : openInfo()}>{group.name}</button></h2>
         <span className={`companion-status-tag ${group.state === 'open' ? 'connected' : 'outgoing'}`}>{group.state === 'open' ? 'Open' : 'Closed'}</span>
       </div>
       <div className="companion-chat-header-actions">
@@ -378,7 +420,7 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         <details className="companion-row-menu companion-chat-menu">
           <summary className="companion-header-pill" aria-label="Group actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
           <div className="companion-row-popover">
-            {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); setNewName(group.name); setRenaming(true) }}>Change group name</button>}
+            {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); openEditor() }}>Edit group details</button>}
             {(group.isOwner || canModerate) && <button type="button" onClick={(event) => { closePopover(event); void setState(group.state === 'open' ? 'closed' : 'open') }}>{group.state === 'open' ? 'Close to new members' : 'Open to new members'}</button>}
             {(group.isOwner || canModerate) && <button className="danger" type="button" onClick={(event) => { closePopover(event); void deleteGroup() }}>Delete group</button>}
             {!group.isOwner && <button className="danger" type="button" onClick={(event) => { closePopover(event); void leave() }}>Leave group</button>}
@@ -386,16 +428,38 @@ export function GroupConversation({ group, canModerate, onClose, reload }: {
         </details>
       </div>
     </header>
-    {renaming && <form className="group-rename-form" noValidate onInput={handleRenameInput} onSubmit={rename}>
-      <label className="companion-field">Group name
-        <input name="name" value={newName} onChange={(event) => setNewName(event.target.value)} minLength={3} maxLength={40} required aria-invalid={Boolean(renameErrors.name) || undefined} aria-describedby={renameErrors.name ? 'group-rename-error' : undefined} autoFocus />
-        {renameErrors.name && <span className="field-error" id="group-rename-error">{renameErrors.name}</span>}
-      </label>
-      <div className="companion-card-actions">
-        <button type="submit" disabled={busy}>Save name</button>
-        <button type="button" disabled={busy} onClick={() => setRenaming(false)}>Cancel</button>
-      </div>
-    </form>}
+    {popover && <FloatingPopover anchorRef={groupNameRef} popoverRef={popoverRef} owner={popoverId} preferredWidth={300}
+      id={popoverId} className="group-details-popover" role="dialog" aria-label={popover === 'info' ? 'Group information' : 'Edit group details'}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeGroupPopover() }
+      }}>
+      {popover === 'info' ? <>
+        <div className="group-popover-heading"><strong>{group.name}</strong><button type="button" onClick={closeGroupPopover} aria-label="Close group information" autoFocus><X size={15} aria-hidden="true" /></button></div>
+        <p className="group-info-description">{group.description || 'No description yet.'}</p>
+        <dl className="group-info-stats">
+          <div><dt>Messages</dt><dd>{infoError ? 'Unavailable' : messageCount ?? '…'}</dd></div>
+          <div><dt>Members</dt><dd>{group.memberCount}</dd></div>
+          <div><dt>Created</dt><dd>{new Date(group.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}</dd></div>
+        </dl>
+        {infoError && <p className="companion-alert" role="alert">{infoError}</p>}
+        {(group.isOwner || canModerate) && <button className="group-edit-details" type="button" onClick={openEditor}>Edit group details</button>}
+      </> : <form className="group-rename-form" noValidate onInput={handleRenameInput} onSubmit={saveDetails}>
+        <div className="group-popover-heading"><strong>Edit group details</strong><button type="button" onClick={closeGroupPopover} aria-label="Close editor"><X size={15} aria-hidden="true" /></button></div>
+        <label className="companion-field">Group name
+          <input name="name" value={newName} onChange={(event) => setNewName(event.target.value)} minLength={3} maxLength={40} required aria-invalid={Boolean(renameErrors.name) || undefined} aria-describedby={renameErrors.name ? 'group-rename-error' : undefined} autoFocus />
+          {renameErrors.name && <span className="field-error" id="group-rename-error">{renameErrors.name}</span>}
+        </label>
+        <label className="companion-field">Description
+          <textarea value={newDescription} onChange={(event) => setNewDescription(event.target.value)} maxLength={200} rows={3} />
+          <small>{newDescription.length}/200</small>
+        </label>
+        {error && <p className="companion-alert" role="alert">{error}</p>}
+        <div className="companion-card-actions">
+          <button type="submit" disabled={busy}>Save changes</button>
+          <button type="button" disabled={busy} onClick={closeGroupPopover}>Cancel</button>
+        </div>
+      </form>}
+    </FloatingPopover>}
     {membersOpen && <div className="companion-search-panel group-members">
       {group.description && <p className="group-description">{group.description}</p>}
       {!members ? <p className="companion-search-note">Loading members…</p> : <ul>

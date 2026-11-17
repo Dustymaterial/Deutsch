@@ -109,11 +109,86 @@
 .group-card-copy small svg + svg { margin-left: 6px; }
 .group-card-note { padding-right: 7px; color: #88837d; font-size: 0.64rem; }
 
+.group-name-trigger {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.group-name-trigger:hover { text-decoration: underline; }
+
+.group-details-popover {
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid #e1e3e1;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 26px rgba(34, 40, 35, 0.16);
+}
+
 .group-rename-form {
   display: grid;
+  gap: 10px;
+}
+
+.group-popover-heading {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 10px 16px;
-  background: #f5f6f5;
+  color: #292b2a;
+  font: 650 0.8rem system-ui, sans-serif;
+}
+
+.group-popover-heading strong { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.group-popover-heading button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f0f2f0;
+  color: #565c58;
+  cursor: pointer;
+}
+
+.group-info-description {
+  margin: 10px 0;
+  color: #565c58;
+  font: 400 0.72rem/1.5 system-ui, sans-serif;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.group-info-stats {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px solid #e1e3e1;
+  color: #565c58;
+  font: 500 0.68rem system-ui, sans-serif;
+}
+
+.group-info-stats div { display: flex; justify-content: space-between; gap: 12px; }
+.group-info-stats dd { margin: 0; color: #292b2a; font-weight: 650; }
+.group-edit-details {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: #e2e4e2;
+  color: #565c58;
+  font: 600 0.66rem system-ui, sans-serif;
+  cursor: pointer;
 }
 
 .group-system-message {

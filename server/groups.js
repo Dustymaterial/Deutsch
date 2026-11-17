@@ -286,31 +286,48 @@ export function createGroupsRouter({
     res.json({ state: result.data.state })
   })
 
-  router.post('/:id/name', async (req, res) => {
-    const result = renameSchema.safeParse(req.body)
-    if (!result.success) return res.status(400).json({ error: 'Name the group with 3 to 40 characters.' })
+  async function updateDetails(req, res, nameInput, descriptionInput) {
     const group = await loadGroup(req.params.id)
     if (!group || !canModerate(group, req)) return notFound(res)
-    const name = result.data.name.replace(/\s+/g, ' ')
-    if (name === group.name) return res.json({ name })
+    const name = nameInput.replace(/\s+/g, ' ')
+    const description = descriptionInput ?? group.description ?? ''
+    const nameChanged = name !== group.name
+    if (!nameChanged && description === (group.description ?? '')) return res.json({ name, description })
     const now = new Date()
-    const change = {
-      id: new ObjectId().toString(),
-      name,
-      actor: req.accountUser.username,
-      createdAt: now,
-    }
     try {
-      const updated = await groups.updateOne({ _id: group._id, name: group.name }, {
-        $set: { name, nameKey: nameKeyFor(name), lastActivityAt: now },
-        $push: { nameChanges: { $each: [change], $position: 0, $slice: 1000 } },
+      const updated = await groups.updateOne({
+        _id: group._id,
+        name: group.name,
+        description: group.description === undefined ? { $exists: false } : group.description,
+      }, {
+        $set: { name, nameKey: nameKeyFor(name), description, lastActivityAt: now },
+        ...(nameChanged ? {
+          $push: { nameChanges: { $each: [{
+            id: new ObjectId().toString(),
+            name,
+            actor: req.accountUser.username,
+            createdAt: now,
+          }], $position: 0, $slice: 1000 } },
+        } : {}),
       })
-      if (updated.matchedCount !== 1) return res.status(409).json({ error: 'The group name changed. Refresh and try again.' })
+      if (updated.matchedCount !== 1) return res.status(409).json({ error: 'The group details changed. Refresh and try again.' })
     } catch (error) {
       if (error?.code !== 11000) throw error
       return res.status(409).json({ error: 'A group with that name already exists.' })
     }
-    res.json({ name })
+    res.json({ name, description })
+  }
+
+  router.post('/:id/name', async (req, res) => {
+    const result = renameSchema.safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Name the group with 3 to 40 characters.' })
+    return updateDetails(req, res, result.data.name)
+  })
+
+  router.post('/:id/details', async (req, res) => {
+    const result = createSchema.required({ description: true }).safeParse(req.body)
+    if (!result.success) return res.status(400).json({ error: 'Use a name of 3 to 40 characters and a description of up to 200 characters.' })
+    return updateDetails(req, res, result.data.name, result.data.description)
   })
 
   router.post('/:id/delete', async (req, res) => {
@@ -361,6 +378,17 @@ export function createGroupsRouter({
     if (!await activeMember(group._id.toString(), me)) { notFound(res); return null }
     return group
   }
+
+  router.get('/:id/info', async (req, res) => {
+    const group = await readableGroup(req, res)
+    if (!group) return undefined
+    const messageCount = await groupMessages.countDocuments({
+      groupId: group._id.toString(),
+      unsentAt: { $exists: false },
+      hiddenAt: { $exists: false },
+    })
+    res.json({ messageCount })
+  })
 
   router.get('/:id/messages', async (req, res) => {
     const group = await readableGroup(req, res)
