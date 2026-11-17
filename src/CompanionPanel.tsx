@@ -256,14 +256,17 @@ export function CompanionPanel({
     const viewport = window.visualViewport
     const element = workspace.current
     if (!viewport || !element) return
-    const updateHeight = () => element.style.setProperty('--companion-viewport-height', `${Math.round(viewport.height)}px`)
+    const updateHeight = () => {
+      const top = Math.max(0, element.getBoundingClientRect().top - viewport.offsetTop)
+      element.style.setProperty('--companion-available-height', `${Math.max(0, Math.round(viewport.height - top))}px`)
+    }
     updateHeight()
     viewport.addEventListener('resize', updateHeight)
     viewport.addEventListener('scroll', updateHeight)
     return () => {
       viewport.removeEventListener('resize', updateHeight)
       viewport.removeEventListener('scroll', updateHeight)
-      element.style.removeProperty('--companion-viewport-height')
+      element.style.removeProperty('--companion-available-height')
     }
   }, [])
 

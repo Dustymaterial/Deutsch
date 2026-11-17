@@ -2212,7 +2212,7 @@
 
 @media (max-width: 760px) and (hover: none) and (pointer: coarse) {
   .companion-workspace-view {
-    height: calc(var(--companion-viewport-height, 100dvh) - 112px);
+    height: var(--companion-available-height, calc(100dvh - 112px));
     min-height: 0;
   }
 
@@ -2225,5 +2225,11 @@
 
   .companion-chat-composer {
     padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .companion-chat-composer textarea {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    line-height: 1.25;
   }
 }
