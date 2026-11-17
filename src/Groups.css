@@ -108,29 +108,26 @@
   color: #77717b;
   font: 500 0.61rem system-ui, sans-serif;
 }
-.group-card-activity > span {
+.group-card-preview {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   color: #77717b;
   font-size: 0.62rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.group-card-signals { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
 .group-card-closed {
   color: #88837d;
   font-size: 0.62rem;
 }
-.group-unread-count {
-  min-width: 19px;
-  height: 19px;
+.group-unread-dot {
+  width: 7px;
+  height: 7px;
   flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  padding: 0 5px;
   border-radius: 999px;
-  background: #292a2d;
-  color: #fffefa;
-  font: 650 0.6rem system-ui, sans-serif;
+  background: #4a88d8;
 }
 .group-card-note { padding-right: 7px; color: #88837d; font-size: 0.64rem; }
 

@@ -3,6 +3,29 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const preferenceKey = 'deutsch-message-sound-enabled'
 const soundInterval = 1500
 
+function playTone(context: AudioContext, volumeLevel: number) {
+  const tone = context.createOscillator()
+  const volume = context.createGain()
+  const start = context.currentTime
+  tone.type = 'sine'
+  tone.frequency.setValueAtTime(392, start)
+  tone.frequency.exponentialRampToValueAtTime(370, start + 0.23)
+  volume.gain.setValueAtTime(0.0001, start)
+  volume.gain.exponentialRampToValueAtTime(volumeLevel, start + 0.025)
+  volume.gain.exponentialRampToValueAtTime(0.0001, start + 0.25)
+  tone.connect(volume)
+  volume.connect(context.destination)
+  tone.start(start)
+  tone.stop(start + 0.26)
+}
+
+function unlockSilently(context: AudioContext) {
+  const source = context.createBufferSource()
+  source.buffer = context.createBuffer(1, 1, context.sampleRate)
+  source.connect(context.destination)
+  source.start()
+}
+
 export function useMessageSound(accountId: string | null) {
   const [preference, setPreference] = useState(() => {
     try { return { enabled: localStorage.getItem(preferenceKey) !== 'false', error: null as string | null } }
@@ -13,14 +36,18 @@ export function useMessageSound(accountId: string | null) {
   const audio = useRef<AudioContext | null>(null)
   const lastSound = useRef(0)
 
-  const unlock = useCallback(() => {
-    if (!window.AudioContext) {
+  const activate = useCallback((playSample: boolean) => {
+    const AudioContextConstructor = window.AudioContext
+      ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioContextConstructor) {
       setAudioProblem('Message sounds are not supported by this browser.')
       return
     }
     try {
-      const context = audio.current ?? new AudioContext()
+      const context = audio.current ?? new AudioContextConstructor()
       audio.current = context
+      if (playSample) playTone(context, 0.05)
+      else unlockSilently(context)
       if (context.state === 'running') { setAudioProblem(null); return }
       void context.resume().then(() => {
         if (context.state === 'running') setAudioProblem(null)
@@ -34,6 +61,9 @@ export function useMessageSound(accountId: string | null) {
       setAudioProblem('Could not initialize message sounds in this browser.')
     }
   }, [])
+
+  const unlock = useCallback(() => activate(false), [activate])
+  const test = useCallback(() => activate(true), [activate])
 
   const setEnabled = useCallback((enabled: boolean) => {
     try {
@@ -78,19 +108,7 @@ export function useMessageSound(accountId: string | null) {
       if (now - lastSound.current < soundInterval) return
       lastSound.current = now
       try {
-        const tone = context.createOscillator()
-        const volume = context.createGain()
-        const start = context.currentTime
-        tone.type = 'sine'
-        tone.frequency.setValueAtTime(392, start)
-        tone.frequency.exponentialRampToValueAtTime(370, start + 0.23)
-        volume.gain.setValueAtTime(0.0001, start)
-        volume.gain.exponentialRampToValueAtTime(0.035, start + 0.025)
-        volume.gain.exponentialRampToValueAtTime(0.0001, start + 0.25)
-        tone.connect(volume)
-        volume.connect(context.destination)
-        tone.start(start)
-        tone.stop(start + 0.26)
+        playTone(context, 0.035)
       } catch (error) {
         console.error('Could not play the message sound:', error)
         setAudioProblem('Could not play the message sound in this browser.')
@@ -109,5 +127,5 @@ export function useMessageSound(accountId: string | null) {
     }
   }, [])
 
-  return { enabled: preference.enabled, setEnabled, error: preference.error ?? audioProblem, connection }
+  return { enabled: preference.enabled, setEnabled, test, error: preference.error ?? audioProblem, connection }
 }

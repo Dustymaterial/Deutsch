@@ -178,11 +178,13 @@ export function GroupsSidebar({ directory, error, selectedId, onOpen, reload, in
           <small>{group.memberCount} {group.memberCount === 1 ? 'member' : 'members'}</small>
         </span>
         <span className="group-card-activity">
-          <span>{group.joined
+          <span className="group-card-preview">{group.joined
             ? group.lastMessage ? `${group.lastMessage.isMine ? 'You' : group.lastMessage.sender}: ${group.lastMessage.text}` : 'No messages yet'
             : group.description || `Run by ${group.owner.username}`}</span>
-          {group.joined && Boolean(group.mentionCount) && <b className="group-mention-count" aria-label={`${group.mentionCount} mentions`}>@{group.mentionCount}</b>}
-          {group.joined && Boolean(group.unreadCount) && <b className="group-unread-count" aria-hidden="true">{group.unreadCount && group.unreadCount > 99 ? '99+' : group.unreadCount}</b>}
+          {group.joined && (Boolean(group.mentionCount) || Boolean(group.unreadCount)) && <span className="group-card-signals">
+            {Boolean(group.mentionCount) && <b className="group-mention-count" aria-label={`${group.mentionCount} mentions`}>@{group.mentionCount}</b>}
+            {Boolean(group.unreadCount) && <span className="group-unread-dot" aria-label={`${(group.unreadCount ?? 0) > 99 ? 'More than 99' : group.unreadCount} unread messages`} />}
+          </span>}
         </span>
         {group.state === 'closed' && <small className="group-card-closed">Closed to new members</small>}
       </span>

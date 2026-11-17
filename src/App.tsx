@@ -343,7 +343,8 @@ function AppSettingsPanel({ settings, onChange, onClose, messageSound, signedIn 
           <span aria-hidden="true" />
         </button>
       </div>
-      <p>Play a quiet hum for new private and group messages while the app is open. This setting stays on this device.</p>
+      <p>Play a quiet hum for new private and group messages while the app is open. On a phone, tap Test sound once to enable it. This setting stays on this device.</p>
+      <button type="button" className="sound-test-button" onClick={messageSound.test} disabled={!messageSound.enabled}>Test sound</button>
       {messageSound.error && <p role="alert">{messageSound.error}</p>}
       {signedIn && messageSound.enabled && messageSound.connection === 'offline' && <p role="status">Live message sounds are unavailable. Check your connection.</p>}
     </section>
