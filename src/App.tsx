@@ -2909,8 +2909,8 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             <div className="choice-result" aria-live="polite">
               <p className={choiceFeedback.correct ? 'choice-result-title correct' : 'choice-result-title incorrect'}>
                 {choiceFeedback.correct
-                  ? practiceLoopActive ? 'Correct — nice recall.' : 'Correct — one point.'
-                  : 'Not quite — take another look.'}
+                  ? practiceLoopActive ? 'Correct. Nice recall.' : 'Correct. One point.'
+                  : 'Not quite. Take another look.'}
               </p>
               {!choiceFeedback.correct && (
                 <p className="choice-your-answer">
@@ -2980,7 +2980,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           ) : productionFeedback ? (
             <div className="choice-result production-result" aria-live="polite">
               <p className={`choice-result-title ${productionFeedback.correct ? 'correct' : 'incorrect'}`}>
-                {productionFeedback.correct ? 'Correct — good retrieval.' : 'Not quite — review this one.'}
+                {productionFeedback.correct ? 'Correct. Good recall.' : 'Not quite. Review this one.'}
               </p>
               <p className="choice-your-answer">
                 You typed: <span lang="de">{productionFeedback.answer}</span>

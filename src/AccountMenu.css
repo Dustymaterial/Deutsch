@@ -1392,6 +1392,8 @@
 }
 .companion-deck-toggle:hover { background: rgba(255, 255, 255, 0.75); color: var(--companion-text); }
 .companion-chat-header {
+  position: relative;
+  z-index: 5;
   min-height: 55px;
   gap: 9px;
   padding: 8px 17px;
