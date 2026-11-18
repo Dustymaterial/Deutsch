@@ -1723,7 +1723,6 @@
   line-height: 1.04;
   overflow-wrap: anywhere;
 }
-.companion-practice-copy { max-width: 35ch; margin: 22px 0 0; color: #5d554d; font-size: 0.89rem; line-height: 1.5; }
 .companion-practice-cta { display: grid; gap: 8px; margin-top: auto; padding-top: 24px; }
 .companion-practice-session .primary-button { min-height: 45px; width: 100%; margin: 0; }
 .companion-practice-session .quiet-button { min-height: 38px; width: 100%; margin: 0; }
