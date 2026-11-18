@@ -80,6 +80,8 @@
 }
 
 .app-header {
+  position: relative;
+  z-index: 9;
   width: min(100%, 980px);
   display: flex;
   align-items: center;

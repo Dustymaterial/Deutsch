@@ -36,6 +36,7 @@ import { PendingChatMessages } from './PendingChatMessages'
 import type { ChatOutbox } from './useChatOutbox'
 import { MessageReceipt, type MessageReceiptStatus } from './MessageReceipt'
 import { useChatDelivery } from './useChatDelivery'
+import { MenuSelect } from './MenuSelect'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -712,6 +713,8 @@ export function CompanionPanel({
       const target = event.target
       if (!(target instanceof Node)) return
       workspace.current?.querySelectorAll<HTMLDetailsElement>('.companion-row-menu[open], .companion-message-menu[open], .companion-sidebar-details[open], .companion-word-picker[open], .companion-practice-fab[open]').forEach((menu) => {
+        const owner = target instanceof Element ? target.closest<HTMLElement>('[data-panel-owner]')?.dataset.panelOwner : undefined
+        if (owner && [...menu.querySelectorAll('[aria-controls]')].some((element) => element.getAttribute('aria-controls') === owner)) return
         if (!menu.contains(target)) menu.open = false
       })
     }
@@ -1782,13 +1785,10 @@ export function CompanionPanel({
                   <div className="companion-practice-fab-panel">
                     <strong>Surprise practice</strong>
                     <p>Five reviewed words are chosen at random. Neither of you sees them before the session begins.</p>
-                    <label>Limit to a lesson or topic (optional)
-                      <select value={practiceTag} onChange={(event) => setPracticeTag(event.target.value)}>
-                        <option value="">All reviewed words</option>
-                        {practiceTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-                      </select>
-                    </label>
-                    <button type="button" disabled={busy} onClick={() => void startPractice()}>Ask to practise</button>
+                    <div className="companion-field">Limit to a lesson or topic (optional)
+                      <MenuSelect ariaLabel="Lesson or topic for practice" value={practiceTag} onChange={setPracticeTag} options={[{ value: '', label: 'All reviewed words' }, ...practiceTags.map((tag) => ({ value: tag, label: tag }))]} />
+                    </div>
+                    <div className="companion-card-actions"><button type="button" disabled={busy} onClick={() => void startPractice()}>Ask to practise</button></div>
                   </div>
                 </details>
                 <button className="companion-header-pill" type="button" aria-label="Search this conversation" aria-pressed={searchOpen} disabled={chatUpdating} onClick={toggleSearch}><Search size={14} aria-hidden="true" /><span>Search</span></button>
