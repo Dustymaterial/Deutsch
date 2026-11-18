@@ -1008,7 +1008,7 @@ export function createGroupsRouter({
 }
 
 export function createModerationRouter({
-  users, groupMessages, groupReports, companionReports, requireUser, isModerator,
+  users, groupMessages, groupReports, companionReports, requireUser, isModerator, publish = () => {},
 }) {
   const router = Router()
   router.use(...guard({ requireUser, limiter: createLimiter() }), (req, res, next) => {
@@ -1105,6 +1105,7 @@ export function createModerationRouter({
         deleteAfter: new Date(now.getTime() + resolvedReportRetention),
       },
     })
+    if (req.params.kind === 'group' && ObjectId.isValid(report.groupId)) publish('group', report.groupId, report.parentMessageId ?? report.messageId)
     res.json({ ok: true })
   })
 

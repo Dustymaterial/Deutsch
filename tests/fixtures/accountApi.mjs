@@ -1172,7 +1172,19 @@ try {
   assert.equal((await request(safetyResolve, { action: 'approve', expectedAt: safetyReport.createdAt.toISOString() }, learner.cookie)).status, 404)
   assert.equal((await request(safetyResolve, { action: 'approve', expectedAt: 'stale' }, moderator.cookie)).status, 409)
   assert.equal((await request(safetyResolve, { action: 'dismiss' }, moderator.cookie)).status, 400)
+  const safetySocket = await connectSocket(other.cookie)
+  assert.deepEqual(await socketCall(safetySocket, 'subscribe', { kind: 'group', id: groupId }), { ok: true })
+  const restoredLive = new Promise((resolve, reject) => {
+    const handler = (snapshot) => {
+      const restored = snapshot.page?.messages.find((item) => item.id === held.body.message.id && item.kind === 'text')
+      if (restored) { clearTimeout(timer); safetySocket.off('snapshot', handler); resolve(restored) }
+    }
+    const timer = setTimeout(() => { safetySocket.off('snapshot', handler); reject(new Error('Restored group content was not delivered live')) }, 3000)
+    safetySocket.on('snapshot', handler)
+  })
   assert.equal((await request(safetyResolve, { action: 'approve', expectedAt: safetyReport.createdAt.toISOString() }, moderator.cookie)).status, 200)
+  assert.equal((await restoredLive).text, 'You asshole @Companion')
+  safetySocket.disconnect()
   assert.equal((await request(`${safetyPath}/${held.body.message.id}`, null, other.cookie)).body.message.text, 'You asshole @Companion')
   const languageReportPath = `${safetyPath}/${held.body.message.id}/report`
   assert.equal((await request(languageReportPath, { reason: 'inappropriate' }, other.cookie)).status, 201)

@@ -110,4 +110,6 @@ Keep form errors beside their fields, reduced-motion support, mobile layout and 
 
 Held items use the existing hidden-content paths so member serializers, search, previews, mentions and sound hints withhold content. A neutral placeholder explains the hold. Automatic reports retain the text for authorized moderators and use the existing resolved-report retention; they are excluded from the three-human-report threshold. Show content requires the inspected report version and a matching pending hold; unsent and manually hidden content cannot be restored by a stale action. Keep hidden closes the report without exposing it. Pending holds repair missing automatic reports on subsequent reads, while duplicate reports are suppressed.
 
+Moderation decisions publish a scoped live message update directly, so restoring or hiding content does not depend on a database change stream. The API integration test verifies restoration over a live socket with the in-memory database.
+
 HTTP(S)/www links remain visible with a warning, including cached messages. No URL is fetched or certified safe; no message goes to an external classifier. Existing link, rate, duplicate and reporting limits remain, and suggestions also have the two-link cap. Expand these rules only with a documented moderation decision and tests for vocabulary false positives.
