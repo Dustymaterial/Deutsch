@@ -232,7 +232,7 @@ function CompanionPracticeSession({
                 ? <div className="card-front companion-practice-card-content">
                   <p className="prompt-label">What does this mean?</p>
                   <h2 lang="de">{prompt}</h2>
-                  {practice.revealRequested ? <PracticeWaiting>Waiting for {companionName} to reveal</PracticeWaiting> : practice.feedback === 'try-again'
+                  {practice.revealRequested ? <>{practice.answer && <div className="companion-practice-response"><span>Your answer</span><strong>{practice.answer}</strong></div>}<PracticeWaiting>Waiting for {companionName} to reveal</PracticeWaiting></> : practice.feedback === 'try-again'
                     ? <div className="companion-practice-cta"><p className="companion-practice-feedback" role="status"><PracticeStatusText>Not quite yet. Take another look when you are ready.</PracticeStatusText></p><button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('retry')}>Try again</button></div>
                     : practice.answer
                       ? <><div className="companion-practice-response"><span>Your answer</span><strong>{practice.answer}</strong></div><PracticeWaiting>Waiting for {companionName}’s feedback</PracticeWaiting></>
