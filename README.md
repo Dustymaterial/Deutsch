@@ -64,6 +64,10 @@ Tap a word in chat to check your deck, starter vocabulary and the bundled dictio
 
 See [privacy and operational details](./CONTRIBUTING.md#privacy-and-service-limits) for cache limits, retention, account recovery and email handling.
 
+## Questions and feedback
+
+Visit the [Deutsch community Q&A](https://github.com/Dustymaterial/Deutsch-community/discussions/categories/q-a) for help using the app, or [discuss a product idea](https://github.com/Dustymaterial/Deutsch-community/discussions/categories/ideas). Report reproducible bugs and track development in [this repository's issues](https://github.com/saintheraldfaust/Deutsch/issues). Public discussions are separate from private in-app companion chats.
+
 ## Run locally or contribute
 
 Requires Node.js 22.12 or newer.

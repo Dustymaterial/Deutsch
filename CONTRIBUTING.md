@@ -2,6 +2,8 @@
 
 Start with the product overview in [README.md](./README.md) and the learning and engineering rules in [AGENTS.md](./AGENTS.md). Keep community features tied to vocabulary recall, use and feedback. Keep the main study loop available without an account service.
 
+Usage questions and product ideas are hosted in [Deutsch-community Discussions](https://github.com/Dustymaterial/Deutsch-community/discussions). Confirmed bugs, implementation issues and pull requests stay in this repository. Link a relevant discussion from an implementation issue when it supplies context; existing discussions here remain available.
+
 ## Local development
 
 Requires Node.js 22.12 or newer.

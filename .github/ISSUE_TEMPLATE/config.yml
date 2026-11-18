@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions about Deutsch Deck
+    url: https://github.com/Dustymaterial/Deutsch-community/discussions/categories/q-a
+    about: Ask for help using the vocabulary trainer.
+  - name: Product ideas and feedback
+    url: https://github.com/Dustymaterial/Deutsch-community/discussions/categories/ideas
+    about: Discuss learning, accessibility and community features.
