@@ -919,10 +919,15 @@
 }
 
 .choice-option:hover {
-  transform: translateY(-1px);
   border-color: rgba(70, 50, 30, 0.36);
   background: rgba(255, 255, 255, 0.9);
 }
+.choice-option { min-width: 0; }
+.choice-option > span:last-child { min-width: 0; overflow-wrap: anywhere; hyphens: auto; }
+.review-reminder { position: relative; }
+.review-reminder summary { cursor: pointer; list-style: none; border-radius: 999px; padding: 7px 10px; background: #e5eee5; color: #3e5b48; font-size: 0.7rem; font-weight: 650; white-space: nowrap; }
+.review-reminder summary::-webkit-details-marker { display: none; }
+.review-reminder p { position: absolute; right: 0; z-index: 10; width: 190px; margin: 6px 0 0; padding: 12px; border-radius: 12px; background: #fffdf6; box-shadow: 0 8px 24px #0002; font-size: 0.75rem; line-height: 1.4; }
 
 .choice-key {
   width: 23px;

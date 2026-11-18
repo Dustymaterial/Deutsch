@@ -1777,6 +1777,20 @@ export function CompanionPanel({
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
               {!practice && <div className="companion-chat-header-actions">
+                <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>
+                  <summary className="companion-header-pill" aria-label="Practice together" title="Practice together"><BookOpen size={16} aria-hidden="true" /></summary>
+                  <div className="companion-practice-fab-panel">
+                    <strong>Surprise practice</strong>
+                    <p>Five reviewed words are chosen at random. Neither of you sees them before the session begins.</p>
+                    <label>Limit to a lesson or topic (optional)
+                      <select value={practiceTag} onChange={(event) => setPracticeTag(event.target.value)}>
+                        <option value="">All reviewed words</option>
+                        {practiceTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                      </select>
+                    </label>
+                    <button type="button" disabled={busy} onClick={() => void startPractice()}>Ask to practise</button>
+                  </div>
+                </details>
                 <button className="companion-header-pill" type="button" aria-label="Search this conversation" aria-pressed={searchOpen} disabled={chatUpdating} onClick={toggleSearch}><Search size={14} aria-hidden="true" /><span>Search</span></button>
                 <details className="companion-row-menu companion-chat-menu" onToggle={onChatDetailsToggle}>
                   <summary className="companion-header-pill" aria-label="Conversation actions"><Ellipsis size={15} aria-hidden="true" /><span>More</span></summary>
@@ -1945,20 +1959,6 @@ export function CompanionPanel({
             {(chatTyping?.id === selectedChat.id && chatTyping.typing) && <div className="companion-chat-statuses">
               {chatTyping?.id === selectedChat.id && chatTyping.typing && <p className="companion-chat-status typing" role="status">{selectedChat.companion.username} is typing…</p>}
             </div>}
-            <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>
-              <summary><BookOpen size={14} aria-hidden="true" /><span>Practice together</span></summary>
-              <div className="companion-practice-fab-panel">
-                <strong>Surprise practice</strong>
-                <p>Five reviewed words are chosen at random. Neither of you sees them before the session begins.</p>
-                <label>Limit to a lesson or topic (optional)
-                  <select value={practiceTag} onChange={(event) => setPracticeTag(event.target.value)}>
-                    <option value="">All reviewed words</option>
-                    {practiceTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-                  </select>
-                </label>
-                <button type="button" disabled={busy} onClick={() => void startPractice()}>Ask to practise</button>
-              </div>
-            </details>
             <form className="companion-chat-composer" onSubmit={sendMessage}>
               <label className="companion-visually-hidden" htmlFor="companion-message">Message {selectedChat.companion.username}</label>
               {replyingTo && <div className="companion-reply-bar" style={replyColor(replyingTo.id)}>

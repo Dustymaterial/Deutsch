@@ -2552,6 +2552,15 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     </CompanionLoadBoundary>
   )
 
+  const scheduledFirstReviews = cards.filter((card) => card.status === 'active' && card.lastReviewedAt === null && card.firstReviewScheduledAt)
+  const nextFirstReview = Math.min(...scheduledFirstReviews.map((card) => Date.parse(card.firstReviewScheduledAt!) + 600_000))
+  const dueFirstReviewCount = scheduledFirstReviews.filter((card) => Date.parse(card.firstReviewScheduledAt!) + 600_000 <= now).length
+  const nextFirstReviewCount = scheduledFirstReviews.filter((card) => Date.parse(card.firstReviewScheduledAt!) + 600_000 === nextFirstReview).length
+  const reviewReminder = scheduledFirstReviews.length > 0 && <details className="review-reminder">
+    <summary>{dueFirstReviewCount ? 'Reviews ready' : `Review in ${Math.max(1, Math.ceil((nextFirstReview - now) / 60_000))} min`}</summary>
+    <p>{dueFirstReviewCount ? `${dueFirstReviewCount} ${dueFirstReviewCount === 1 ? 'word is' : 'words are'} ready to review.` : `${nextFirstReviewCount} ${nextFirstReviewCount === 1 ? 'word is' : 'words are'} coming up for review.`}</p>
+  </details>
+
   const appContent = !activeCard && !learnOpen ? (
       <main className="app-shell empty-state-shell">
         <header className="app-header">
@@ -2560,6 +2569,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             <span>deutsch deck</span>
           </a>
           <div className="header-actions">
+            {reviewReminder}
             <button ref={addCardButton} type="button" className="add-card-button" aria-haspopup="dialog" aria-expanded={addCardOpen} onClick={() => { setFrontPanel('add'); setAddCardOpen(true) }}>
               <span aria-hidden="true">+</span> Add a word
             </button>
@@ -2709,6 +2719,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           <span>deutsch deck</span>
         </a>
         <div className="header-actions">
+          {reviewReminder}
           <button ref={addCardButton} type="button" className="add-card-button" aria-haspopup="dialog" aria-expanded={addCardOpen} onClick={() => { setFrontPanel('add'); setAddCardOpen(true) }}>
             <span aria-hidden="true">+</span> Add a word
           </button>
