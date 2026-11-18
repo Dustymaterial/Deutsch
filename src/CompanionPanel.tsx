@@ -140,6 +140,10 @@ function CompanionLoader({ label, compact = false }: { label: string; compact?: 
   return <div className={`companion-loader${compact ? ' compact' : ''}`} role="status" aria-label={label}><span /></div>
 }
 
+function PracticeWaiting({ children }: { children: React.ReactNode }) {
+  return <p className="companion-practice-waiting" role="status">{children}<span className="companion-wait-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
+}
+
 function CompanionPracticeSession({
   practice, companionName, answer, busy, onAnswerChange, onAnswerBlur, onSubmitAnswer, onDecision,
 }: {
@@ -177,7 +181,7 @@ function CompanionPracticeSession({
                 <button type="button" className="quiet-button" disabled={busy} onClick={() => onDecision('decline')}>Not now</button>
               </div>
               : <div className="companion-practice-cta">
-                <p className="companion-practice-waiting" role="status">Waiting for {companionName} to join.</p>
+                <PracticeWaiting>Waiting for {companionName} to join</PracticeWaiting>
                 <button type="button" className="quiet-button" disabled={busy} onClick={() => onDecision('end')}>Cancel request</button>
               </div>}
           </div>
@@ -195,7 +199,7 @@ function CompanionPracticeSession({
                   <span>{companionName} answered</span>
                   <strong>{practice.answer}</strong>
                 </div>
-                : <p className="companion-practice-waiting companion-practice-waiting-animated" role="status">Waiting for their answer<span className="companion-wait-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>}
+                : <PracticeWaiting>Waiting for their answer</PracticeWaiting>}
               {practice.answer && !practice.feedback && <div className="companion-practice-actions" role="group" aria-label="Respond to answer">
                 <button type="button" className="rating good" disabled={busy} onClick={() => onDecision('correct')}><Check size={17} aria-hidden="true" />Correct</button>
                 <button type="button" className="rating hard" disabled={busy} onClick={() => onDecision('try-again')}>Try again</button>
@@ -223,7 +227,7 @@ function CompanionPracticeSession({
                   {practice.feedback === 'try-again'
                     ? <div className="companion-practice-cta"><p className="companion-practice-feedback" role="status">Not quite yet. Take another look when you are ready.</p><button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('retry')}>Try again</button></div>
                     : practice.answer
-                      ? <p className="companion-practice-waiting" role="status">Waiting for {companionName}’s feedback.</p>
+                      ? <PracticeWaiting>Waiting for {companionName}’s feedback</PracticeWaiting>
                       : <form className="production-answer-form companion-practice-answer-form" onSubmit={onSubmitAnswer}>
                         <label>English meaning
                           <input value={answer} maxLength={1000} autoComplete="off" onChange={(event) => onAnswerChange(event.target.value)} onBlur={onAnswerBlur} placeholder="Type your answer" />
