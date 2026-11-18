@@ -45,16 +45,19 @@ Use `npm run build` then `npm run preview` to try the production shell locally. 
 
 The deterministic, SM-2-inspired heuristic lives in [src/scheduler.ts](./src/scheduler.ts). It uses previous interval, ease, repetitions, lapses and the submitted result. It does not estimate measured memory strength or guarantee retention.
 
-New cards begin at interval 0, ease 2.5, zero repetitions and lapses. Adding to reviews sets the first review for 10 minutes later; only an answer or rating records a review. Day calculations round to whole days and use local calendar dates.
+New cards begin at interval 0, ease 2.5, zero repetitions and lapses. Adding to reviews sets the first review for 10 elapsed minutes later; only an answer or rating records a review. First-review and Again delays use timestamp arithmetic across clock changes. Day calculations round to whole days and use local calendar dates, so a one-day interval can span 23 or 25 hours.
 
 | Rating | Next interval | State change |
 | --- | --- | --- |
 | Again | 10 minutes | Reset repetitions, increment lapses and incorrect count; ease falls by 0.2, minimum 1.3. |
-| Hard | First success: 1 day. Later: max(1, round(previous interval × 1.2)). | Increment repetitions and correct count; ease falls by 0.1, minimum 1.3. |
+| Hard (self-rated Recall) | First success: 1 day. Later: max(1, round(previous interval × 1.2)). | Increment repetitions and correct count; ease falls by 0.1, minimum 1.3. |
+| Hard (correct Produce/Choose) | First success: 1 day. Later: max(previous interval + 1, round(previous interval × 1.2)). | Increment repetitions and correct count; preserve ease. |
 | Good | First success: 1 day. Later: max(1, round(previous interval × previous ease)). | Increment repetitions and correct count; ease rises by 0.05, maximum 3. |
 | Easy | First success: 3 days. Later: max(2, round(previous interval × previous ease × 1.4)). | Increment repetitions and correct count; ease rises by 0.1, maximum 3. |
 
 Recall stores a self-rating. Produce and Choose store objective quiz results separately and map correct answers to Hard and misses to Again. Every scheduled review records time, rating, resulting interval/ease, mode and optional difficulty details.
+
+Correct quiz answers explicitly require a choice/production mode and `answerCorrect: true` to receive the quiz-specific Hard transition. This avoids one/two-day rounding traps and does not infer self-reported difficulty from a correct answer. Both quiz modes currently share this conservative rule; it is not a validated equivalence between recognition, production and recall. Switching modes uses the same card schedule and ease with distinct history labels. Misses still lower ease through Again, and self-rated Recall keeps its existing rules. Missing legacy result metadata does not qualify as a confirmed quiz success. Changes apply only to new submitted reviews: do not rewrite saved due dates, restore historical ease or recalculate old events.
 
 Sessions select due active cards first, oldest due time first, then more lapses and oldest review. Unseen cards follow within session and shared daily limits. Future reviews are not pulled forward to fill a session. Continuing beyond the target affects the current visit/day, not scheduling. Repeating today's words does not append history, change quiz scores or reschedule cards.
 

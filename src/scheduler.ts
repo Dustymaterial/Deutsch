@@ -97,11 +97,8 @@ const addDays = (date: Date, days: number) => {
   return next
 }
 
-const addMinutes = (date: Date, minutes: number) => {
-  const next = new Date(date)
-  next.setMinutes(next.getMinutes() + minutes)
-  return next
-}
+const addMinutes = (date: Date, minutes: number) =>
+  new Date(date.getTime() + minutes * 60_000)
 
 export const scheduleReview = <T extends SchedulableCard>(
   card: T,
@@ -113,6 +110,7 @@ export const scheduleReview = <T extends SchedulableCard>(
 ): T => {
   const nextCard = { ...card }
   const previousEase = nextCard.easeFactor
+  const correctQuiz = (mode === 'choice' || mode === 'production') && answerCorrect === true
   if (nextCard.reviewResetAt && now.getTime() <= Date.parse(nextCard.reviewResetAt)) {
     now = new Date(Date.parse(nextCard.reviewResetAt) + 1)
   }
@@ -128,11 +126,16 @@ export const scheduleReview = <T extends SchedulableCard>(
       nextCard.dueAt = addMinutes(now, 10).toISOString()
       break
     case 'hard':
+      // Quiz success is not a self-reported difficulty. Avoid rounding traps
+      // at one/two days without reducing ease or promoting the result to Good.
       nextCard.intervalDays =
         nextCard.repetitions === 0
           ? 1
-          : Math.max(1, Math.round(nextCard.intervalDays * 1.2))
-      nextCard.easeFactor = Math.max(1.3, previousEase - 0.1)
+          : Math.max(
+            correctQuiz ? nextCard.intervalDays + 1 : 1,
+            Math.round(nextCard.intervalDays * 1.2),
+          )
+      nextCard.easeFactor = correctQuiz ? previousEase : Math.max(1.3, previousEase - 0.1)
       nextCard.repetitions += 1
       nextCard.correctCount += 1
       nextCard.dueAt = addDays(now, nextCard.intervalDays).toISOString()
