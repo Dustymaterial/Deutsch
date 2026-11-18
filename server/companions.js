@@ -403,6 +403,18 @@ export function createCompanionRouter({
     res.json({ practice: found.session ? serializePractice(found.session, me) : null })
   })
 
+  async function postPracticeSummary(session, now) {
+    const learner = await users.findOne({ _id: new ObjectId(session.learnerId) }, { projection: { username: 1 } })
+    const stats = session.stats ?? {}
+    const reviewed = (stats.recalled ?? 0) + (stats.retried ?? 0) + (stats.revealed ?? 0)
+    await insertChatMessage(companionMessages, {
+      conversationId: session.conversationId, senderId: session.learnerId,
+      text: `Review session ended.\n${learner?.username ?? 'Learner'}: ${reviewed}/${session.total} reviewed · ${stats.recalled ?? 0} recalled · ${stats.retried ?? 0} after retry · ${stats.revealed ?? 0} revealed.`,
+      createdAt: now,
+    }, { id: session._id, hash: `practice-summary:${session._id}` })
+    await conversations.updateOne({ _id: new ObjectId(session.conversationId) }, { $max: { updatedAt: now, lastMessageAt: now } })
+  }
+
   router.post('/chats/:id/practice', async (req, res) => {
     const result = practiceStartSchema.safeParse(req.body)
     if (!result.success) return res.status(400).json({ error: 'Choose a valid lesson or topic.' })
@@ -450,6 +462,7 @@ export function createCompanionRouter({
       status: 'pending',
       cards: selected,
       total: selected.length,
+      stats: { recalled: 0, retried: 0, revealed: 0 },
       cardIndex: 0,
       createdAt: now,
       updatedAt: now,
@@ -488,7 +501,16 @@ export function createCompanionRouter({
     if (!result.success) return res.status(400).json({ error: 'Choose a valid practice action.' })
     const me = req.accountUser._id.toString()
     const found = await activePractice(me, req.params.id)
-    if (!found?.session || found.session._id.toString() !== req.params.practiceId) return unavailable(res)
+    if (!found?.session || found.session._id.toString() !== req.params.practiceId) {
+      if (found && ObjectId.isValid(req.params.practiceId) && ['end', 'next'].includes(result.data.decision)) {
+        const ended = await practiceSessions.findOne({ _id: new ObjectId(req.params.practiceId), conversationId: req.params.id, participants: me, status: { $in: ['ended', 'completed'] } })
+        if (ended) {
+          if (ended.stats && (ended.wasActive || ended.status === 'completed')) await postPracticeSummary(ended, ended.updatedAt)
+          return res.json({ practice: serializePractice(ended, me) })
+        }
+      }
+      return unavailable(res)
+    }
     const session = found.session
     const { decision } = result.data
     const isLearner = session.learnerId === me
@@ -506,8 +528,10 @@ export function createCompanionRouter({
     }
 
     if (decision === 'end') {
-      const values = { status: 'ended', cards: [], round: null, updatedAt: now, expiresAt: now }
-      await practiceSessions.updateOne({ _id: session._id }, { $set: values })
+      const values = { status: 'ended', wasActive: session.status === 'active', cards: [], round: null, updatedAt: now, expiresAt: now }
+      const updated = await practiceSessions.updateOne({ _id: session._id, status: session.status, updatedAt: session.updatedAt }, { $set: values })
+      if (!updated.modifiedCount) return changed(res)
+      if (session.status === 'active') await postPracticeSummary(session, now)
       return res.json({ practice: serializePractice({ ...session, ...values }, me) })
     }
 
@@ -527,6 +551,7 @@ export function createCompanionRouter({
         : { cardIndex: session.cardIndex + 1, round: null, attempts: 0, updatedAt: now }
       const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.feedback': session.round.feedback }, { $set: values })
       if (!updated.modifiedCount) return changed(res)
+      if (complete) await postPracticeSummary(session, now)
       return res.json({ practice: serializePractice({ ...session, ...values }, me) })
     }
 
@@ -535,6 +560,7 @@ export function createCompanionRouter({
     if (!['try-again', 'correct', 'reveal'].includes(feedback)) return changed(res)
     const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.answer': session.round.answer, 'round.feedback': { $exists: false } }, {
       $set: { 'round.feedback': feedback, updatedAt: now },
+      ...(['correct', 'reveal'].includes(feedback) ? { $inc: { [`stats.${feedback === 'reveal' ? 'revealed' : (session.attempts ?? 1) > 1 ? 'retried' : 'recalled'}`]: 1 } } : {}),
     })
     if (!updated.modifiedCount) return changed(res)
     res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback }, updatedAt: now }, me) })

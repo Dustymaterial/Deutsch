@@ -1,5 +1,6 @@
 import { Server } from 'socket.io'
 import { EventEmitter } from 'node:events'
+import { messageDelta } from './chatDelta.js'
 
 // Reuse the HTTP router's validation, limits and recipient-specific serializers.
 export function dispatchChat(router, request, method, path, body) {
@@ -49,33 +50,50 @@ export function createChatSocket({ server, sessionMiddleware, requireUser, route
   }
   io.use((socket, next) => { void authenticated(socket).then((ok) => next(ok ? undefined : new Error('Sign in to connect.'))).catch(() => next(new Error('Session expired.'))) })
   function prefix(kind, id) { return kind === 'private' ? `/chats/${id}` : `/${id}` }
-  async function snapshot(socket, changedIds = []) {
+  async function snapshot(socket, changedIds = [], practiceOnly = false) {
     const channel = socket.data.channel
     if (!channel || !socket.connected) return
     if (!await authenticated(socket) || !await authorize(channel.kind, socket.request, channel.id)) { socket.emit('access-lost'); socket.disconnect(); return }
     const base = prefix(channel.kind, channel.id)
     const practice = channel.kind === 'private' ? await dispatchChat(routers.private, socket.request, 'GET', `${base}/practice`) : null
-    if (practice?.status === 200 && socket.connected && socket.data.channel === channel) socket.emit('practice', { ...channel, practice: practice.data.practice })
-    const page = await dispatchChat(routers[channel.kind], socket.request, 'GET', `${base}/messages?read=0&live=1`)
+    if (practice?.status === 200 && socket.connected && socket.data.channel === channel) {
+      const signature = JSON.stringify(practice.data.practice)
+      if (signature !== socket.data.practiceSignature) { socket.data.practiceSignature = signature; socket.emit('practice', { ...channel, practice: practice.data.practice }) }
+    }
+    if (practiceOnly) return
+    let page = changedIds.length && socket.data.pageInfo
+      ? { status: 200, data: { ...socket.data.pageInfo, messages: [] } }
+      : socket.data.resume ? await dispatchChat(routers[channel.kind], socket.request, 'GET', `${base}/sync?cursor=${encodeURIComponent(socket.data.resume.cursor)}`)
+        : await dispatchChat(routers[channel.kind], socket.request, 'GET', `${base}/messages?read=0&live=1`)
+    if (socket.data.resume) {
+      if (page.status === 200 && page.data.reset === false) page.data.hasMore = socket.data.resume.hasMore
+      else { page = await dispatchChat(routers[channel.kind], socket.request, 'GET', `${base}/messages?read=0`); page.data.reset = true }
+      socket.data.resume = undefined
+    }
     if (page.status !== 200) { socket.emit('access-lost'); return }
+    socket.data.pageInfo = { ...page.data, messages: [] }
     for (const id of changedIds) {
       if (channel.kind === 'private' && await routers.private.chatMessageChannel(socket.request, id) !== channel.id) continue
       const message = channel.kind === 'private' ? await routers.private.chatMessage(socket.request, id)
         : (await dispatchChat(routers.group, socket.request, 'GET', `${base}/messages/${id}`)).data.message
       if (message && !page.data.messages.some((item) => item.id === message.id)) page.data.messages.push(message)
     }
-    if (socket.connected && socket.data.channel === channel) socket.emit('snapshot', { ...channel, page: page.data, ...(practice?.status === 200 ? { practice: practice.data.practice } : {}) })
+    if (socket.connected && socket.data.channel === channel) {
+      const delta = messageDelta(socket.data.delta, page.data)
+      if (delta) socket.emit('snapshot', { ...channel, page: delta })
+    }
   }
-  function publish(kind, id, messageId) {
+  function publish(kind, id, messageId, practiceOnly = false) {
     for (const socket of clients) {
       if (socket.data.channel?.kind !== kind || socket.data.channel?.id !== id) continue
       socket.data.pending = true
+      if (!practiceOnly) socket.data.messagesPending = true
       socket.data.changedIds ??= new Set()
       if (messageId && socket.data.changedIds.size < 100) socket.data.changedIds.add(messageId)
       if (socket.data.refreshing) continue
       socket.data.refreshing = true
       void (async () => {
-        try { while (socket.data.pending && socket.connected) { socket.data.pending = false; const ids = [...socket.data.changedIds]; socket.data.changedIds.clear(); await snapshot(socket, ids) } }
+        try { while (socket.data.pending && socket.connected) { socket.data.pending = false; const ids = [...socket.data.changedIds]; socket.data.changedIds.clear(); const onlyPractice = !socket.data.messagesPending; socket.data.messagesPending = false; await snapshot(socket, ids, onlyPractice) } }
         catch { socket.emit('refresh-error') }
         finally { socket.data.refreshing = false }
       })()
@@ -90,6 +108,10 @@ export function createChatSocket({ server, sessionMiddleware, requireUser, route
       try {
         if (++count > 120 || !['private', 'group'].includes(channel?.kind) || !/^[a-f\d]{24}$/.test(channel?.id) || !await authenticated(socket) || !await authorize(channel.kind, socket.request, channel.id)) throw new Error()
         socket.data.channel = { kind: channel.kind, id: channel.id }
+        socket.data.delta = { messages: new Map() }
+        socket.data.practiceSignature = undefined
+        socket.data.pageInfo = undefined
+        socket.data.resume = typeof channel.cursor === 'string' && channel.cursor.length <= 4096 ? { cursor: channel.cursor, hasMore: Boolean(channel.hasMore) } : undefined
         await snapshot(socket)
         ack?.({ ok: true })
       } catch { ack?.({ ok: false }) }
@@ -103,7 +125,7 @@ export function createChatSocket({ server, sessionMiddleware, requireUser, route
         if (typeof command?.path !== 'string' || !command.path.startsWith(`${base}/`) || command.path.includes('?') || command.path.includes('..')) throw new Error()
         const result = await dispatchChat(routers[channel.kind], socket.request, 'POST', command.path, command.body)
         ack?.(result)
-        if (result.status < 400) publish(channel.kind, channel.id, command.path.match(/\/messages\/([a-f\d]{24})\//)?.[1])
+        if (result.status < 400) publish(channel.kind, channel.id, result.data.message?.id ?? command.path.match(/\/messages\/([a-f\d]{24})\//)?.[1], command.path.includes('/practice') && !['ended', 'completed'].includes(result.data.practice?.status))
       } catch { ack?.({ status: 403, data: { error: 'This conversation is unavailable.' } }) }
     })
     socket.on('typing', async (typing) => {
@@ -132,7 +154,7 @@ export function createChatSocket({ server, sessionMiddleware, requireUser, route
         res.json = function(data) {
           const result = json.call(this, data)
           const match = req.path.match(kind === 'private' ? /^\/chats\/([a-f\d]{24})\// : /^\/([a-f\d]{24})\//)
-          if (req.method === 'POST' && this.statusCode < 400 && match && !req.path.endsWith('/typing')) publish(kind, match[1], req.path.match(/\/messages\/([a-f\d]{24})\//)?.[1])
+          if (req.method === 'POST' && this.statusCode < 400 && match && !req.path.endsWith('/typing')) publish(kind, match[1], data.message?.id ?? req.path.match(/\/messages\/([a-f\d]{24})\//)?.[1], req.path.includes('/practice') && !['ended', 'completed'].includes(data.practice?.status))
           const messageId = req.path.match(/^\/messages\/([a-f\d]{24})\//)?.[1]
           if (kind === 'private' && req.method === 'POST' && this.statusCode < 400 && messageId) {
             void routers.private.chatMessageChannel(req, messageId).then((id) => { if (id) publish(kind, id, messageId) }).catch(() => {})

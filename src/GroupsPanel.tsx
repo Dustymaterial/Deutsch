@@ -22,7 +22,7 @@ import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime as formatTime } from './chatTime'
-import { watchConversation } from './chatSocket'
+import { watchConversation, chatSocketActive } from './chatSocket'
 import { replayUpdatesInRange } from './chatReplay'
 import { useChatScrollState } from './useChatScrollState'
 import { useChatOverlayHistory } from './useChatOverlayHistory'
@@ -423,7 +423,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     return () => { active = false; window.clearTimeout(timer) }
   }, [group.id, searchOpen, searchTerm])
 
-  const load = useCallback(async (replayCursor?: string, pushed?: { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[] }) => {
+  const load = useCallback(async (replayCursor?: string, pushed?: { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[]; cursor?: string; reset?: boolean }) => {
     if (olderInFlight.current && !replayCursor) return
     const sequence = ++loadSequence.current
     loadingRef.current = true
@@ -434,7 +434,8 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
       let data: { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[]; cursor?: string | null }
       const cursor = replayCursor ?? cached?.cursor
       if (pushed) {
-        data = { ...pushed, cursor: cached?.cursor }
+        data = { ...pushed, cursor: pushed.cursor ?? cached?.cursor }
+        reset = Boolean(pushed.reset)
       } else if (cursor && cached) {
         let sync: { reset: boolean; messages?: GroupMessage[]; group?: GroupSummary; typing?: Profile[]; cursor?: string }
         try {
@@ -462,14 +463,14 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
       }
       if (sequence !== loadSequence.current) return
       if (!pushed) setTyping(data.typing)
-      const cachedMessages = replayed && cached
+      const cachedMessages = pushed && cached && !reset ? mergeMessages(cached.messages, data.messages) : replayed && cached
         ? mergeMessages(cached.messages, replayUpdatesInRange(cached.messages, data.messages)) : data.messages
       cache.set(group.id, { messages: cachedMessages, hasMore: data.hasMore, ...(data.cursor ? { cursor: data.cursor } : {}) })
       const initialLoad = firstLoad.current
-      setMessages((current) => replayed
+      setMessages((current) => pushed && !reset ? mergeMessages(current, data.messages) : replayed
         ? mergeMessages(current, replayUpdatesInRange(current, data.messages))
         : initialLoad || reset ? data.messages : mergeMessages(current, data.messages))
-      const signature = JSON.stringify([cachedMessages, data.group.name, data.group.description])
+      const signature = JSON.stringify([data.group.name, data.group.description, data.group.state, data.group.memberCount])
       if (directorySignature.current !== signature) {
         directorySignature.current = signature
         void reload()
@@ -503,11 +504,12 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
 
   useEffect(() => {
     if (!loaded || updating || !sentPendingKey) return
+    if (chatSocketActive('group', group.id)) return
     const ids = sentPendingKey.split(',').filter((id) => !refreshedSends.current.has(id))
     if (!ids.length) return
     ids.forEach((id) => refreshedSends.current.add(id))
     void load()
-  }, [loaded, updating, sentPendingKey, load])
+  }, [loaded, updating, sentPendingKey, load, group.id])
 
   const beginOlderMessages = () => {
     const operation = { cursor: cache.get(group.id)?.cursor }
@@ -586,7 +588,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     const first = window.setTimeout(() => { void refresh() }, 0)
     const stopLive = watchConversation(`/api/groups/${group.id}/live`, () => refresh(true),
       (snapshot) => { void load(undefined, snapshot.page as { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[] }) },
-      (value) => setTyping((current) => value.typing ? [...current.filter((person) => person.id !== value.user.id), value.user] : current.filter((person) => person.id !== value.user.id)))
+      (value) => setTyping((current) => value.typing ? [...current.filter((person) => person.id !== value.user.id), value.user] : current.filter((person) => person.id !== value.user.id)), () => cache.get(group.id))
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       window.clearTimeout(first)
@@ -595,7 +597,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
       loadSequence.current += 1
       loadingRef.current = false
     }
-  }, [group.id, load])
+  }, [group.id, load, cache])
 
   useEffect(() => {
     const element = stream.current

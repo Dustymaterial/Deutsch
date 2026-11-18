@@ -121,8 +121,15 @@ const pixelAvatar = {
   },
 }
 
-export const avatarDataUri = (seed) =>
-  createAvatar(pixelAvatar, { seed, size: 72 }).toDataUri()
+const avatarCache = new Map()
+export const avatarDataUri = (seed) => {
+  const key = seed ?? defaultAvatarSeed
+  if (avatarCache.has(key)) return avatarCache.get(key)
+  const uri = createAvatar(pixelAvatar, { seed: key, size: 72 }).toDataUri()
+  avatarCache.set(key, uri)
+  if (avatarCache.size > 200) avatarCache.delete(avatarCache.keys().next().value)
+  return uri
+}
 
 export const defaultAvatarSeed = avatarOptions[0].seed
 

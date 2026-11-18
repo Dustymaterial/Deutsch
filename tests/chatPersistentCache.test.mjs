@@ -16,6 +16,16 @@ const cache = (account, kind = 'private', enabled = true) =>
 const page = (...messages) => ({ messages, hasMore: false })
 const flush = async (instance) => { await instance.queue }
 
+test('identical live pages do not queue another disk write', async () => {
+  const instance = cache('unchanged')
+  await instance.whenReady()
+  instance.set('chat', page('saved'))
+  await flush(instance)
+  const queued = instance.queue
+  instance.set('chat', page('saved'))
+  assert.equal(instance.queue, queued)
+})
+
 test('persistent chat cache isolates accounts and kinds and bounds saved pages', async () => {
   await clearChatCache()
   const first = cache('one')
