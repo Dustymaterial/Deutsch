@@ -7,6 +7,7 @@ export type OutboxMessage = {
   chatId: string
   recipientId?: string
   text: string
+  wordPractice?: boolean
   replyTo?: { id: string; isMine: boolean; text: string }
   createdAt: string
   status: 'sending' | 'sent' | 'failed'
@@ -29,7 +30,7 @@ export function useChatOutbox() {
     inFlight.current.add(item.id)
     setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'sending', error: undefined } : entry))
     try {
-      const body = { text: item.text, clientId: item.id, ...(item.replyTo ? { replyToId: item.replyTo.id } : {}) }
+      const body = { text: item.text, clientId: item.id, ...(item.replyTo ? { replyToId: item.replyTo.id } : {}), ...(item.kind === 'group' && item.wordPractice ? { wordPractice: true } : {}) }
       const api = item.kind === 'private' ? await import('./companionsApi') : await import('./groupsApi')
       if (owner.current !== item.accountId) return
       let chatId = item.chatId
@@ -62,7 +63,7 @@ export function useChatOutbox() {
     }
   }, [])
 
-  const enqueue = useCallback((input: Pick<OutboxMessage, 'kind' | 'chatId' | 'text' | 'replyTo' | 'recipientId'>) => {
+  const enqueue = useCallback((input: Pick<OutboxMessage, 'kind' | 'chatId' | 'text' | 'replyTo' | 'recipientId' | 'wordPractice'>) => {
     const accountId = owner.current
     if (!accountId) throw new Error('Sign in before sending a message.')
     const bytes = crypto.getRandomValues(new Uint8Array(12))

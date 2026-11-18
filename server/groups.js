@@ -38,8 +38,10 @@ const messageSchema = z.object({
   text: z.string().trim().min(1).max(1000).optional(),
   card: sharedCardSchema.optional(),
   replyToId: objectIdSchema.optional(),
+  wordPractice: z.literal(true).optional(),
   clientId: objectIdSchema.optional(),
 }).refine((message) => Boolean(message.text) !== Boolean(message.card))
+  .refine((message) => !message.wordPractice || Boolean(message.text && message.text.length <= 500 && message.replyToId))
 const editSchema = z.object({ text: z.string().trim().min(1).max(1000) })
 const stateSchema = z.object({ state: z.enum(['open', 'closed']) })
 const visibilitySchema = z.object({ visibility: z.enum(['listed', 'unlisted']) })
@@ -195,6 +197,7 @@ export function createGroupsRouter({
       kind: message.card ? 'word' : 'text',
       text: message.text,
       ...(message.card ? { card: message.card } : {}),
+      ...(message.wordPractice ? { wordPractice: true } : {}),
       reactions: summarizeReactions(message.reactions, me),
       corrections,
       hasReviews: Boolean(message.corrections && Object.keys(message.corrections).length),
@@ -706,7 +709,9 @@ export function createGroupsRouter({
 
   router.post('/:id/messages', async (req, res) => {
     const result = messageSchema.safeParse(req.body)
-    if (!result.success) return res.status(400).json({ error: 'Write a message of up to 1,000 characters or share a valid word.' })
+    if (!result.success) return res.status(400).json({ error: req.body?.wordPractice
+      ? 'Choose a shared word and write a sentence of up to 500 characters.'
+      : 'Write a message of up to 1,000 characters or share a valid word.' })
     const text = result.data.card ? `Shared a word: ${result.data.card.prompt}` : result.data.text
     const content = result.data.card ? Object.values(result.data.card).join(' ') : text
     if (linkCount(content) > maxLinks) return res.status(400).json({ error: `Share at most ${maxLinks} links in one message.` })
@@ -746,6 +751,7 @@ export function createGroupsRouter({
     if (result.data.replyToId) {
       const target = await groupMessages.findOne({ _id: new ObjectId(result.data.replyToId), groupId })
       if (!target || target.unsentAt || target.hiddenAt) return res.status(404).json({ error: 'That message is no longer available.' })
+      if (result.data.wordPractice && !target.card && !(target.wordPractice && target.senderId === me)) return res.status(400).json({ error: 'Choose a shared word or revise your own sentence.' })
       replyTo = { id: target._id.toString(), senderId: target.senderId, text: previewText(target.text) }
     }
     const message = {
@@ -754,6 +760,7 @@ export function createGroupsRouter({
       text,
       ...(result.data.card ? { card: result.data.card } : {}),
       ...(replyTo ? { replyTo } : {}),
+      ...(result.data.wordPractice ? { wordPractice: true } : {}),
       mentionUserIds: result.data.text ? await mentionedMembers(groupId, text, me) : [],
       createdAt: now,
     }
@@ -900,6 +907,7 @@ export function createGroupsRouter({
     if (!group) return undefined
     const me = req.accountUser._id.toString()
     if (message.senderId !== me || message.unsentAt || message.hiddenAt || message.card) return notFound(res)
+    if (message.wordPractice && result.data.text.length > 500) return res.status(400).json({ error: 'Keep your practice sentence within 500 characters.' })
     if (!await requireGroupAccess(req, res)) return undefined
     if (Date.now() - message.createdAt.getTime() > editWindow) return res.status(403).json({ error: 'Messages can be edited for 10 minutes after sending.' })
     if (message.corrections && Object.keys(message.corrections).length) return res.status(409).json({ error: 'This message has been reviewed, so it can no longer be edited.' })

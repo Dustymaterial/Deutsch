@@ -272,7 +272,7 @@ function AboutContent({ onDone, introduction = false }: { onDone: () => void; in
       </section>
       <section>
         <h2>Learning with others</h2>
-        <p>Invite a companion to review words together, share vocabulary, and offer kind sentence feedback. Join optional groups to ask questions, try words in sentences, and learn from others’ suggestions. You choose what to save to your deck.</p>
+        <p>Invite a companion to review words together, share vocabulary, and offer kind sentence feedback. In groups, use shared words in your own sentences, get optional feedback, and revise your attempts. You choose what to save to your deck.</p>
         <p>Private chats stay between companions. Group posts are visible to members. Messages are never sent to AI or translation services.</p>
       </section>
       <section>
