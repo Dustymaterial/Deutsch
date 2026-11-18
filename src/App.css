@@ -8,6 +8,7 @@
   /* App panels sit above mobile chat (20), below portalled dropdowns (30). */
   --app-panel-layer: 26;
   --app-panel-front-layer: 27;
+  --app-panel-overlay-layer: 28;
 }
 
 :where(button, a, summary, select, input):focus-visible {
@@ -1635,6 +1636,9 @@
 }
 
 .add-dialog.anchored-panel[data-front="true"] { z-index: var(--app-panel-front-layer); }
+.add-dialog.about-panel,
+.add-dialog.app-settings-panel,
+.add-dialog.activity-panel { z-index: var(--app-panel-overlay-layer); }
 .add-dialog.activity-panel { width: min(550px, calc(100vw - 32px)); }
 .activity-panel .dialog-heading { align-items: center; margin-bottom: 12px; }
 .activity-panel .dialog-heading h2 { margin: 0; }
