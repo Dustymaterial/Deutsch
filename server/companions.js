@@ -547,7 +547,7 @@ export function createCompanionRouter({
     if (session.revealRequested) {
       if (!isHelper || decision !== 'reveal') return changed(res)
       const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', cardIndex: session.cardIndex, revealRequested: true }, {
-        $set: { 'round.feedback': 'reveal', revealRequested: false, updatedAt: now }, $inc: { 'stats.revealed': 1 },
+        $set: { round: { ...session.round, feedback: 'reveal' }, revealRequested: false, updatedAt: now }, $inc: { 'stats.revealed': 1 },
       })
       if (!updated.modifiedCount) return changed(res)
       return res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback: 'reveal' }, revealRequested: false, updatedAt: now }, me) })

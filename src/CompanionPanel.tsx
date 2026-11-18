@@ -1823,9 +1823,9 @@ export function CompanionPanel({
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
-              {practice?.status === 'active' && ((practice.role === 'helper' && ((!practice.answer && !practice.feedback && chatTyping?.id === selectedChat.id && chatTyping.typing) || (practice.answer && !practice.feedback))) || (practice.role === 'learner' && !practice.answer && !practice.feedback)) && <div className="companion-practice-presence" role="status">
+              {practice?.status === 'active' && ((practice.role === 'helper' && (practice.revealRequested || ((!practice.feedback && chatTyping?.id === selectedChat.id && chatTyping.typing) || (practice.answer && !practice.feedback)))) || (practice.role === 'learner' && !practice.answer && !practice.feedback && !practice.revealRequested)) && <div className="companion-practice-presence" role="status">
                 <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
-                <span>{selectedChat.companion.username} is {practice.role === 'helper' && !practice.answer && chatTyping?.id === selectedChat.id && chatTyping.typing ? 'typing' : 'waiting'}</span>
+                <span>{selectedChat.companion.username} is {practice.role === 'helper' && !practice.revealRequested && !practice.answer && chatTyping?.id === selectedChat.id && chatTyping.typing ? 'typing' : 'waiting'}</span>
               </div>}
               {!practice && <div className="companion-chat-header-actions">
                 <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>

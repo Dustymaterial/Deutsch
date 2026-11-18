@@ -655,6 +655,18 @@ try {
   const fullAnswer = `${practicePath}/${fullPractice.body.practice.id}/answer`
   assert.equal((await request(fullDecision, { decision: 'accept' }, other.cookie)).status, 200)
   for (let index = 0; index < 5; index++) {
+    if (index === 3) {
+      assert.equal((await request(fullDecision, { decision: 'request-reveal' }, learner.cookie)).body.practice.revealRequested, true)
+      assert.equal((await request(fullAnswer, { answer: 'an answer' }, learner.cookie)).status, 409)
+      const beforeAnswerReveal = await request(fullDecision, { decision: 'reveal' }, other.cookie)
+      assert.equal(beforeAnswerReveal.status, 200)
+      const learnerView = (await request(practicePath, null, learner.cookie)).body.practice
+      assert.equal(learnerView.feedback, 'reveal')
+      assert.ok(learnerView.card.meaning)
+      assert.equal(learnerView.answer, undefined)
+      assert.equal((await request(fullDecision, { decision: 'next' }, learner.cookie)).status, 200)
+      continue
+    }
     assert.equal((await request(fullAnswer, { answer: 'an answer' }, learner.cookie)).status, 200)
     if (index === 2) {
       assert.equal((await request(fullDecision, { decision: 'try-again' }, other.cookie)).status, 200)
@@ -671,7 +683,7 @@ try {
     assert.equal((await request(fullDecision, { decision: 'next' }, learner.cookie)).status, 200)
   }
   const fullSummary = records.companionMessages.find((item) => item._id.toString() === fullPractice.body.practice.id)
-  assert.match(fullSummary.text, /5\/5 reviewed · 3 recalled · 1 after retry · 1 revealed/)
+  assert.match(fullSummary.text, /5\/5 reviewed · 2 recalled · 1 after retry · 2 revealed/)
   assert.equal(JSON.stringify(records.progress), progressBeforePractice)
   assert.equal((await request(practicePath, null, learner.cookie)).body.practice, null)
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/delete`, {}, learner.cookie)).status, 200)
