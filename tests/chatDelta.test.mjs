@@ -2,6 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { messageDelta } from '../server/chatDelta.js'
 
+test('a reset sends the complete authoritative page even when fingerprints match', () => {
+  const state = { messages: new Map() }
+  const page = { hasMore: false, messages: [{ id: 'one', text: 'Saved' }] }
+  messageDelta(state, page)
+  assert.deepEqual(messageDelta(state, { ...page, reset: true }).messages, page.messages)
+  assert.deepEqual(messageDelta(state, { ...page, messages: [], reset: true }).messages, [])
+})
+
 test('live history sends only new or changed messages and suppresses identical updates', () => {
   const state = { messages: new Map() }
   const messages = Array.from({ length: 50 }, (_, i) => ({ id: String(i), text: 'Example message '.repeat(15) }))

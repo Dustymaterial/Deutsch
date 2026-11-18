@@ -9,6 +9,8 @@ const maxMessages = 50
 type Kind = 'private' | 'group'
 type PageRecord = { accountId: string; kind: Kind; id: string; savedAt: number; page: unknown }
 type Metadata = { accountId: string; generation: number }
+const warmPages = new Map<string, Map<string, PageRecord>>()
+const memoryGenerations = new Map<string, number>()
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -80,6 +82,12 @@ export function setChatCacheEnabled(enabled: boolean) {
 }
 
 export async function clearChatCache(accountId?: string) {
+  for (const id of memoryGenerations.keys()) {
+    if (!accountId || id === accountId) memoryGenerations.set(id, memoryGenerations.get(id)! + 1)
+  }
+  for (const [key, pages] of warmPages) {
+    if (!accountId || JSON.parse(key)[0] === accountId) { pages.clear(); warmPages.delete(key) }
+  }
   await transaction<void>('readwrite', ({ pages, accounts }, finish) => {
     const cursor = accounts.openCursor()
     cursor.onsuccess = () => {
@@ -118,6 +126,8 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
   private ready: Promise<void>
   private hydrating = false
   private epoch = 0
+  private readonly memoryKey: string
+  private memoryGeneration: number
 
   constructor(
     accountId: string,
@@ -132,6 +142,14 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
     this.isMessage = isMessage
     this.onError = onError
     this.active = enabled
+    this.memoryKey = JSON.stringify([accountId, kind])
+    this.memoryGeneration = memoryGenerations.get(accountId) ?? 0
+    memoryGenerations.set(accountId, this.memoryGeneration)
+    for (const record of warmPages.get(this.memoryKey)?.values() ?? []) {
+      const page = record.page as CachedChatPage<unknown>
+      if (Date.now() - record.savedAt < maxAge && record.savedAt <= Date.now()
+        && page.messages.every(isMessage)) super.set(record.id, page as CachedChatPage<T>, record.savedAt)
+    }
     this.ready = enabled ? this.initialize() : Promise.resolve()
   }
 
@@ -162,7 +180,7 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
       if (!this.active || epoch !== this.epoch) return
       this.generation = data.generation
       for (const record of data.pages.sort((a, b) => a.savedAt - b.savedAt)) {
-        if (this.changed.has(record.id) || (this.allowed && !this.allowed.has(record.id))) continue
+        if (this.changed.has(record.id) || super.get(record.id) || (this.allowed && !this.allowed.has(record.id))) continue
         const page = record.page
         if (!page || typeof page !== 'object' || !('messages' in page) || !Array.isArray(page.messages)
           || !page.messages.every(this.isMessage) || !('hasMore' in page) || typeof page.hasMore !== 'boolean'
@@ -171,6 +189,7 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
           || Date.now() - record.savedAt >= maxAge || record.savedAt > Date.now()) continue
         const cursor = 'cursor' in page && typeof page.cursor === 'string' ? page.cursor : undefined
         super.set(record.id, { messages: page.messages, hasMore: page.hasMore, ...(cursor ? { cursor } : {}) }, record.savedAt)
+        this.remember(record.id, { messages: page.messages, hasMore: page.hasMore, ...(cursor ? { cursor } : {}) }, record.savedAt)
       }
     } catch (error) {
       if (epoch === this.epoch) {
@@ -187,6 +206,19 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
 
   whenReady() { return this.ready }
 
+  override get(id: string, now = Date.now()) {
+    return this.memoryGeneration === memoryGenerations.get(this.accountId) ? super.get(id, now) : null
+  }
+
+  private remember(id: string, page: CachedChatPage<T>, savedAt: number) {
+    if (!this.active || this.memoryGeneration !== memoryGenerations.get(this.accountId)) return
+    let pages = warmPages.get(this.memoryKey)
+    if (!pages) { pages = new Map(); warmPages.set(this.memoryKey, pages) }
+    pages.delete(id)
+    pages.set(id, { accountId: this.accountId, kind: this.kind, id, savedAt, page })
+    while (pages.size > maxPages) pages.delete(pages.keys().next().value!)
+  }
+
   stop() {
     this.active = false
     this.epoch += 1
@@ -195,6 +227,11 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
   }
 
   start() {
+    if (this.memoryGeneration !== memoryGenerations.get(this.accountId)) {
+      super.retain(new Set())
+      this.memoryGeneration = memoryGenerations.get(this.accountId) ?? 0
+      this.active = false
+    }
     if (!this.active) {
       this.active = true
       this.ready = this.initialize()
@@ -237,6 +274,7 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
     if (JSON.stringify(super.get(id, now)) === JSON.stringify(bounded)) return
     if (this.hydrating) this.changed.add(id)
     super.set(id, page, now)
+    this.remember(id, bounded, now)
     this.schedule((pages) => {
       pages.put({ accountId: this.accountId, kind: this.kind, id, savedAt: now, page: bounded })
       const request = pages.index('accountKind').getAll(IDBKeyRange.only([this.accountId, this.kind]))
@@ -250,12 +288,15 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
   override delete(id: string) {
     if (this.hydrating) this.changed.add(id)
     super.delete(id)
+    warmPages.get(this.memoryKey)?.delete(id)
     this.schedule((pages) => { pages.delete([this.accountId, this.kind, id]) })
   }
 
   override retain(ids: Set<string>) {
     this.allowed = new Set(ids)
     super.retain(ids)
+    const warm = warmPages.get(this.memoryKey)
+    for (const id of warm?.keys() ?? []) if (!ids.has(id)) warm?.delete(id)
     this.schedule((pages) => {
       const cursor = pages.index('accountKind').openCursor(IDBKeyRange.only([this.accountId, this.kind]))
       cursor.onsuccess = () => {

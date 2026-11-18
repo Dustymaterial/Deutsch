@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 // Per-connection fingerprints bound network updates without retaining message text.
 export function messageDelta(state, page) {
+  if (page.reset) { state.messages.clear(); state.metadata = undefined }
   const changed = []
   for (const message of page.messages) {
     const signature = createHash('sha256').update(JSON.stringify(message)).digest('hex')
@@ -13,5 +14,5 @@ export function messageDelta(state, page) {
   const metadata = JSON.stringify([page.hasMore, page.group])
   const dirty = metadata !== state.metadata
   state.metadata = metadata
-  return changed.length || dirty ? { ...page, messages: changed } : null
+  return page.reset || changed.length || dirty ? { ...page, messages: changed } : null
 }
