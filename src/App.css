@@ -5,6 +5,10 @@
   --line: rgba(47, 51, 46, 0.1);
   --accent: #52715c;
   --selection-cream: #f7e7bd;
+  /* App panels sit above mobile chat (20), below portalled dropdowns (30). */
+  --app-panel-layer: 26;
+  --app-panel-front-layer: 27;
+  --app-panel-overlay-layer: 28;
 }
 
 :where(button, a, summary, select, input):focus-visible {
@@ -1617,6 +1621,7 @@
 }
 
 .add-dialog.anchored-panel {
+  z-index: var(--app-panel-layer);
   position: fixed;
   top: 65px;
   right: max(16px, calc((100vw - 980px) / 2));
@@ -1630,12 +1635,11 @@
   animation: scrim-in 150ms ease both;
 }
 
-.add-dialog.about-panel {
-  z-index: 9;
-}
-
-.add-dialog.app-settings-panel { z-index: 9; }
-.add-dialog.activity-panel { z-index: 9; width: min(550px, calc(100vw - 32px)); }
+.add-dialog.anchored-panel[data-front="true"] { z-index: var(--app-panel-front-layer); }
+.add-dialog.about-panel,
+.add-dialog.app-settings-panel,
+.add-dialog.activity-panel { z-index: var(--app-panel-overlay-layer); }
+.add-dialog.activity-panel { width: min(550px, calc(100vw - 32px)); }
 .activity-panel .dialog-heading { align-items: center; margin-bottom: 12px; }
 .activity-panel .dialog-heading h2 { margin: 0; }
 .activity-panel .dialog-heading .quiet-button { margin: 0; padding: 5px; }
