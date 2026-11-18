@@ -53,7 +53,7 @@ type ChatMessage = {
   id: string
   senderId: string
   isMine: boolean
-  kind: 'text' | 'word' | 'unsent'
+  kind: 'text' | 'word' | 'practice' | 'unsent'
   text: string
   card?: SharedWordPreview['card']
   replyTo?: ReplyPreview
@@ -1907,6 +1907,8 @@ export function CompanionPanel({
                     </div>
                     {chatMessage.kind === 'unsent'
                       ? <p className="companion-message-unsent">Message unsent</p>
+                      : chatMessage.kind === 'practice'
+                      ? <div className="companion-review-summary"><span className="companion-review-summary-tag"><BookOpen size={14} aria-hidden="true" />Review</span><p>{chatMessage.text}</p></div>
                       : chatMessage.kind === 'word' && chatMessage.card
                       ? <div className="companion-word-card">
                         <span className="companion-word-card-label">Shared a word <em>{chatMessage.card.category}</em></span>

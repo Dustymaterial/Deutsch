@@ -1817,6 +1817,27 @@
   background: #eef6ea;
   color: #2f3a32;
 }
+.companion-review-summary {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #fff5d7;
+  color: #493b25;
+}
+.companion-review-summary-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ffe36c;
+  color: #443310;
+  font: 650 0.64rem system-ui, sans-serif;
+}
+.companion-review-summary p { margin: 0; white-space: pre-line; overflow-wrap: anywhere; font: 450 0.78rem/1.55 system-ui, sans-serif; }
 .companion-word-card-label {
   display: flex;
   align-items: center;
