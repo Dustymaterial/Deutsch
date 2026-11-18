@@ -2569,7 +2569,6 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             <span>deutsch deck</span>
           </a>
           <div className="header-actions">
-            {reviewReminder}
             <button ref={addCardButton} type="button" className="add-card-button" aria-haspopup="dialog" aria-expanded={addCardOpen} onClick={() => { setFrontPanel('add'); setAddCardOpen(true) }}>
               <span aria-hidden="true">+</span> Add a word
             </button>
@@ -2633,6 +2632,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             {introduction.warning && <p role="status">{introduction.warning}</p>}
           </div>
         ) : <div ref={studyAreaRef} className="empty-state">
+          {reviewReminder}
           <span className="complete-mark" aria-hidden="true"><Check size={20} strokeWidth={1.8} /></span>
           <h1>That’s a good moment to pause.</h1>
           <p className="session-note">
@@ -2719,7 +2719,6 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           <span>deutsch deck</span>
         </a>
         <div className="header-actions">
-          {reviewReminder}
           <button ref={addCardButton} type="button" className="add-card-button" aria-haspopup="dialog" aria-expanded={addCardOpen} onClick={() => { setFrontPanel('add'); setAddCardOpen(true) }}>
             <span aria-hidden="true">+</span> Add a word
           </button>
@@ -2788,6 +2787,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           {introduction.warning && <p role="status">{introduction.warning}</p>}
         </div>
       ) : <>
+      {reviewReminder}
       <div ref={studyAreaRef} className="study-mode-toggle" role="group" aria-label="Study mode">
         <button type="button" className={learnOpen ? 'selected' : ''} aria-pressed={learnOpen} onClick={() => switchStudyActivity({ learn: true, mode: studyMode })}>Learn</button>
         <button
