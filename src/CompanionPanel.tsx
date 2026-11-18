@@ -209,6 +209,11 @@ function CompanionPracticeSession({
                 <div className="answer-meaning"><span className="label">Meaning</span><strong>{card.meaning}</strong></div>
                 {card.article && <div className="fact-row"><span className="label">Article</span><strong lang="de">{card.article}</strong></div>}
                 {card.plural && <div className="fact-row"><span className="label">Plural</span><strong lang="de">{card.plural}</strong></div>}
+                {card.example && <div className="fact-row example-row companion-practice-example">
+                  <span className="label">In a sentence</span>
+                  <strong lang="de">{card.example}</strong>
+                  {card.translation && <span className="translation" lang="en">{card.translation}</span>}
+                </div>}
                 <p className="companion-practice-feedback" role="status">{practice.feedback === 'correct' ? 'Correct — nice recall. This does not change your schedule.' : 'Answer revealed. Take a moment to connect the word and meaning.'}</p>
               </div>
               : card
