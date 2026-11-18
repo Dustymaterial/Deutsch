@@ -1782,7 +1782,6 @@
   background: #fcf8f4;
   box-shadow: 0 10px 28px rgba(57, 48, 42, 0.16);
 }
-.companion-practice-fab-panel > strong { color: #39343e; font: 650 0.82rem system-ui, sans-serif; }
 .companion-practice-fab-panel > p { margin: 0; color: #706974; font-size: 0.72rem; line-height: 1.45; }
 .companion-practice-fab-panel .menu-select-trigger { width: 100%; background: #fffefa; }
 .companion-practice-fab-panel .companion-card-actions { margin-top: 0; }

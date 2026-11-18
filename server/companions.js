@@ -416,7 +416,7 @@ export function createCompanionRouter({
     if (eligible.length < 5) {
       return res.status(409).json({ error: result.data.tag
         ? `Review at least five active words in ${result.data.tag} before practising that topic together.`
-        : 'Review at least five active words before starting surprise practice.' })
+        : 'Review at least five active words before reviewing together.' })
     }
     const cards = [...eligible]
     for (let index = cards.length - 1; index > 0; index--) {
@@ -453,7 +453,7 @@ export function createCompanionRouter({
     await companionMessages.insertOne({
       conversationId: found.active.conversation._id.toString(),
       senderId: me,
-      text: `Asked for help with a surprise practice of ${session.total} reviewed words.`,
+      text: `Asked to review ${session.total} words together.`,
       createdAt: now,
     })
     await conversations.updateOne({ _id: found.active.conversation._id }, { $set: { updatedAt: now } })
