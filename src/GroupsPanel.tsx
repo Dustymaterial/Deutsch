@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { AtSign, BookOpen, Check, ChevronDown, Ellipsis, Languages, Plus, Reply, Search, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
+import { AtSign, BookOpen, Check, ChevronDown, Ellipsis, Languages, Plus, Reply, Search, ShieldAlert, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useConfirm } from './confirmContext'
 import { useFormValidation } from './formValidation'
@@ -1180,6 +1180,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
               {message.isMine && (message.kind === 'text' || message.kind === 'word') && <MessageReceipt status={message.receipt ?? 'sent'} />}
               {message.editedAt && <span className="companion-edited">edited</span>}
             </div>
+            {(message.hasLinks || ((message.kind === 'text' || message.kind === 'word') && /https?:\/\/|www\./i.test([message.text, ...Object.values(message.card ?? {})].join(' ')))) && <p className="group-safety-notice"><ShieldAlert size={14} aria-hidden="true" />External link. Check the destination before opening.</p>}
             {message.kind === 'word' && message.card
               ? <div className="companion-word-card">
                 <span className="companion-word-card-label">Shared a word <em>{message.card.category}</em></span>
@@ -1204,7 +1205,9 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
               </form>
               : message.kind === 'text'
               ? <>{message.wordPractice && <span className="group-practice-tag">Sentence practice</span>}<MessageWords id={message.id} text={message.text} tools={wordTools} /></>
-              : <p className="companion-message-unsent">{message.text}</p>}
+              : <p className={message.kind === 'hidden' ? 'group-safety-notice' : 'companion-message-unsent'}>{message.kind === 'hidden' && <ShieldAlert size={14} aria-hidden="true" />}{message.text}</p>}
+            {message.heldReview && <p className="group-safety-notice"><ShieldAlert size={14} aria-hidden="true" />A suggestion is hidden pending language review.</p>}
+            {message.kind === 'hidden' && message.isMine && <div className="companion-message-tools"><button className="companion-review-pill" type="button" disabled={busy} onClick={() => void unsend(message)}>Unsend</button></div>}
             {message.kind === 'text' && message.wordPractice && message.isMine && <div className="group-sentence-actions">
               <button className="companion-review-pill" type="button" onClick={() => startWordPractice(message, true)}>Revise</button>
               {savingSentence?.messageId === message.id
@@ -1235,6 +1238,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
               </div>
             </form>}
             {message.kind === 'text' && message.corrections?.map((review) => <div className="companion-correction" key={review.authorId}>
+              {(review.hasLinks || /https?:\/\/|www\./i.test([review.text, review.note].filter(Boolean).join(' '))) && <p className="group-safety-notice">External link. Check the destination before opening.</p>}
               <span className="companion-correction-label">{review.approved ? <><Check size={12} aria-hidden="true" /> Looks good</> : 'Suggested rewrite'} · {review.byMe ? 'by you' : `by ${review.author?.username ?? 'Former member'}`}</span>
               {review.text && <CorrectionDiff original={message.text} corrected={review.text} />}
               {!!review.tags?.length && <div className="companion-correction-tags static">{review.tags.map((tag) => <span key={tag}>{correctionTagLabels[tag] ?? tag}</span>)}</div>}

@@ -533,7 +533,7 @@ if (relationships) {
   app.use('/api/companions', realtime.middleware('private'), companionRouter)
   app.use('/api/groups', realtime.middleware('group'), groupRouter)
   app.use('/api/moderation', createModerationRouter({
-    users, groupMessages, groupReports, companionReports, requireUser, isModerator,
+    users, groupMessages, groupReports, companionReports, requireUser, isModerator, publish: realtime.publish,
   }))
 }
 

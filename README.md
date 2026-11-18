@@ -37,6 +37,8 @@ Use groups to ask vocabulary questions, try words in your own sentences, and dis
 
 Groups are separate from private chat. Joining is explicit and posts are visible to members. Owners can manage membership and messages; members can report messages and suggestions. There are posting limits, shared rules and moderation. Group reviews do not expose anyone's private deck, scores or study history.
 
+External links stay visible with a warning. A small English/German abuse list holds matching new messages, edits, word cards and suggestions for human review. Members see a neutral placeholder; moderators can restore a false positive. This limited check can miss abuse and misread quoted vocabulary, so reporting remains available. It does not filter private companion chats.
+
 Choose **Use this word** on a shared group word card to write a German sentence. Members can offer optional sentence feedback. **Revise** posts a follow-up linked to your attempt; **Save sentence** asks for an English meaning before adding it to your own deck. Saving does not schedule a review, and group feedback does not score or grade your vocabulary.
 
 Chat updates arrive live when connected. Recently opened conversations can be saved on this device for faster reopening; the app checks them with the server when opened. Use companion tools to turn off **Save recent chats on this device** on a shared device. Signing out clears that account's saved chat copies.

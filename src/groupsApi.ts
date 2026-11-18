@@ -43,6 +43,8 @@ export type GroupMessage = {
   text: string
   card?: SharedWordPreview['card']
   wordPractice?: boolean
+  hasLinks?: boolean
+  heldReview?: boolean
   reactions: { emoji: string; count: number; mine: boolean }[]
   editedAt?: string
   editableUntil?: string
@@ -54,6 +56,7 @@ export type GroupMessage = {
   receipt?: MessageReceiptStatus
 }
 export type GroupReview = {
+  hasLinks?: boolean
   authorId: string
   author: Profile | null
   byMe: boolean
