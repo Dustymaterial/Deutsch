@@ -42,6 +42,7 @@ export type GroupMessage = {
   kind: 'text' | 'word' | 'unsent' | 'hidden' | 'system'
   text: string
   card?: SharedWordPreview['card']
+  wordPractice?: boolean
   reactions: { emoji: string; count: number; mine: boolean }[]
   editedAt?: string
   editableUntil?: string

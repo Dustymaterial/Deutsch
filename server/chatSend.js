@@ -5,6 +5,7 @@ export function sendIdentity(data, chatId, userId) {
   if (!data.clientId) return null
   const hash = createHash('sha256').update(JSON.stringify([
     chatId, userId, data.text ?? null, data.card ?? null, data.replyToId ?? null,
+    ...(data.wordPractice ? ['word-practice'] : []),
   ])).digest('hex')
   return { id: new ObjectId(data.clientId), hash }
 }

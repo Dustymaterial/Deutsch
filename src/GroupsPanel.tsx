@@ -293,6 +293,9 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [draft, setDraft] = useState('')
   const [replyTo, setReplyTo] = useState<GroupMessage | null>(null)
+  const [practiceTargetId, setPracticeTargetId] = useState<string | null>(null)
+  const usingWord = Boolean(replyTo && practiceTargetId === replyTo.id)
+  const [savingSentence, setSavingSentence] = useState<{ messageId: string; meaning: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
@@ -353,7 +356,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     reconcileOutbox('group', group.id, messages.map((message) => message.id))
   }, [group.id, messages, reconcileOutbox])
   const overlay = [
-    reporting && 'report', savingCorrection && 'save', correcting && 'correct', editing && 'edit',
+    reporting && 'report', savingCorrection && 'save', savingSentence && 'save-sentence', correcting && 'correct', editing && 'edit',
     reactionPickerFor && 'reaction', messageMenu && 'message-menu', chatDetailsMenuOpen && 'details-menu', popover && 'details', wordTools.activeWord && 'word',
     wordTools.wordChipsFor && 'words', mentionsOpen && 'mentions', membersOpen && 'members',
     searchOpen && 'search', replyTo && 'reply',
@@ -361,6 +364,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
   useChatOverlayHistory(group.id, overlay, (top) => {
     if (top === 'report') setReporting(null)
     else if (top === 'save') setSavingCorrection(null)
+    else if (top === 'save-sentence') setSavingSentence(null)
     else if (top === 'correct') setCorrecting(null)
     else if (top === 'edit') setEditing(null)
     else if (top === 'reaction') setReactionPickerFor(null)
@@ -648,14 +652,16 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     event.preventDefault()
     const text = draft.trim()
     if (!text) return
+    if (usingWord && text.length > 500) { setError('Keep your practice sentence within 500 characters.'); return }
     try {
-      outbox.enqueue({ kind: 'group', chatId: group.id, text, ...(replyTo ? {
+      outbox.enqueue({ kind: 'group', chatId: group.id, text, ...(usingWord ? { wordPractice: true } : {}), ...(replyTo ? {
         replyTo: { id: replyTo.id, isMine: replyTo.isMine, text: replyTo.text },
       } : {}) })
       stickToBottom.current = true
       setDraft('')
       publishTyping(group.id, false)
       setReplyTo(null)
+      setPracticeTargetId(null)
       setError(null)
       requestAnimationFrame(() => { if (stream.current) stream.current.scrollTop = stream.current.scrollHeight })
     } catch (failure) {
@@ -671,6 +677,30 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
       if (!Array.isArray(data.reactions)) throw new Error('The group service returned an incomplete response.')
       setMessages((current) => current.map((item) => item.id === message.id ? { ...item, reactions: data.reactions } : item))
     })
+  }
+
+  const startWordPractice = (message: GroupMessage, revise = false) => {
+    if (revise && draft.trim()) {
+      setError('Send or clear your draft before revising.')
+      composer.current?.focus()
+      return
+    }
+    setReplyTo(message)
+    setPracticeTargetId(message.id)
+    if (revise) setDraft(message.text)
+    composer.current?.focus()
+  }
+
+  const saveSentence = (message: GroupMessage, meaning: string) => {
+    if (!message.sender || !meaning.trim()) return
+    const result = onReceiveWord({
+      id: `sentence-${message.id}`,
+      card: { prompt: message.text, meaning: meaning.trim(), example: message.text, translation: meaning.trim(), category: 'phrase' },
+      note: '', sender: message.sender, createdAt: message.createdAt,
+    })
+    if (!result) return
+    if (result === 'already-present') onNotify('That sentence is already in your deck.')
+    setSavingSentence(null)
   }
 
   const submitEdit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -1144,11 +1174,12 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
                 <p className="companion-word-card-meaning">{message.card.meaning}</p>
                 <p className="companion-word-card-example" lang="de">{message.card.example}</p>
                 {message.card.translation && <p className="companion-word-card-translation">{message.card.translation}</p>}
-                {!message.isMine && (cardInDeck(message.card, message.id) ? <span className="companion-word-card-status">In your deck</span> : <button className="companion-word-card-add" type="button" onClick={() => addWord(message)}>Add to deck</button>)}
+                <div className="group-word-actions"><button className="group-use-word" type="button" onClick={() => startWordPractice(message)}>Use this word</button>
+                {!message.isMine && (cardInDeck(message.card, message.id) ? <span className="companion-word-card-status">In your deck</span> : <button className="companion-word-card-add" type="button" onClick={() => addWord(message)}>Add to deck</button>)}</div>
               </div>
               : message.kind === 'text' && editing?.messageId === message.id
               ? <form className="companion-edit-form" onSubmit={submitEdit}>
-                <textarea rows={2} maxLength={1000} value={editing.text} autoFocus aria-label="Edit your message" onChange={(event) => setEditing({ ...editing, text: event.target.value })} onKeyDown={(event) => {
+                <textarea rows={2} maxLength={message.wordPractice ? 500 : 1000} value={editing.text} autoFocus aria-label="Edit your message" onChange={(event) => setEditing({ ...editing, text: event.target.value })} onKeyDown={(event) => {
                   if (event.key === 'Escape') { event.stopPropagation(); setEditing(null) }
                   else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) event.currentTarget.form?.requestSubmit()
                 }} />
@@ -1158,8 +1189,18 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
                 </div>
               </form>
               : message.kind === 'text'
-              ? <MessageWords id={message.id} text={message.text} tools={wordTools} />
+              ? <>{message.wordPractice && <span className="group-practice-tag">Sentence practice</span>}<MessageWords id={message.id} text={message.text} tools={wordTools} /></>
               : <p className="companion-message-unsent">{message.text}</p>}
+            {message.kind === 'text' && message.wordPractice && message.isMine && <div className="group-sentence-actions">
+              <button className="companion-review-pill" type="button" onClick={() => startWordPractice(message, true)}>Revise</button>
+              {savingSentence?.messageId === message.id
+                ? <form className="companion-correction-save" onSubmit={(event) => { event.preventDefault(); saveSentence(message, savingSentence.meaning) }}>
+                  <label>English meaning<input value={savingSentence.meaning} maxLength={200} required onChange={(event) => setSavingSentence({ ...savingSentence, meaning: event.target.value })} autoFocus /></label>
+                  <button type="submit" disabled={!savingSentence.meaning.trim()}>Save</button>
+                  <button type="button" onClick={() => setSavingSentence(null)}>Cancel</button>
+                </form>
+                : <button className="companion-review-pill" type="button" onClick={() => setSavingSentence({ messageId: message.id, meaning: '' })}>Save sentence</button>}
+            </div>}
             {message.kind === 'text' && correcting?.messageId === message.id && <form className="companion-correction-form" onSubmit={(event) => {
               event.preventDefault()
               if (!correcting.text.trim()) return
@@ -1206,7 +1247,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
               {reactionPickerFor === message.id
                 ? <span className="companion-reaction-picker" role="group" aria-label="Choose a reaction">{reactionOptions.map((emoji) => <button key={emoji} type="button" aria-label={`React with ${emoji}`} onClick={() => toggleReaction(message, emoji)}>{emoji}</button>)}</span>
                 : <button className="companion-tool-button" type="button" aria-label="Add reaction" onClick={() => setReactionPickerFor(message.id)}><SmilePlus size={15} aria-hidden="true" /></button>}
-              <button className="companion-tool-button" type="button" aria-label={`Reply to ${message.isMine ? 'your message' : message.sender?.username ?? 'this message'}`} onClick={() => { setReplyTo(message); composer.current?.focus() }}><Reply size={15} aria-hidden="true" /></button>
+              <button className="companion-tool-button" type="button" aria-label={`Reply to ${message.isMine ? 'your message' : message.sender?.username ?? 'this message'}`} onClick={() => { setReplyTo(message); setPracticeTargetId(null); composer.current?.focus() }}><Reply size={15} aria-hidden="true" /></button>
               {message.kind === 'text' && <button className="companion-tool-button" type="button" aria-label="Look up words in this message" aria-pressed={wordTools.wordChipsFor === message.id} title="Look up words" onClick={() => wordTools.toggleChips(message.id)}><Languages size={15} aria-hidden="true" /></button>}
               {!message.isMine && message.kind === 'text' && !message.reviewedByMe && correcting?.messageId !== message.id && <>
                 <button className="companion-review-pill" type="button" disabled={busy} onClick={() => setCorrecting({ messageId: message.id, text: message.text, note: '', tags: [] })}><SpellCheck size={13} aria-hidden="true" /><span>Suggest edit</span></button>
@@ -1232,15 +1273,15 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
       {typing.length > 0 && <p className="companion-chat-status typing" role="status">{typing.slice(0, 3).map((person) => person.username).join(', ')}{typing.length > 3 ? ` and ${typing.length - 3} more` : ''} {typing.length === 1 ? 'is' : 'are'} typing…</p>}
     </div>}
     <form className="companion-chat-composer" onSubmit={send}>
-      <label className="companion-visually-hidden" htmlFor="group-message">Message {group.name}</label>
+      <label className="companion-visually-hidden" htmlFor="group-message">{usingWord ? 'Practice sentence in German' : `Message ${group.name}`}</label>
       {replyTo && <div className="companion-reply-bar" style={replyColor(replyTo.id)}>
-        <span>Replying to <strong>{replyTo.isMine ? 'yourself' : replyTo.sender?.username ?? 'a member'}</strong><em>{replyTo.text}</em></span>
+        <span>{usingWord ? (replyTo.card ? 'Use this word' : 'Revise your sentence') : <>Replying to <strong>{replyTo.isMine ? 'yourself' : replyTo.sender?.username ?? 'a member'}</strong></>}<em>{replyTo.card?.prompt ?? replyTo.text}</em></span>
         <button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}><X size={14} aria-hidden="true" /></button>
       </div>}
       <div className="companion-composer-input">
-        <textarea ref={composer} id="group-message" rows={1} maxLength={1000} value={draft} onChange={(event) => { setDraft(event.target.value); publishTyping(group.id, Boolean(event.target.value.trim())) }} onBlur={() => publishTyping(group.id, false)} onKeyDown={(event) => {
+        <textarea ref={composer} id="group-message" rows={1} maxLength={usingWord ? 500 : 1000} value={draft} onChange={(event) => { setDraft(event.target.value); publishTyping(group.id, Boolean(event.target.value.trim())) }} onBlur={() => publishTyping(group.id, false)} onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) event.currentTarget.form?.requestSubmit()
-        }} placeholder="Write to the group…" />
+        }} placeholder={usingWord ? 'Write a sentence in German…' : 'Write to the group…'} />
         <button className="companion-send-button" type="submit" disabled={!draft.trim()}>Send</button>
       </div>
       {mentionQuery !== undefined && members && <div className="group-mention-suggestions" role="group" aria-label="Mention a group member">
@@ -1261,7 +1302,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
             </div>
           </div>
         </details>
-        <span>{draft.length}/1000</span>
+        <span>{draft.length}/{usingWord ? 500 : 1000}</span>
       </div>
     </form>
     {reporting && <ReportPopover key={`${reporting.messageId}-${reporting.authorId ?? 'message'}`} anchorRef={reportAnchor} title={reporting.authorId ? 'Report review' : 'Report message'} onClose={closeReport} onSubmit={(reason, details) => submitReport(reporting, reason, details)} />}
