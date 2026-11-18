@@ -128,6 +128,68 @@ test('typed production outcomes are recorded separately and scheduled conservati
   assert.equal(missed.dueAt, '2026-01-01T12:10:00.000Z')
 })
 
+for (const mode of ['choice', 'production']) {
+  test(`${mode} repeated correct answers grow small intervals without lowering ease`, () => {
+    let card = makeCard()
+    const intervals = []
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      const original = structuredClone(card)
+      const result = scheduleReview(card, 'hard', new Date(card.dueAt), [], mode, true)
+      assert.deepEqual(card, original)
+      intervals.push(result.intervalDays)
+      assert.equal(result.easeFactor, 2.5)
+      assert.equal(result.reviewHistory.at(-1).mode, mode)
+      assert.equal(result.reviewHistory.at(-1).rating, 'hard')
+      assert.equal(result.reviewHistory.at(-1).answerCorrect, true)
+      card = result
+    }
+    assert.deepEqual(intervals.slice(0, 6), [1, 2, 3, 4, 5, 6])
+    assert.ok(intervals.every((days, index) => index === 0 || days > intervals[index - 1]))
+    assert.equal(card.correctCount, 15)
+    assert.equal(card.incorrectCount, 0)
+    assert.equal(card.reviewHistory.length, 15)
+
+    for (const [previous, expected] of [[1, 2], [2, 3], [10, 12]]) {
+      const result = scheduleReview(makeCard({ intervalDays: previous, repetitions: 3 }), 'hard', now, [], mode, true)
+      assert.equal(result.intervalDays, expected)
+    }
+  })
+
+  test(`${mode} misses still lapse and recover without erasing history`, () => {
+    const success = scheduleReview(makeCard(), 'hard', now, [], mode, true)
+    const missed = scheduleReview(success, 'again', new Date(success.dueAt), [], mode, false)
+    assert.equal(Date.parse(missed.dueAt) - Date.parse(missed.lastReviewedAt), 600_000)
+    assert.equal(missed.easeFactor, 2.3)
+    assert.equal(missed.repetitions, 0)
+    assert.equal(missed.lapses, 1)
+    assert.equal(missed.incorrectCount, 1)
+    assert.equal(missed.reviewHistory.at(-1).answerCorrect, false)
+    const recovered = scheduleReview(missed, 'hard', new Date(missed.dueAt), [], mode, true)
+    assert.equal(recovered.intervalDays, 1)
+    assert.equal(recovered.easeFactor, missed.easeFactor)
+    assert.deepEqual(recovered.reviewHistory.slice(0, -1), missed.reviewHistory)
+    const next = scheduleReview(recovered, 'hard', new Date(recovered.dueAt), [], mode, true)
+    assert.equal(next.intervalDays, 2)
+  })
+}
+
+test('switching quiz modes preserves ease; self-rated Recall retains its own rules', () => {
+  const legacy = makeCard({ intervalDays: 2, repetitions: 5, easeFactor: 1.3 })
+  const chosen = scheduleReview(legacy, 'hard', now, [], 'choice', true)
+  const produced = scheduleReview(chosen, 'hard', new Date(chosen.dueAt), [], 'production', true)
+  assert.equal(chosen.intervalDays, 3)
+  assert.equal(produced.intervalDays, 4)
+  assert.equal(produced.easeFactor, 1.3) // Do not infer or restore lost legacy ease.
+  const good = scheduleReview(produced, 'good', new Date(produced.dueAt))
+  assert.equal(good.intervalDays, 5)
+  assert.equal(good.easeFactor, 1.35)
+  const hard = scheduleReview(makeCard({ intervalDays: 1, repetitions: 1 }), 'hard', now)
+  assert.equal(hard.intervalDays, 1)
+  assert.equal(hard.easeFactor, 2.4)
+  const missingResult = scheduleReview(legacy, 'hard', now, [], 'choice')
+  assert.equal(missingResult.intervalDays, 2)
+})
+
 test('weak-pattern suggestions require repeated, cross-card evidence', () => {
   const makeReview = (struggledWith = []) => ({
     at: now.toISOString(),

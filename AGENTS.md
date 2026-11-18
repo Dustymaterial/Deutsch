@@ -7,6 +7,7 @@ Deutsch Daily Deck is a mobile-friendly German vocabulary trainer with an option
 ## Learning philosophy
 
 - Treat active recall and spaced practice as the core learning loop. Typed production and multiple-choice recognition can supplement recall, but must not be presented as equivalent to mastery. Keep mode outcomes distinguishable; recognition and typed production currently schedule correct answers as Hard and misses as Again.
+- Correct scheduled Produce and Choose answers preserve ease. After the first successful review (one day), their Hard interval is max(previous interval + 1, round(previous interval × 1.2)), avoiding one/two-day rounding traps. This is a conservative heuristic, not evidence of mastery. Self-rated Recall Hard retains its original interval and ease rules; misses remain Again. Keep existing history and due dates intact until a new answer is submitted.
 - Teach a useful lexical unit, not an isolated translation. For nouns, preserve and practise article and plural; for every item, prefer accurate, natural example sentences and translations.
 - Increase challenge gradually and mix practice types where useful. Avoid overwhelming new-card volume, trick questions, ambiguous distractors, and penalties that discourage honest answers.
 - Start with Recall when locally saved reviews are due, otherwise Learn when unseen active words exist; retain the completion screen if neither exists. Never switch modes automatically during a visit as progress syncs or reviews become due.
@@ -36,6 +37,7 @@ Deutsch Daily Deck is a mobile-friendly German vocabulary trainer with an option
 - Keep Add a word, Tune session, and Goal & pace in anchored panels; outside clicks must not discard unfinished entries or goal edits. Tune session changes apply immediately.
 - App anchored panels use the shared panel layers above the mobile chat workspace, with the active panel in front and portalled selects above it. Chat headers and message actions must never cover an app form.
 - Keep scheduling deterministic, testable, local, and independent from AI or network services.
+- Minute delays use elapsed timestamp arithmetic across timezone clock changes; day intervals retain local calendar-day arithmetic. Cover both clock-change directions in isolated timezone tests.
 - Store progress locally by default. Never require a backend for core study; add sync or a database only for a clear user need and with explicit privacy/security design.
 - Require email verification for new accounts while allowing existing unverified accounts to sign in and study. Account codes are time-limited, single-use, rate-limited, and stored as keyed digests; password resets invalidate existing sessions. Never expose Mailjet credentials or log codes.
 - Require verified accounts for username-only companion connections. Both learners must consent; blocking ends the connection, hides the blocker from the other learner, and prevents requests. Keep email and study progress private, limit requests and notification emails, and honor the recipient's email preference. Companion service failures must not block individual study.

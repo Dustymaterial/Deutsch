@@ -13,7 +13,9 @@ Study independently, ask a companion to review with you, or use a group to try v
 - **Produce:** type the German word from an English meaning, including the article for nouns.
 - **Choose:** recognize the German word from four options. Recognition, typed production and self-rated recall have separate results. Correct Produce and Choose answers schedule as Hard; misses schedule as Again.
 
-Adding a word to reviews schedules its first review **10 minutes later**. The study area shows the next review time and a word count without previewing answers. You can repeat today's words without changing their schedules.
+Correct scheduled quiz answers gradually lengthen review intervals without treating success as difficulty. These intervals are a heuristic, not a measure of mastery.
+
+Adding a word to reviews schedules its first review **10 minutes later**. First reviews and Again retries use elapsed minutes, including across clock changes. Longer intervals follow local calendar days. The study area shows the next review time and a word count without previewing answers. You can repeat today's words without changing their schedules.
 
 The app opens Recall when locally saved reviews are due, otherwise Learn when unseen words remain. It keeps your chosen mode during a visit. **Tune session** lets you choose a study set, inspect reviewed words or reset progress with confirmation.
 
