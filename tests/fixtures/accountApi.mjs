@@ -4,6 +4,7 @@ import { mock } from 'node:test'
 import session from 'express-session'
 import { ObjectId } from 'mongodb'
 import bcrypt from 'bcryptjs'
+import { io } from 'socket.io-client'
 
 const get = (object, path) => path.split('.').reduce((value, part) => value?.[part], object)
 const set = (object, path, value) => {
@@ -190,6 +191,14 @@ globalThis.fetch = async (url, options) => {
 const { server } = await import('../../server/index.js')
 if (!server.listening) await once(server, 'listening')
 const base = `http://127.0.0.1:${server.address().port}`
+const sockets = []
+const connectSocket = async (cookie) => {
+  const socket = io(base, { transports: ['websocket'], extraHeaders: { cookie }, reconnection: false, timeout: 3000 })
+  sockets.push(socket)
+  await Promise.race([once(socket, 'connect'), once(socket, 'connect_error').then(([error]) => Promise.reject(error))])
+  return socket
+}
+const socketCall = (socket, event, data) => socket.timeout(3000).emitWithAck(event, data)
 const request = async (path, body, cookie) => {
   const response = await nativeFetch(`${base}${path}`, {
     method: body ? 'POST' : 'GET',
@@ -555,18 +564,45 @@ try {
   assert.equal(startedPractice.body.practice.status, 'pending')
   assert.equal((await request(practicePath, { tag: 'Lektion 4' }, learner.cookie)).status, 409)
   const helperPractice = await request(practicePath, null, other.cookie)
+  const learnerSocket = await connectSocket(learner.cookie)
+  const unauthenticatedSocket = io(base, { transports: ['websocket'], reconnection: false, timeout: 3000 })
+  sockets.push(unauthenticatedSocket)
+  assert.match((await once(unauthenticatedSocket, 'connect_error'))[0].message, /Sign in|Session/)
+  unauthenticatedSocket.disconnect()
+  const helperSocket = await connectSocket(other.cookie)
+  assert.deepEqual(await socketCall(learnerSocket, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: true })
+  const pendingSnapshot = once(helperSocket, 'snapshot')
+  assert.deepEqual(await socketCall(helperSocket, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: true })
+  assert.equal((await pendingSnapshot)[0].practice.card, undefined)
+  const typingEvent = once(helperSocket, 'typing')
+  learnerSocket.emit('typing', true)
+  assert.equal((await typingEvent)[0].user.id, learnerId)
+  assert.equal(records.chatTyping.some((entry) => entry.chatId === openedChat.body.id && entry.expiresAt > new Date()), false)
   assert.equal(helperPractice.body.practice.role, 'helper')
   assert.equal(helperPractice.body.practice.total, 5)
   const practiceDecision = `${practicePath}/${startedPractice.body.practice.id}/decision`
   const practiceAnswer = `${practicePath}/${startedPractice.body.practice.id}/answer`
   assert.equal((await request(practiceDecision, { decision: 'accept' }, learner.cookie)).status, 409)
-  const acceptedPractice = await request(practiceDecision, { decision: 'accept' }, other.cookie)
+  const acceptedSocketPractice = await socketCall(helperSocket, 'command', { path: practiceDecision.replace('/api/companions', ''), body: { decision: 'accept' } })
+  const acceptedPractice = { status: acceptedSocketPractice.status, body: acceptedSocketPractice.data }
   assert.equal(acceptedPractice.status, 200)
   assert.equal(typeof acceptedPractice.body.practice.card.meaning, 'string')
   const learnerPractice = await request(practicePath, null, learner.cookie)
   assert.equal(learnerPractice.body.practice.card.meaning, undefined)
   assert.equal((await request(practiceAnswer, { answer: 'table' }, other.cookie)).status, 404)
-  assert.equal((await request(practiceAnswer, { answer: 'table' }, learner.cookie)).status, 200)
+  const receivedAnswer = new Promise((resolve) => {
+    const handler = (value) => { if (value.practice?.answer === 'table') { helperSocket.off('snapshot', handler); resolve(value) } }
+    helperSocket.on('snapshot', handler)
+  })
+  assert.equal((await socketCall(learnerSocket, 'command', { path: practiceAnswer.replace('/api/companions', ''), body: { answer: 'table' } })).status, 200)
+  assert.equal((await receivedAnswer).practice.answer, 'table')
+  learnerSocket.disconnect()
+  helperSocket.disconnect()
+  const reconnectedHelper = await connectSocket(other.cookie)
+  const recoveredReview = once(reconnectedHelper, 'snapshot')
+  assert.deepEqual(await socketCall(reconnectedHelper, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: true })
+  assert.equal((await recoveredReview)[0].practice.answer, 'table')
+  reconnectedHelper.disconnect()
   assert.equal((await request(practiceDecision, { decision: 'try-again' }, other.cookie)).status, 200)
   assert.equal((await request(practiceDecision, { decision: 'retry' }, learner.cookie)).body.practice.answer, undefined)
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -602,7 +638,12 @@ try {
   assert.equal((await request(searchPath('danke'), null, learner.cookie)).body.messages.length, 0)
   assert.equal((await request(searchPath('Deletion'), null, learner.cookie)).body.messages.length, 1)
   assert.equal((await request(searchPath('danke'), null, other.cookie)).body.messages.length, 1)
+  const blockedSocket = await connectSocket(other.cookie)
+  assert.deepEqual(await socketCall(blockedSocket, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: true })
   assert.equal((await request('/api/companions/action', { id: otherId, action: 'block' }, learner.cookie)).status, 200)
+  assert.equal((await socketCall(blockedSocket, 'command', { path: `/chats/${openedChat.body.id}/messages`, body: { text: 'Not allowed' } })).status, 403)
+  assert.deepEqual(await socketCall(blockedSocket, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: false })
+  blockedSocket.disconnect()
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/messages`, null, other.cookie)).status, 404)
   assert.equal((await request('/api/companions/search', { username: 'learner' }, other.cookie)).status, 404)
   assert.deepEqual((await request('/api/companions/', null, other.cookie)).body.companions, [])
@@ -754,7 +795,24 @@ try {
   records.groupMessages = records.groupMessages.filter((message) => message !== beforeJoin)
   assert.equal((await groupPost(groupId, learnerUser, 'Hallo zusammen!')).status, 201)
   const groupClientId = new ObjectId().toString()
-  const first = await groupPost(groupId, otherUser, 'Wie sagt man "thanks"?', { clientId: groupClientId })
+  const groupSender = await connectSocket(other.cookie)
+  const groupRecipient = await connectSocket(learner.cookie)
+  assert.deepEqual(await socketCall(groupSender, 'subscribe', { kind: 'group', id: groupId }), { ok: true })
+  assert.deepEqual(await socketCall(groupRecipient, 'subscribe', { kind: 'group', id: groupId }), { ok: true })
+  const groupOutsider = await connectSocket(outsider.cookie)
+  assert.deepEqual(await socketCall(groupOutsider, 'subscribe', { kind: 'group', id: groupId }), { ok: false })
+  groupOutsider.disconnect()
+  assert.equal((await socketCall(groupSender, 'command', { path: `/${groupId}/messages`, body: { text: '' } })).status, 400)
+  const incomingGroup = new Promise((resolve) => {
+    const handler = (value) => { const message = value.page.messages.find((item) => item.id === groupClientId); if (message) { groupRecipient.off('snapshot', handler); resolve(message) } }
+    groupRecipient.on('snapshot', handler)
+  })
+  const firstSocket = await socketCall(groupSender, 'command', { path: `/${groupId}/messages`, body: { text: 'Wie sagt man "thanks"?', clientId: groupClientId } })
+  const first = { status: firstSocket.status, body: firstSocket.data }
+  assert.equal((await incomingGroup).isMine, false)
+  assert.equal((await socketCall(groupSender, 'command', { path: `/${groupId}/messages`, body: { text: 'Wie sagt man "thanks"?', clientId: groupClientId } })).data.message.id, groupClientId)
+  groupSender.disconnect()
+  groupRecipient.disconnect()
   assert.equal(first.status, 201)
   assert.equal(first.body.message.id, groupClientId)
   assert.equal(first.body.message.receipt, 'sent')
@@ -1089,6 +1147,7 @@ try {
 
   console.log('Account API integration passed')
 } finally {
+  for (const socket of sockets) socket.disconnect()
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
   mock.reset()
 }

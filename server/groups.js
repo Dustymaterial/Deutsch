@@ -500,6 +500,7 @@ export function createGroupsRouter({
     if (!await activeMember(group._id.toString(), me)) { notFound(res); return null }
     return group
   }
+  router.chatAccess = async (req, id) => Boolean(await loadGroup(id) && await activeMember(id, req.accountUser._id.toString()))
 
   router.get('/:id/live', async (req, res) => {
     const group = await readableGroup(req, res)
@@ -545,7 +546,7 @@ export function createGroupsRouter({
     let group = await readableGroup(req, res)
     if (!group) return undefined
     const me = req.accountUser._id.toString()
-    const cursor = !req.query.before && chatReplay
+    const cursor = !req.query.before && !req.query.live && chatReplay
       ? await chatReplay.snapshotCursor({ kind: 'group', chatId: group._id.toString(), userId: me }) : null
     if (cursor) {
       group = await readableGroup(req, res)

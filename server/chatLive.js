@@ -25,6 +25,7 @@ function destination(change) {
 }
 
 export function createChatLiveHub(db) {
+  let socketPublisher
   const subscribers = new Map()
   const notificationSubscribers = new Map()
   let available = false
@@ -87,6 +88,7 @@ export function createChatLiveHub(db) {
         void notifyMessage(change).catch((error) => console.error('Could not deliver a message sound hint:', error.message))
         const target = destination(change)
         if (!target) return
+        socketPublisher?.(target[0], target[1], ['companionMessages', 'groupMessages'].includes(change.ns?.coll) ? change.documentKey?._id?.toString() : undefined)
         const listeners = subscribers.get(`${target[0]}:${target[1]}`)
         if (listeners) for (const listener of listeners) listener.notify()
       })
@@ -101,6 +103,7 @@ export function createChatLiveHub(db) {
   start()
 
   return {
+    setSocketPublisher(publish) { socketPublisher = publish },
     subscribeNotifications(req, res, userId, authorize) {
       if (!available) return res.status(503).json({ error: 'Live message sounds are unavailable.' })
       const listeners = notificationSubscribers.get(userId) ?? new Set()

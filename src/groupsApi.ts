@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { chatSocketCommand } from './chatSocket'
 import type { SharedWordPreview } from './CompanionPanel'
 import type { MessageReceiptStatus } from './MessageReceipt'
 import { clearCommunityDirectoryCache, getCommunityDirectory, loadCommunityDirectory } from './communityDirectoryCache'
@@ -75,6 +76,12 @@ export class GroupsApiError extends Error {
 }
 
 export async function groupsRequest<T>(path: string, body?: object, base = '/api/groups'): Promise<T> {
+  const command = base === '/api/groups' ? chatSocketCommand('group', path, body) : null
+  if (command) {
+    const reply = await command
+    if (reply.status >= 400) throw new GroupsApiError((reply.data as { error?: string }).error ?? 'Could not complete the request.', reply.status)
+    return reply.data as T
+  }
   const response = await fetch(`${base}${path}`, body ? {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
