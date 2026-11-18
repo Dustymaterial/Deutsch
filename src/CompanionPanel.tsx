@@ -37,6 +37,7 @@ import type { ChatOutbox } from './useChatOutbox'
 import { MessageReceipt, type MessageReceiptStatus } from './MessageReceipt'
 import { useChatDelivery } from './useChatDelivery'
 import { MenuSelect } from './MenuSelect'
+import { practicePrompt } from './practicePrompt'
 
 type Profile = { id: string; username: string; avatarSeed: string }
 type Companion = Profile & {
@@ -157,7 +158,7 @@ function CompanionPracticeSession({
   onDecision: (decision: PracticeDecision) => void
 }) {
   const card = practice.card
-  const prompt = card && (card.article ? `${card.article} ${card.prompt}` : card.prompt)
+  const prompt = card && practicePrompt(card.prompt, card.article)
   const waiting = practice.status === 'pending'
   const helping = practice.role === 'helper'
   const revealed = practice.feedback === 'correct' || practice.feedback === 'reveal'
@@ -200,11 +201,11 @@ function CompanionPracticeSession({
                   <strong>{practice.answer}</strong>
                 </div>
                 : <PracticeWaiting>Waiting for their answer</PracticeWaiting>}
-              {practice.answer && !practice.feedback && <div className="companion-practice-actions" role="group" aria-label="Respond to answer">
+              {practice.answer && !practice.feedback && <div className="companion-practice-handoff" key={`${practice.position}-${practice.answer}`}><p>Choose your feedback</p><div className="companion-practice-actions" role="group" aria-label="Respond to answer">
                 <button type="button" className="rating good" disabled={busy} onClick={() => onDecision('correct')}><Check size={17} aria-hidden="true" />Correct</button>
                 <button type="button" className="rating hard" disabled={busy} onClick={() => onDecision('try-again')}>Try again</button>
                 <button type="button" className="rating easy" disabled={busy} onClick={() => onDecision('reveal')}>Reveal</button>
-              </div>}
+              </div></div>}
               {practice.feedback && <p className="companion-practice-waiting" role="status">{practice.feedback === 'try-again' ? 'They can try another answer.' : practice.feedback === 'correct' ? 'Marked correct. They can continue when ready.' : 'The answer was revealed. They can continue when ready.'}</p>}
             </div>
             : card && revealed
@@ -227,7 +228,7 @@ function CompanionPracticeSession({
                   {practice.feedback === 'try-again'
                     ? <div className="companion-practice-cta"><p className="companion-practice-feedback" role="status">Not quite yet. Take another look when you are ready.</p><button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('retry')}>Try again</button></div>
                     : practice.answer
-                      ? <PracticeWaiting>Waiting for {companionName}’s feedback</PracticeWaiting>
+                      ? <><div className="companion-practice-response"><span>Your answer</span><strong>{practice.answer}</strong></div><PracticeWaiting>Waiting for {companionName}’s feedback</PracticeWaiting></>
                       : <form className="production-answer-form companion-practice-answer-form" onSubmit={onSubmitAnswer}>
                         <label>English meaning
                           <input value={answer} maxLength={1000} autoComplete="off" onChange={(event) => onAnswerChange(event.target.value)} onBlur={onAnswerBlur} placeholder="Type your answer" />
@@ -238,7 +239,7 @@ function CompanionPracticeSession({
                 : null}
       </article>
     </div>
-    {!waiting && practice.role === 'learner' && revealed && <button type="button" className="primary-button companion-practice-next" disabled={busy} onClick={() => onDecision('next')}>Next word</button>}
+    {!waiting && practice.role === 'learner' && revealed && <button type="button" className="primary-button companion-practice-next companion-practice-handoff" key={`${practice.position}-${practice.feedback}`} disabled={busy} onClick={() => onDecision('next')}>{practice.position === practice.total ? 'Finish review' : 'Next word'}</button>}
     {!waiting && <button type="button" className="quiet-button companion-practice-end" disabled={busy} onClick={() => onDecision('end')}>End practice</button>}
   </section>
 }
@@ -302,6 +303,9 @@ export function CompanionPanel({
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [wordPickerQuery, setWordPickerQuery] = useState('')
   const [practice, setPractice] = useState<PracticeSession | null>(null)
+  const [practiceSyncError, setPracticeSyncError] = useState(false)
+  const [practiceActionError, setPracticeActionError] = useState<string | null>(null)
+  const practiceRefreshSequence = useRef(0)
   const [practiceTag, setPracticeTag] = useState('')
   const [practiceAnswer, setPracticeAnswer] = useState('')
   const [searchFor, setSearchFor] = useState<string | null>(null)
@@ -674,6 +678,17 @@ export function CompanionPanel({
     if (!('practice' in data)) throw new Error('The companion service returned an incomplete practice session.')
     return data.practice ?? null
   }, [])
+  const refreshPractice = useCallback(async (chatId: string) => {
+    const sequence = ++practiceRefreshSequence.current
+    try {
+      const nextPractice = await fetchPractice(chatId)
+      if (selectedChatId.current !== chatId || sequence !== practiceRefreshSequence.current) return
+      setPractice(nextPractice)
+      setPracticeSyncError(false)
+    } catch {
+      if (selectedChatId.current === chatId && sequence === practiceRefreshSequence.current) setPracticeSyncError(true)
+    }
+  }, [fetchPractice])
   const reconcileOutbox = outbox.reconcile
   const pendingMessages = outbox.items.filter((item) => item.kind === 'private'
     && (item.chatId === selectedChat?.id || (item.recipientId && item.recipientId === (selectedChat?.companion.id ?? openingChat?.id)))
@@ -687,18 +702,12 @@ export function CompanionPanel({
 
   useEffect(() => {
     if (!selectedChat) return
-    let active = true
-    const refresh = () => {
-      void fetchPractice(selectedChat.id)
-        .then((nextPractice) => { if (active) setPractice(nextPractice) })
-        .catch((failure: unknown) => {
-          if (active) setChatError(failure instanceof Error ? failure.message : 'Could not update practice together.')
-        })
-    }
+    const sequence = practiceRefreshSequence
+    const refresh = () => { void refreshPractice(selectedChat.id) }
     refresh()
     const timer = window.setInterval(refresh, 4000)
-    return () => { active = false; window.clearInterval(timer) }
-  }, [selectedChat, fetchPractice])
+    return () => { sequence.current++; window.clearInterval(timer) }
+  }, [selectedChat, refreshPractice])
 
   useEffect(() => {
     if (!selectedChat || chatLoading || chatUpdating || !sentPendingKey) return
@@ -1428,9 +1437,12 @@ export function CompanionPanel({
 
   const decidePractice = (decision: PracticeDecision) => {
     if (!selectedChat || !practice) return
+    practiceRefreshSequence.current++
+    setPracticeActionError(null)
     void run(async () => {
-      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/decision`, { decision }) as { practice?: PracticeSession }
+      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/decision`, { decision }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not update the review.'); throw failure }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not update the practice session.')
+      practiceRefreshSequence.current++
       const finished = data.practice.status === 'ended' || data.practice.status === 'completed' || data.practice.status === 'declined'
       setPractice(finished ? null : data.practice)
       if (decision === 'decline') onNotify('Practice request declined.')
@@ -1442,10 +1454,13 @@ export function CompanionPanel({
   const submitPracticeAnswer = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!selectedChat || !practice || !practiceAnswer.trim()) return
+    practiceRefreshSequence.current++
+    setPracticeActionError(null)
     publishTyping(selectedChat.id, false)
     void run(async () => {
-      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/answer`, { answer: practiceAnswer }) as { practice?: PracticeSession }
+      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/answer`, { answer: practiceAnswer }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not send your answer.'); throw failure }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not save your answer.')
+      practiceRefreshSequence.current++
       setPractice(data.practice)
       setPracticeAnswer('')
     })
@@ -1840,6 +1855,7 @@ export function CompanionPanel({
             {!practice && <aside className="companion-practice-nudge" aria-label="Practice suggestion">
               <p>Try using a recently reviewed word in a sentence.</p>
             </aside>}
+            {practice && (practiceSyncError || practiceActionError) && <div className="companion-practice-connection" role="alert"><span>{practiceActionError ? `${practiceActionError} Refresh, then try again.` : 'Could not update the review.'}</span><button type="button" onClick={() => { setPracticeActionError(null); void refreshPractice(selectedChat.id) }}>Refresh</button></div>}
             {practice ? <CompanionPracticeSession
               practice={practice}
               companionName={selectedChat.companion.username}
