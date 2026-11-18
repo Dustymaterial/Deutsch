@@ -103,3 +103,11 @@ Review together shares only five reviewed active cards, optionally scoped by a t
 - Optional message sounds require the app to be open and browser audio permission from a user gesture. Use Test sound on mobile; volume, silent mode and background restrictions still apply. Missed sounds are not replayed.
 
 Keep form errors beside their fields, reduced-motion support, mobile layout and keyboard access. Use the shared confirmation dialog for destructive or impactful actions; keep routine sends, ratings and reactions direct. Planning files and `memory.md` are local and ignored, never part of a contribution.
+
+## Group safety checks
+
+`server/groupSafety.js` contains a deliberately narrow English/German abuse list. NFKC normalization, case folding, zero-width removal and whole-word matching trigger a review hold, not a judgement about intent. The check covers new messages, edits, every shared-card field and suggestion text/notes. It is not contextual classification, does not catch all obfuscations or harmful language, and can hold a legitimate vocabulary question. It does not retrospectively scan history or filter private companion chats.
+
+Held items use the existing hidden-content paths so member serializers, search, previews, mentions and sound hints withhold content. A neutral placeholder explains the hold. Automatic reports retain the text for authorized moderators and use the existing resolved-report retention; they are excluded from the three-human-report threshold. Show content requires the inspected report version and a matching pending hold; unsent and manually hidden content cannot be restored by a stale action. Keep hidden closes the report without exposing it. Pending holds repair missing automatic reports on subsequent reads, while duplicate reports are suppressed.
+
+HTTP(S)/www links remain visible with a warning, including cached messages. No URL is fetched or certified safe; no message goes to an external classifier. Existing link, rate, duplicate and reporting limits remain, and suggestions also have the two-link cap. Expand these rules only with a documented moderation decision and tests for vocabulary false positives.

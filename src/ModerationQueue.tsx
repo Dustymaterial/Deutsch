@@ -15,6 +15,7 @@ type Report = {
   reported: Profile | null
   reporter: string | null
   createdAt: string
+  automatic?: boolean
 }
 
 const reasonLabels: Record<string, string> = {
@@ -47,19 +48,21 @@ export function ModerationQueue({ onNotify }: { onNotify: (message: string) => v
     return () => window.clearTimeout(first)
   }, [load])
 
-  const resolve = async (report: Report, action: 'dismiss' | 'hide' | 'suspend') => {
+  const resolve = async (report: Report, action: 'dismiss' | 'hide' | 'suspend' | 'approve') => {
     const length = days[report.id] ?? 3
     if (action !== 'dismiss') {
       const name = report.reported?.username ?? 'this learner'
-      const ok = await confirmDialog(action === 'hide'
+      const ok = await confirmDialog(action === 'approve'
+        ? { title: 'Show this content?', message: 'Group members will be able to read it. The language-check report will be closed.', confirmLabel: 'Show content' }
+        : action === 'hide'
         ? { title: 'Hide this message?', message: 'It is hidden from everyone in the group and the report is closed.', confirmLabel: 'Hide message', tone: 'danger' }
         : { title: `Suspend ${name}?`, message: `${name} cannot create, join or post in groups for ${length} ${length === 1 ? 'day' : 'days'}. A group message is also hidden. The report is closed.`, confirmLabel: 'Suspend', tone: 'danger' })
       if (!ok) return
     }
     setBusy(true)
     try {
-      await groupsRequest(`/reports/${report.kind}/${report.id}/resolve`, { action, ...(action === 'suspend' ? { days: length } : {}) }, '/api/moderation')
-      onNotify(action === 'dismiss' ? 'Report dismissed.' : action === 'hide' ? 'Message hidden.' : 'Learner suspended from groups.')
+      await groupsRequest(`/reports/${report.kind}/${report.id}/resolve`, { action, ...(action === 'approve' ? { expectedAt: report.createdAt } : {}), ...(action === 'suspend' ? { days: length } : {}) }, '/api/moderation')
+      onNotify(action === 'approve' ? 'Content restored.' : action === 'dismiss' ? 'Report dismissed.' : action === 'hide' ? 'Message hidden.' : 'Learner suspended from groups.')
       await load()
     } catch (failure) {
       setError(errorMessage(failure, 'Could not resolve that report.'))
@@ -79,13 +82,13 @@ export function ModerationQueue({ onNotify }: { onNotify: (message: string) => v
           <span className="companion-status-tag outgoing">{report.kind === 'group' ? report.group ?? 'Group' : 'Private chat'}</span>
           <span className="companion-status-tag blocked">{reasonLabels[report.reason] ?? report.reason}</span>
         </div>
-        {report.reported && <div className="companion-person"><img src={avatarDataUri(report.reported.avatarSeed)} alt="" /><div><strong>{report.reported.username}</strong><span>Reported by {report.reporter ?? 'a learner'}</span></div></div>}
+        {report.reported && <div className="companion-person"><img src={avatarDataUri(report.reported.avatarSeed)} alt="" /><div><strong>{report.reported.username}</strong><span>{report.automatic ? 'Automatic language check' : `Reported by ${report.reporter ?? 'a learner'}`}</span></div></div>}
         <blockquote>{report.messageText}</blockquote>
         {report.details && <p className="moderation-details">“{report.details}”</p>}
         <time dateTime={report.createdAt}>{new Date(report.createdAt).toLocaleString()}</time>
         <div className="companion-card-actions">
-          <button type="button" disabled={busy} onClick={() => void resolve(report, 'dismiss')}>Dismiss</button>
-          {report.kind === 'group' && <button type="button" disabled={busy} onClick={() => void resolve(report, 'hide')}>Hide message</button>}
+          {report.automatic ? <button type="button" disabled={busy} onClick={() => void resolve(report, 'approve')}>Show content</button> : <button type="button" disabled={busy} onClick={() => void resolve(report, 'dismiss')}>Dismiss</button>}
+          {report.kind === 'group' && <button type="button" disabled={busy} onClick={() => void resolve(report, 'hide')}>{report.automatic ? 'Keep hidden' : 'Hide message'}</button>}
           <select aria-label="Suspension length" value={days[report.id] ?? 3} onChange={(event) => setDays({ ...days, [report.id]: Number(event.target.value) })}>
             {suspensionDays.map((value) => <option key={value} value={value}>{value} {value === 1 ? 'day' : 'days'}</option>)}
           </select>

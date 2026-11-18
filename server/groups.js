@@ -12,6 +12,7 @@ import { setTyping, typingFilter, typingRateLimit, typingSchema } from './chatTy
 import { liveSessionValid } from './chatLive.js'
 import { findSentMessage, insertChatMessage, sendIdentity } from './chatSend.js'
 import { acknowledgeMessages, receiptRateLimit, receiptStatus } from './chatReceipts.js'
+import { groupContentSafety, queueSafetyReport, safetyNotice } from './groupSafety.js'
 
 export const maxGroupsPerOwner = 3
 const maxMembers = 100
@@ -53,8 +54,9 @@ const reportSchema = z.object({
   details: z.string().trim().max(500).optional(),
 })
 const resolveSchema = z.object({
-  action: z.enum(['dismiss', 'hide', 'suspend']),
+  action: z.enum(['dismiss', 'hide', 'suspend', 'approve']),
   days: z.number().int().min(1).max(90).optional(),
+  expectedAt: z.string().optional(),
 }).refine((value) => value.action !== 'suspend' || Boolean(value.days))
 
 const nameKeyFor = (name) => name.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('de-DE')
@@ -179,7 +181,17 @@ export function createGroupsRouter({
       ...(message.senderId === me ? { receipt: receiptStatus(message) } : {}),
     }
     if (message.unsentAt) return { ...base, kind: 'unsent', text: 'Message unsent', reactions: [], reported: false }
-    if (message.hiddenAt) return { ...base, kind: 'hidden', text: 'Hidden by a moderator', reactions: [], reported: false }
+    const pendingReviews = Object.entries(message.corrections ?? {}).filter(([, review]) => review.hiddenBy === 'safety-filter' && review.safetyStatus === 'pending')
+    if ((message.hiddenBy === 'safety-filter' && message.safetyStatus === 'pending') || pendingReviews.length) {
+      try {
+        const group = await loadGroup(message.groupId)
+        if (group) {
+          await queueSafetyReport(groupReports, group, message)
+          for (const [authorId] of pendingReviews) await queueSafetyReport(groupReports, group, message, authorId)
+        }
+      } catch { console.error('A hidden group item could not be queued for language review.') }
+    }
+    if (message.hiddenAt) return { ...base, kind: 'hidden', text: message.hiddenBy === 'safety-filter' && message.safetyStatus === 'pending' ? safetyNotice : 'Hidden by a moderator', reactions: [], reported: false }
     const corrections = await mapInBatches(Object.entries(message.corrections ?? {}).filter(([, review]) => !review.hiddenAt), async ([authorId, review]) => ({
         authorId,
         author: await lookup(authorId),
@@ -191,11 +203,14 @@ export function createGroupsRouter({
         createdAt: review.createdAt.toISOString(),
         ...(review.response ? { response: review.response } : {}),
         reported: review.reporterIds?.includes(me) ?? false,
+        ...(groupContentSafety([review.text, review.note].filter(Boolean).join(' ')).hasLinks ? { hasLinks: true } : {}),
     }), 10)
     return {
       ...base,
       kind: message.card ? 'word' : 'text',
       text: message.text,
+      ...(groupContentSafety([message.text, ...Object.values(message.card ?? {})].join(' ')).hasLinks ? { hasLinks: true } : {}),
+      ...(Object.values(message.corrections ?? {}).some((review) => review.hiddenAt && review.hiddenBy === 'safety-filter' && review.safetyStatus === 'pending') ? { heldReview: true } : {}),
       ...(message.card ? { card: message.card } : {}),
       ...(message.wordPractice ? { wordPractice: true } : {}),
       reactions: summarizeReactions(message.reactions, me),
@@ -723,9 +738,10 @@ export function createGroupsRouter({
     const identity = sendIdentity(result.data, groupId, me)
     const existing = await findSentMessage(groupMessages, identity)
     if (existing === false) return res.status(409).json({ error: 'This message identifier is already in use.' })
-    if (existing) return res.status(200).json({
-      message: await serializeMessage(existing, me, profile(req.accountUser), canModerate(group, req)),
-    })
+    if (existing) {
+      await queueSafetyReport(groupReports, group, existing)
+      return res.status(200).json({ message: await serializeMessage(existing, me, profile(req.accountUser), canModerate(group, req)) })
+    }
     const now = new Date()
     const last = await groupMessages.findOne({ groupId, senderId: me }, { sort: { createdAt: -1 } })
     if (last && !last.unsentAt && last.text === text && now - last.createdAt < duplicateWindow) {
@@ -763,9 +779,11 @@ export function createGroupsRouter({
       ...(result.data.wordPractice ? { wordPractice: true } : {}),
       mentionUserIds: result.data.text ? await mentionedMembers(groupId, text, me) : [],
       createdAt: now,
+      ...(groupContentSafety(content).hold ? { hiddenAt: now, hiddenBy: 'safety-filter', safetyStatus: 'pending' } : {}),
     }
     const inserted = await insertChatMessage(groupMessages, message, identity)
     if (!inserted) return res.status(409).json({ error: 'This message identifier is already in use.' })
+    await queueSafetyReport(groupReports, group, inserted)
     await groups.updateOne({ _id: group._id }, { $max: { lastActivityAt: inserted.createdAt } })
     res.status(201).json({
       message: await serializeMessage(inserted, me, profile(req.accountUser), canModerate(group, req)),
@@ -824,11 +842,14 @@ export function createGroupsRouter({
     }, { $push: { groupMessageHistory: { $each: [now], $position: 0, $slice: 60 } } })
     if (!hourly.modifiedCount) return res.status(429).json({ error: 'You have sent several messages. Please try again later.' })
     const tags = [...new Set(result.data.tags ?? [])]
+    const reviewContent = [result.data.text, result.data.note].filter(Boolean).join(' ')
+    if (linkCount(reviewContent) > maxLinks) return res.status(400).json({ error: `Share at most ${maxLinks} links in one suggestion.` })
     const review = {
       ...(result.data.approve ? { approved: true } : { text: result.data.text }),
       ...(result.data.note ? { note: result.data.note } : {}),
       ...(tags.length ? { tags } : {}),
       createdAt: now,
+      ...(groupContentSafety(reviewContent).hold ? { hiddenAt: now, hiddenBy: 'safety-filter', safetyStatus: 'pending' } : {}),
     }
     const updated = await groupMessages.updateOne({
       _id: message._id, text: message.text, unsentAt: { $exists: false }, hiddenAt: { $exists: false },
@@ -837,6 +858,7 @@ export function createGroupsRouter({
     if (!updated.matchedCount) return res.status(409).json({ error: 'This message changed or you already reviewed it. Refresh and try again.' })
     const latest = await groupMessages.findOne({ _id: message._id })
     if (!latest || latest.hiddenAt || latest.unsentAt) return notFound(res)
+    await queueSafetyReport(groupReports, group, latest, me)
     res.status(201).json({ message: await serializeMessage(latest, me, await profileCache()(latest.senderId), canModerate(group, req)) })
   })
 
@@ -868,7 +890,7 @@ export function createGroupsRouter({
     const authorId = req.params.authorId
     const review = objectIdSchema.safeParse(authorId).success ? message.corrections?.[authorId] : null
     if (!canModerate(group, req) || !review || review.hiddenAt || message.hiddenAt || message.unsentAt) return notFound(res)
-    await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${authorId}.hiddenAt`]: new Date() } })
+    await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${authorId}.hiddenAt`]: new Date(), [`corrections.${authorId}.hiddenBy`]: req.accountUser._id.toString() } })
     res.json({ ok: true })
   })
 
@@ -894,7 +916,7 @@ export function createGroupsRouter({
       return res.status(409).json({ error: 'You have already reported this review.' })
     }
     await groupMessages.updateOne({ _id: message._id }, { $addToSet: { [`corrections.${authorId}.reporterIds`]: me } })
-    const reports = await groupReports.find({ messageId: targetId }).toArray()
+    const reports = await groupReports.find({ messageId: targetId, reporterId: { $ne: 'safety-filter' } }).toArray()
     if (reports.length >= autoHideReports) await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${authorId}.hiddenAt`]: new Date() } })
     res.status(201).json({ ok: true, hidden: reports.length >= autoHideReports })
   })
@@ -912,15 +934,18 @@ export function createGroupsRouter({
     if (Date.now() - message.createdAt.getTime() > editWindow) return res.status(403).json({ error: 'Messages can be edited for 10 minutes after sending.' })
     if (message.corrections && Object.keys(message.corrections).length) return res.status(409).json({ error: 'This message has been reviewed, so it can no longer be edited.' })
     const editedAt = new Date()
+    const safety = groupContentSafety(result.data.text).hold
     const mentionUserIds = await mentionedMembers(group._id.toString(), result.data.text, me)
     const updated = await groupMessages.updateOne({
       _id: message._id, unsentAt: { $exists: false }, hiddenAt: { $exists: false }, corrections: { $exists: false },
       createdAt: { $gte: new Date(editedAt.getTime() - editWindow) },
-    }, { $set: { text: result.data.text, editedAt, mentionUserIds } })
+    }, { $set: { text: result.data.text, editedAt, mentionUserIds, ...(safety ? { hiddenAt: editedAt, hiddenBy: 'safety-filter', safetyStatus: 'pending' } : {}) } })
     if (!updated.matchedCount) return res.status(409).json({ error: 'This message changed or can no longer be edited.' })
     await groupMessages.updateMany({ groupId: group._id.toString(), 'replyTo.id': message._id.toString() },
-      { $set: { 'replyTo.text': previewText(result.data.text) } })
-    res.json({ message: await serializeMessage({ ...message, text: result.data.text, editedAt }, me, profile(req.accountUser), canModerate(group, req)) })
+      { $set: { 'replyTo.text': safety ? safetyNotice : previewText(result.data.text) } })
+    const latest = { ...message, text: result.data.text, editedAt, ...(safety ? { hiddenAt: editedAt, hiddenBy: 'safety-filter', safetyStatus: 'pending' } : {}) }
+    await queueSafetyReport(groupReports, group, latest)
+    res.json({ message: await serializeMessage(latest, me, profile(req.accountUser), canModerate(group, req)) })
   })
 
   router.post('/:id/messages/:mid/unsend', async (req, res) => {
@@ -971,7 +996,7 @@ export function createGroupsRouter({
       return res.status(409).json({ error: 'You have already reported this message.' })
     }
     await groupMessages.updateOne({ _id: message._id }, { $addToSet: { reporterIds: me } })
-    const reports = await groupReports.find({ messageId }).toArray()
+    const reports = await groupReports.find({ messageId, reporterId: { $ne: 'safety-filter' } }).toArray()
     if (reports.length >= autoHideReports) {
       await groupMessages.updateOne({ _id: message._id }, { $set: { hiddenAt: new Date(), hiddenBy: 'reports' } })
       await redactQuotes(messageId, 'Hidden by a moderator')
@@ -1017,6 +1042,7 @@ export function createModerationRouter({
           group: report.groupName ?? null,
           reported: reported ? profile(reported) : null,
           reporter: reporter ? reporter.username : null,
+          automatic: Boolean(report.automatic),
           createdAt: report.createdAt.toISOString(),
         })
       }
@@ -1033,6 +1059,23 @@ export function createModerationRouter({
     const report = await collection.findOne({ _id: new ObjectId(req.params.id) })
     if (!report || report.status === 'resolved') return res.status(404).json({ error: 'That report is unavailable.' })
     const { action, days } = result.data
+    if (action === 'approve') {
+      if (req.params.kind !== 'group' || !report.automatic) return res.status(400).json({ error: 'Only an automatic language hold can be restored here.' })
+      if (result.data.expectedAt !== report.createdAt.toISOString()) return res.status(409).json({ error: 'This content changed. Refresh the report before deciding.' })
+      const targetId = report.parentMessageId ?? report.messageId
+      const path = report.reviewAuthorId ? `corrections.${report.reviewAuthorId}.` : ''
+      const updated = await groupMessages.updateOne({ _id: new ObjectId(targetId), unsentAt: { $exists: false },
+        ...(report.reviewAuthorId ? { hiddenAt: { $exists: false } } : {}),
+        [`${path}hiddenBy`]: 'safety-filter', [`${path}safetyStatus`]: 'pending',
+        [`${path}hiddenAt`]: report.createdAt,
+      }, { $unset: { [`${path}hiddenAt`]: '', [`${path}hiddenBy`]: '' }, $set: { [`${path}safetyStatus`]: 'approved' } })
+      if (!updated.matchedCount) return res.status(409).json({ error: 'This content changed or is no longer available to restore.' })
+      if (!report.reviewAuthorId) {
+        const restored = await groupMessages.findOne({ _id: new ObjectId(targetId) })
+        if (restored && !restored.unsentAt && !restored.hiddenAt) await groupMessages.updateMany({ 'replyTo.id': targetId, 'replyTo.text': safetyNotice }, { $set: { 'replyTo.text': previewText(restored.text) } })
+      }
+    }
+    if (action === 'dismiss' && report.automatic) return res.status(400).json({ error: 'Choose Show content or Keep hidden for an automatic language check.' })
     if (action === 'hide' && req.params.kind !== 'group') {
       return res.status(400).json({ error: 'Private messages cannot be hidden. Suspend the learner or dismiss the report.' })
     }
@@ -1041,8 +1084,8 @@ export function createModerationRouter({
       const targetId = report.parentMessageId ?? report.messageId
       const message = ObjectId.isValid(targetId) ? await groupMessages.findOne({ _id: new ObjectId(targetId) }) : null
       if (message && report.reviewAuthorId && objectIdSchema.safeParse(report.reviewAuthorId).success) {
-        await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${report.reviewAuthorId}.hiddenAt`]: now } })
-      } else if (message && !message.hiddenAt) {
+        await groupMessages.updateOne({ _id: message._id }, { $set: { [`corrections.${report.reviewAuthorId}.hiddenAt`]: now, [`corrections.${report.reviewAuthorId}.hiddenBy`]: req.accountUser._id.toString() } })
+      } else if (message && (!message.hiddenAt || message.hiddenBy === 'safety-filter')) {
         await groupMessages.updateOne({ _id: message._id }, { $set: { hiddenAt: now, hiddenBy: req.accountUser._id.toString() } })
         await groupMessages.updateMany({ 'replyTo.id': report.messageId }, { $set: { 'replyTo.text': 'Hidden by a moderator' } })
       }
@@ -1053,7 +1096,7 @@ export function createModerationRouter({
         $inc: { moderationStrikes: 1 },
       })
     }
-    await collection.updateMany({ messageId: report.messageId, status: { $ne: 'resolved' } }, {
+    await collection.updateMany({ messageId: report.messageId, status: { $ne: 'resolved' }, ...(report.automatic ? { createdAt: report.createdAt } : {}) }, {
       $set: {
         status: 'resolved',
         resolvedAt: now,

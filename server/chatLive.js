@@ -42,6 +42,7 @@ export function createChatLiveHub(db) {
   async function notifyMessage(change) {
     if (!notificationSubscribers.size || change.operationType !== 'insert') return
     const message = change.fullDocument
+    if (change.ns?.coll === 'groupMessages' && message?.hiddenAt) return
     if (!message?.senderId || !message.createdAt) return
     let recipients = []
     if (change.ns?.coll === 'companionMessages' && ObjectId.isValid(message.conversationId)) {

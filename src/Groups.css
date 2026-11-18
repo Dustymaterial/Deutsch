@@ -435,3 +435,5 @@
 .group-practice-tag { display: inline-block; margin-top: 8px; padding: 4px 9px; border-radius: 999px; background: #fff0c4; color: #59451c; font: 600 0.6rem system-ui, sans-serif; }
 .group-sentence-actions .companion-correction-save { width: 100%; }
 .group-sentence-actions label { display: grid; gap: 6px; flex: 1; min-width: 0; font-size: 0.72rem; }
+.group-safety-notice { display: flex; align-items: center; gap: 7px; margin: 8px 0; padding: 9px 12px; border-radius: 12px; background: #fff2cf; color: #665126; font: 500 0.7rem/1.45 system-ui, sans-serif; }
+.group-safety-notice svg { flex: none; }
