@@ -1728,15 +1728,13 @@
 .companion-practice-session .quiet-button { min-height: 38px; width: 100%; margin: 0; }
 .companion-practice-waiting, .companion-practice-feedback { margin: 0; color: #625b54; font-size: 0.84rem; line-height: 1.48; }
 .companion-practice-waiting { margin-top: auto; padding-top: 20px; }
-.companion-wait-dots span { animation: companion-wait-pulse 1.4s infinite ease-in-out; }
-.companion-wait-dots span:nth-child(2) { animation-delay: 0.2s; }
-.companion-wait-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes companion-wait-pulse { 0%, 60%, 100% { opacity: 0.35; } 30% { opacity: 1; } }
+.companion-wait-text { display: inline-block; animation: companion-wait-pulse 2.4s infinite ease-in-out; }
+@keyframes companion-wait-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .companion-practice-presence { flex: 0 1 auto !important; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; padding: 4px 9px 4px 4px; border-radius: 999px; background: #f0f2ed; color: #58665c; font: 600 0.65rem system-ui, sans-serif; }
 .companion-practice-presence img { width: 24px; height: 24px; flex: none; border-radius: 8px; background: #e2eadd; animation: companion-presence-bob 2s ease-in-out infinite; }
 .companion-practice-presence span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes companion-presence-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
-@media (prefers-reduced-motion: reduce) { .companion-wait-dots span, .companion-practice-presence img { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .companion-wait-text, .companion-practice-presence img { animation: none; } }
 .companion-practice-expected {
   display: grid;
   gap: 5px;
@@ -1751,6 +1749,8 @@
 .companion-practice-response > span { color: #716a63; font-size: 0.72rem; font-weight: 650; }
 .companion-practice-response > strong { color: #292a2d; font-size: 1rem; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .companion-practice-handoff { animation: companion-handoff-in 350ms ease-out both; }
+.companion-practice-status-in, .companion-practice-reveal { animation: companion-handoff-in 350ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { .companion-practice-handoff, .companion-practice-status-in, .companion-practice-reveal { animation: none; } }
 .companion-practice-handoff > p { margin: 14px 0 -7px; color: #625b54; font-size: 0.75rem; font-weight: 650; }
 @keyframes companion-handoff-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 .companion-practice-connection { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 16px; background: #fff1d4; color: #624b28; font-size: 0.75rem; }
