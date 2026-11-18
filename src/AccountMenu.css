@@ -1728,13 +1728,19 @@
 .companion-practice-session .quiet-button { min-height: 38px; width: 100%; margin: 0; }
 .companion-practice-waiting, .companion-practice-feedback { margin: 0; color: #625b54; font-size: 0.84rem; line-height: 1.48; }
 .companion-practice-waiting { margin-top: auto; padding-top: 20px; }
-.companion-wait-text { display: inline-block; animation: companion-wait-pulse 2.4s infinite ease-in-out; }
-@keyframes companion-wait-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.companion-status-word { display: inline-block; animation: companion-word-in 460ms ease-out both; }
+@keyframes companion-word-in {
+  0% { opacity: 0; transform: translateY(5px) scale(0.94, 1.03); }
+  55% { opacity: 1; transform: translateY(-2px) scale(1.04, 0.97); }
+  80% { transform: translateY(1px) scale(0.99, 1.02); }
+  100% { opacity: 1; transform: none; }
+}
+.companion-practice-request-reveal { font-size: 0.76rem; }
 .companion-practice-presence { flex: 0 1 auto !important; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; padding: 4px 9px 4px 4px; border-radius: 999px; background: #f0f2ed; color: #58665c; font: 600 0.65rem system-ui, sans-serif; }
 .companion-practice-presence img { width: 24px; height: 24px; flex: none; border-radius: 8px; background: #e2eadd; animation: companion-presence-bob 2s ease-in-out infinite; }
 .companion-practice-presence span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes companion-presence-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
-@media (prefers-reduced-motion: reduce) { .companion-wait-text, .companion-practice-presence img { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .companion-status-word, .companion-practice-presence img { animation: none; } }
 .companion-practice-expected {
   display: grid;
   gap: 5px;

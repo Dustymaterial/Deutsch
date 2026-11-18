@@ -36,7 +36,7 @@ const shareSchema = z.object({
 })
 const practiceStartSchema = z.object({ tag: z.string().trim().min(1).max(100).optional() })
 const practiceAnswerSchema = z.object({ answer: z.string().trim().min(1).max(1000) })
-const practiceDecisionSchema = z.object({ decision: z.enum(['accept', 'decline', 'end', 'try-again', 'correct', 'reveal', 'retry', 'next']) })
+const practiceDecisionSchema = z.object({ decision: z.enum(['accept', 'decline', 'end', 'try-again', 'correct', 'reveal', 'request-reveal', 'retry', 'next']) })
 const practiceCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 const hour = 60 * 60 * 1000
 const searchableFields = (message) => [
@@ -124,6 +124,7 @@ export function createCompanionRouter({
       role: helper ? 'helper' : 'learner',
       status: session.status,
       total: session.total,
+      revealRequested: Boolean(session.revealRequested),
       ...(active ? { position: session.cardIndex + 1 } : {}),
       ...(card ? {
         card: helper
@@ -485,10 +486,10 @@ export function createCompanionRouter({
     const me = req.accountUser._id.toString()
     const found = await activePractice(me, req.params.id)
     if (!found?.session || found.session._id.toString() !== req.params.practiceId || found.session.learnerId !== me || found.session.status !== 'active') return unavailable(res)
-    if (found.session.round?.answer || found.session.round?.feedback) return changed(res)
+    if (found.session.round?.answer || found.session.round?.feedback || found.session.revealRequested) return changed(res)
     if ((found.session.attempts ?? 0) >= 5) return res.status(400).json({ error: 'Five answers have been tried. Ask your companion to reveal the answer or mark it correct.' })
     const now = new Date()
-    const updated = await practiceSessions.updateOne({ _id: found.session._id, status: 'active', 'round.answer': { $exists: false } }, {
+    const updated = await practiceSessions.updateOne({ _id: found.session._id, status: 'active', revealRequested: { $ne: true }, 'round.answer': { $exists: false } }, {
       $set: { round: { answer: result.data.answer }, attempts: (found.session.attempts ?? 0) + 1, updatedAt: now },
     })
     if (!updated.modifiedCount) return changed(res)
@@ -536,9 +537,24 @@ export function createCompanionRouter({
     }
 
     if (session.status !== 'active') return changed(res)
+    if (decision === 'request-reveal') {
+      if (!isLearner || ['correct', 'reveal'].includes(session.round?.feedback)) return changed(res)
+      if (session.revealRequested) return res.json({ practice: serializePractice(session, me) })
+      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', cardIndex: session.cardIndex, 'round.feedback': session.round?.feedback ?? { $exists: false } }, { $set: { revealRequested: true, updatedAt: now } })
+      if (!updated.modifiedCount) return changed(res)
+      return res.json({ practice: serializePractice({ ...session, revealRequested: true, updatedAt: now }, me) })
+    }
+    if (session.revealRequested) {
+      if (!isHelper || decision !== 'reveal') return changed(res)
+      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', cardIndex: session.cardIndex, revealRequested: true }, {
+        $set: { round: { ...session.round, feedback: 'reveal' }, revealRequested: false, updatedAt: now }, $inc: { 'stats.revealed': 1 },
+      })
+      if (!updated.modifiedCount) return changed(res)
+      return res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback: 'reveal' }, revealRequested: false, updatedAt: now }, me) })
+    }
     if (decision === 'retry') {
       if (!isLearner || session.round?.feedback !== 'try-again') return changed(res)
-      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.feedback': 'try-again' }, { $unset: { round: '' }, $set: { updatedAt: now } })
+      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', revealRequested: { $ne: true }, 'round.feedback': 'try-again' }, { $unset: { round: '' }, $set: { updatedAt: now } })
       if (!updated.modifiedCount) return changed(res)
       return res.json({ practice: serializePractice({ ...session, round: undefined, updatedAt: now }, me) })
     }
@@ -548,7 +564,7 @@ export function createCompanionRouter({
       const complete = session.cardIndex + 1 >= session.total
       const values = complete
         ? { status: 'completed', cards: [], round: null, updatedAt: now, expiresAt: now }
-        : { cardIndex: session.cardIndex + 1, round: null, attempts: 0, updatedAt: now }
+        : { cardIndex: session.cardIndex + 1, round: null, attempts: 0, revealRequested: false, updatedAt: now }
       const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.feedback': session.round.feedback }, { $set: values })
       if (!updated.modifiedCount) return changed(res)
       if (complete) await postPracticeSummary(session, now)
@@ -558,7 +574,7 @@ export function createCompanionRouter({
     if (!isHelper || !session.round?.answer || session.round.feedback) return changed(res)
     const feedback = decision
     if (!['try-again', 'correct', 'reveal'].includes(feedback)) return changed(res)
-    const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.answer': session.round.answer, 'round.feedback': { $exists: false } }, {
+    const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', revealRequested: { $ne: true }, 'round.answer': session.round.answer, 'round.feedback': { $exists: false } }, {
       $set: { 'round.feedback': feedback, updatedAt: now },
       ...(['correct', 'reveal'].includes(feedback) ? { $inc: { [`stats.${feedback === 'reveal' ? 'revealed' : (session.attempts ?? 1) > 1 ? 'retried' : 'recalled'}`]: 1 } } : {}),
     })
