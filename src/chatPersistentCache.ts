@@ -233,9 +233,10 @@ export class PersistentChatCache<T> extends ChatMemoryCache<T> {
   }
 
   override set(id: string, page: CachedChatPage<T>, now = Date.now()) {
+    const bounded = { ...page, messages: page.messages.slice(-maxMessages), hasMore: page.hasMore || page.messages.length > maxMessages }
+    if (JSON.stringify(super.get(id, now)) === JSON.stringify(bounded)) return
     if (this.hydrating) this.changed.add(id)
     super.set(id, page, now)
-    const bounded = { ...page, messages: page.messages.slice(-maxMessages), hasMore: page.hasMore || page.messages.length > maxMessages }
     this.schedule((pages) => {
       pages.put({ accountId: this.accountId, kind: this.kind, id, savedAt: now, page: bounded })
       const request = pages.index('accountKind').getAll(IDBKeyRange.only([this.accountId, this.kind]))

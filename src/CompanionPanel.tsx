@@ -24,7 +24,7 @@ import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime } from './chatTime'
 import { conversationEntryState, isChatOverlayEntry, isConversationEntry, withoutChatOverlay } from './conversationHistory'
-import { watchConversation } from './chatSocket'
+import { watchConversation, chatSocketActive } from './chatSocket'
 import { replayUpdatesInRange } from './chatReplay'
 import { useChatScrollState } from './useChatScrollState'
 import { useChatOverlayHistory } from './useChatOverlayHistory'
@@ -455,7 +455,7 @@ export function CompanionPanel({
     mode: 'replace' | 'merge' = 'replace',
     before?: Pick<ChatMessage, 'createdAt' | 'id'>,
     replayCursor?: string,
-    pushed?: { messages: ChatMessage[]; hasMore: boolean; typing: boolean },
+    pushed?: { messages: ChatMessage[]; hasMore: boolean; typing: boolean; cursor?: string; reset?: boolean },
   ) => {
     if (!before && olderChatInFlight.current?.id === chatId && !replayCursor) return null
     const sequence = chatOpenSequence.current
@@ -470,7 +470,8 @@ export function CompanionPanel({
     try {
       const cursor = replayCursor ?? cached?.cursor
       if (pushed) {
-        data = { ...pushed, cursor: cached?.cursor }
+        data = { ...pushed, cursor: pushed.cursor ?? cached?.cursor }
+        reset = Boolean(pushed.reset)
       } else if (cursor && cached) {
         let sync: { reset: boolean; messages?: ChatMessage[]; typing?: boolean; cursor?: string }
         try {
@@ -507,7 +508,7 @@ export function CompanionPanel({
     }
     if (!before) {
       const updates = data.messages.map(normalizeMessage)
-      const messages = replayed && cached ? mergeMessages(cached.messages, replayUpdatesInRange(cached.messages, updates)) : updates
+      const messages = pushed && cached && !reset ? mergeMessages(cached.messages, updates) : replayed && cached ? mergeMessages(cached.messages, replayUpdatesInRange(cached.messages, updates)) : updates
       privateCache.set(chatId, { messages, hasMore: data.hasMore, ...(data.cursor ? { cursor: data.cursor } : {}) })
       if (!pushed) setChatTyping({ id: chatId, typing: data.typing })
     }
@@ -605,7 +606,7 @@ export function CompanionPanel({
       if (selectedChatId.current !== chatId) return
       if (snapshot.page) void loadMessages(chatId, 'merge', undefined, undefined, snapshot.page as { messages: ChatMessage[]; hasMore: boolean; typing: boolean })
       if ('practice' in snapshot) { setPractice(snapshot.practice as PracticeSession | null); setPracticeSyncError(false) }
-    }, (value) => setChatTyping({ id: chatId, typing: value.typing }))
+    }, (value) => setChatTyping({ id: chatId, typing: value.typing }), () => privateCache.get(chatId))
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       stopLive()
@@ -722,6 +723,7 @@ export function CompanionPanel({
 
   useEffect(() => {
     if (!selectedChat || chatLoading || chatUpdating || !sentPendingKey) return
+    if (chatSocketActive('private', selectedChat.id)) return
     const ids = sentPendingKey.split(',').filter((id) => !refreshedSends.current.has(id))
     if (!ids.length) return
     ids.forEach((id) => refreshedSends.current.add(id))

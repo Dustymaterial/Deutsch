@@ -7,6 +7,7 @@ type Snapshot = Channel & { page?: unknown; practice?: unknown }
 let socket: Socket | null = null
 let active: Channel | null = null
 let ready = false
+export const chatSocketActive = (kind: Channel['kind'], id: string) => Boolean(socket?.connected && ready && active?.kind === kind && active.id === id)
 
 export function chatSocketCommand(kind: Channel['kind'], path: string, body?: object): Promise<SocketReply> | null {
   const base = active?.kind === 'private' ? `/chats/${active.id}/` : `/${active?.id}/`
@@ -23,7 +24,7 @@ export function chatSocketCommand(kind: Channel['kind'], path: string, body?: ob
   })
 }
 
-export function watchConversation(path: string, refresh: () => Promise<void> | void, onSnapshot: (value: Snapshot) => void, onTyping: (value: { typing: boolean; user: { id: string; username: string; avatarSeed: string } }) => void) {
+export function watchConversation(path: string, refresh: () => Promise<void> | void, onSnapshot: (value: Snapshot) => void, onTyping: (value: { typing: boolean; user: { id: string; username: string; avatarSeed: string } }) => void, resume?: () => { cursor?: string; hasMore?: boolean } | null) {
   const match = path.match(/\/api\/(companions\/chats|groups)\/([a-f\d]{24})\/live/)
   if (!match) throw new Error('Invalid conversation.')
   const channel: Channel = { kind: match[1] === 'groups' ? 'group' : 'private', id: match[2] }
@@ -33,8 +34,7 @@ export function watchConversation(path: string, refresh: () => Promise<void> | v
   let fallback: (() => void) | undefined
   const startFallback = () => { ready = false; fallback ??= watchChatChanges(path, refresh) }
   client.on('connect', () => {
-    void refresh()
-    client.timeout(10000).emit('subscribe', channel, (error: Error | null, result: { ok?: boolean }) => {
+    client.timeout(10000).emit('subscribe', { ...channel, ...resume?.() }, (error: Error | null, result: { ok?: boolean }) => {
       if (error || !result?.ok) { startFallback(); return }
       ready = true
       fallback?.(); fallback = undefined

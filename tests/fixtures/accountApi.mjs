@@ -571,7 +571,7 @@ try {
   unauthenticatedSocket.disconnect()
   const helperSocket = await connectSocket(other.cookie)
   assert.deepEqual(await socketCall(learnerSocket, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: true })
-  const pendingSnapshot = once(helperSocket, 'snapshot')
+  const pendingSnapshot = once(helperSocket, 'practice')
   assert.deepEqual(await socketCall(helperSocket, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: true })
   assert.equal((await pendingSnapshot)[0].practice.card, undefined)
   const typingEvent = once(helperSocket, 'typing')
@@ -591,15 +591,20 @@ try {
   assert.equal(learnerPractice.body.practice.card.meaning, undefined)
   assert.equal((await request(practiceAnswer, { answer: 'table' }, other.cookie)).status, 404)
   const receivedAnswer = new Promise((resolve) => {
-    const handler = (value) => { if (value.practice?.answer === 'table') { helperSocket.off('snapshot', handler); resolve(value) } }
-    helperSocket.on('snapshot', handler)
+    const handler = (value) => { if (value.practice?.answer === 'table') { helperSocket.off('practice', handler); resolve(value) } }
+    helperSocket.on('practice', handler)
   })
+  let historyFramesDuringAnswer = 0
+  const countHistoryFrames = () => { historyFramesDuringAnswer++ }
+  helperSocket.on('snapshot', countHistoryFrames)
   assert.equal((await socketCall(learnerSocket, 'command', { path: practiceAnswer.replace('/api/companions', ''), body: { answer: 'table' } })).status, 200)
   assert.equal((await receivedAnswer).practice.answer, 'table')
+  assert.equal(historyFramesDuringAnswer, 0)
+  helperSocket.off('snapshot', countHistoryFrames)
   learnerSocket.disconnect()
   helperSocket.disconnect()
   const reconnectedHelper = await connectSocket(other.cookie)
-  const recoveredReview = once(reconnectedHelper, 'snapshot')
+  const recoveredReview = once(reconnectedHelper, 'practice')
   assert.deepEqual(await socketCall(reconnectedHelper, 'subscribe', { kind: 'private', id: openedChat.body.id }), { ok: true })
   assert.equal((await recoveredReview)[0].practice.answer, 'table')
   reconnectedHelper.disconnect()
@@ -612,6 +617,9 @@ try {
   }
   assert.equal((await request(practiceAnswer, { answer: 'one more attempt' }, learner.cookie)).status, 400)
   assert.equal((await request(practiceDecision, { decision: 'end' }, other.cookie)).body.practice.status, 'ended')
+  const firstSummary = records.companionMessages.find((item) => item._id.toString() === startedPractice.body.practice.id)
+  assert.match(firstSummary.text, /Review session ended/)
+  assert.match(firstSummary.text, /0 recalled · 0 after retry · 0 revealed/)
   const secondPractice = await request(practicePath, {}, learner.cookie)
   const secondDecision = `${practicePath}/${secondPractice.body.practice.id}/decision`
   const secondAnswer = `${practicePath}/${secondPractice.body.practice.id}/answer`
@@ -627,6 +635,28 @@ try {
   assert.equal(learnerRevealedPractice.card.plural, revealedCard.plural)
   assert.equal((await request(secondDecision, { decision: 'next' }, learner.cookie)).body.practice.position, 2)
   assert.equal((await request(secondDecision, { decision: 'end' }, other.cookie)).body.practice.status, 'ended')
+  const secondSummary = records.companionMessages.find((item) => item._id.toString() === secondPractice.body.practice.id)
+  assert.match(secondSummary.text, /1 recalled · 0 after retry · 0 revealed/)
+  await request(secondDecision, { decision: 'end' }, learner.cookie)
+  assert.equal(records.companionMessages.filter((item) => item._id.toString() === secondPractice.body.practice.id).length, 1)
+  const progressBeforePractice = JSON.stringify(records.progress)
+  const fullPractice = await request(practicePath, {}, learner.cookie)
+  const fullDecision = `${practicePath}/${fullPractice.body.practice.id}/decision`
+  const fullAnswer = `${practicePath}/${fullPractice.body.practice.id}/answer`
+  assert.equal((await request(fullDecision, { decision: 'accept' }, other.cookie)).status, 200)
+  for (let index = 0; index < 5; index++) {
+    assert.equal((await request(fullAnswer, { answer: 'an answer' }, learner.cookie)).status, 200)
+    if (index === 1) {
+      assert.equal((await request(fullDecision, { decision: 'try-again' }, other.cookie)).status, 200)
+      assert.equal((await request(fullDecision, { decision: 'retry' }, learner.cookie)).status, 200)
+      assert.equal((await request(fullAnswer, { answer: 'another answer' }, learner.cookie)).status, 200)
+    }
+    assert.equal((await request(fullDecision, { decision: index === 2 ? 'reveal' : 'correct' }, other.cookie)).status, 200)
+    assert.equal((await request(fullDecision, { decision: 'next' }, learner.cookie)).status, 200)
+  }
+  const fullSummary = records.companionMessages.find((item) => item._id.toString() === fullPractice.body.practice.id)
+  assert.match(fullSummary.text, /5\/5 reviewed · 3 recalled · 1 after retry · 1 revealed/)
+  assert.equal(JSON.stringify(records.progress), progressBeforePractice)
   assert.equal((await request(practicePath, null, learner.cookie)).body.practice, null)
   assert.equal((await request(`/api/companions/chats/${openedChat.body.id}/delete`, {}, learner.cookie)).status, 200)
   assert.equal((await request('/api/companions/chats', null, learner.cookie)).body.chats.length, 0)
@@ -804,7 +834,7 @@ try {
   groupOutsider.disconnect()
   assert.equal((await socketCall(groupSender, 'command', { path: `/${groupId}/messages`, body: { text: '' } })).status, 400)
   const incomingGroup = new Promise((resolve) => {
-    const handler = (value) => { const message = value.page.messages.find((item) => item.id === groupClientId); if (message) { groupRecipient.off('snapshot', handler); resolve(message) } }
+    const handler = (value) => { const message = value.page.messages.find((item) => item.id === groupClientId); if (message) { assert.equal(value.page.messages.length, 1); groupRecipient.off('snapshot', handler); resolve(message) } }
     groupRecipient.on('snapshot', handler)
   })
   const firstSocket = await socketCall(groupSender, 'command', { path: `/${groupId}/messages`, body: { text: 'Wie sagt man "thanks"?', clientId: groupClientId } })

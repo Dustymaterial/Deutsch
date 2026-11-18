@@ -88,7 +88,7 @@ export function createChatLiveHub(db) {
         void notifyMessage(change).catch((error) => console.error('Could not deliver a message sound hint:', error.message))
         const target = destination(change)
         if (!target) return
-        socketPublisher?.(target[0], target[1], ['companionMessages', 'groupMessages'].includes(change.ns?.coll) ? change.documentKey?._id?.toString() : undefined)
+        socketPublisher?.(target[0], target[1], ['companionMessages', 'groupMessages'].includes(change.ns?.coll) ? change.documentKey?._id?.toString() : undefined, change.ns?.coll === 'practiceSessions')
         const listeners = subscribers.get(`${target[0]}:${target[1]}`)
         if (listeners) for (const listener of listeners) listener.notify()
       })
