@@ -1750,7 +1750,7 @@
 .companion-practice-next { width: min(100%, 390px) !important; margin: 0 auto 3px !important; }
 .companion-practice-end { width: fit-content !important; min-height: 32px !important; align-self: center; padding: 7px 12px !important; font-size: 0.74rem !important; }
 .companion-chat-surface { position: relative; }
-.companion-practice-fab { position: absolute; z-index: 8; right: 18px; bottom: 82px; }
+.companion-practice-fab { position: relative; z-index: 8; }
 .companion-practice-fab > summary {
   min-height: 32px;
   display: inline-flex;
@@ -1771,7 +1771,7 @@
 .companion-practice-fab-panel {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   width: min(272px, calc(100vw - 52px));
   display: grid;
   gap: 8px;
@@ -2309,11 +2309,6 @@
 .chat-report-form .companion-card-actions button:not(:first-child) { background: transparent; color: #504a53; }
 
 @media (max-width: 760px) and (hover: none) and (pointer: coarse) {
-  .companion-practice-fab {
-    right: 16px;
-    bottom: max(78px, calc(68px + env(safe-area-inset-bottom)));
-  }
-
   .companion-workspace-view {
     height: var(--companion-available-height, calc(100dvh - 112px));
     max-height: var(--companion-available-height, calc(100dvh - 112px));
