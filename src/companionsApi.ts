@@ -1,4 +1,5 @@
 import { groupsRequest, type GroupDirectory } from './groupsApi'
+import { chatSocketCommand } from './chatSocket'
 import { loadCommunityDirectory } from './communityDirectoryCache'
 import type { CompanionDirectory } from './CompanionPanel'
 
@@ -11,6 +12,12 @@ export class CompanionApiError extends Error {
 }
 
 export async function request(path: string, body?: object): Promise<unknown> {
+  const command = chatSocketCommand('private', path, body)
+  if (command) {
+    const reply = await command
+    if (reply.status >= 400) throw new CompanionApiError((reply.data as { error?: string }).error ?? 'Could not complete the request.', reply.status)
+    return reply.data
+  }
   const response = await fetch(`/api/companions${path}`, body ? {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

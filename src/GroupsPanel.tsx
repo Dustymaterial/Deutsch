@@ -22,7 +22,7 @@ import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime as formatTime } from './chatTime'
-import { watchChatChanges } from './chatLive'
+import { watchConversation } from './chatSocket'
 import { replayUpdatesInRange } from './chatReplay'
 import { useChatScrollState } from './useChatScrollState'
 import { useChatOverlayHistory } from './useChatOverlayHistory'
@@ -423,7 +423,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     return () => { active = false; window.clearTimeout(timer) }
   }, [group.id, searchOpen, searchTerm])
 
-  const load = useCallback(async (replayCursor?: string) => {
+  const load = useCallback(async (replayCursor?: string, pushed?: { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[] }) => {
     if (olderInFlight.current && !replayCursor) return
     const sequence = ++loadSequence.current
     loadingRef.current = true
@@ -433,7 +433,9 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
       let reset = false
       let data: { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[]; cursor?: string | null }
       const cursor = replayCursor ?? cached?.cursor
-      if (cursor && cached) {
+      if (pushed) {
+        data = { ...pushed, cursor: cached?.cursor }
+      } else if (cursor && cached) {
         let sync: { reset: boolean; messages?: GroupMessage[]; group?: GroupSummary; typing?: Profile[]; cursor?: string }
         try {
           sync = await groupsRequest(`/${group.id}/sync?cursor=${encodeURIComponent(cursor)}`)
@@ -459,7 +461,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
         throw new Error('The group service returned an incomplete response.')
       }
       if (sequence !== loadSequence.current) return
-      setTyping(data.typing)
+      if (!pushed) setTyping(data.typing)
       const cachedMessages = replayed && cached
         ? mergeMessages(cached.messages, replayUpdatesInRange(cached.messages, data.messages)) : data.messages
       cache.set(group.id, { messages: cachedMessages, hasMore: data.hasMore, ...(data.cursor ? { cursor: data.cursor } : {}) })
@@ -582,7 +584,9 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     }
     const onVisibilityChange = () => { void refresh() }
     const first = window.setTimeout(() => { void refresh() }, 0)
-    const stopLive = watchChatChanges(`/api/groups/${group.id}/live`, () => refresh(true))
+    const stopLive = watchConversation(`/api/groups/${group.id}/live`, () => refresh(true),
+      (snapshot) => { void load(undefined, snapshot.page as { messages: GroupMessage[]; hasMore: boolean; group: GroupSummary; typing: Profile[] }) },
+      (value) => setTyping((current) => value.typing ? [...current.filter((person) => person.id !== value.user.id), value.user] : current.filter((person) => person.id !== value.user.id)))
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       window.clearTimeout(first)

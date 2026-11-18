@@ -262,6 +262,12 @@ export function createCompanionRouter({
     return chatLive.subscribe(req, res, 'private', req.params.id, async () =>
       await liveSessionValid(req, users) && Boolean(await activeConversation(me, req.params.id)))
   })
+  router.chatAccess = (req, id) => activeConversation(req.accountUser._id.toString(), id).then(Boolean)
+  router.chatMessageChannel = async (req, id) => (await visibleMessage(req.accountUser._id.toString(), id))?.message.conversationId
+  router.chatMessage = async (req, id) => {
+    const found = await visibleMessage(req.accountUser._id.toString(), id)
+    return found ? serializeMessage(found.message, req.accountUser._id.toString()) : null
+  }
 
   router.get('/message-sounds/live', async (req, res) => {
     const me = req.accountUser._id.toString()
@@ -539,7 +545,7 @@ export function createCompanionRouter({
     let active = await activeConversation(me, req.params.id)
     if (!active) return unavailable(res)
     const conversationId = active.conversation._id.toString()
-    const cursor = !req.query.before && chatReplay
+    const cursor = !req.query.before && !req.query.live && chatReplay
       ? await chatReplay.snapshotCursor({ kind: 'private', chatId: conversationId, userId: me }) : null
     if (cursor) {
       active = await activeConversation(me, req.params.id)

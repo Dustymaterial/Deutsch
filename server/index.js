@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs'
 import MongoStore from 'connect-mongo'
 import dotenv from 'dotenv'
 import express from 'express'
+import { createServer } from 'node:http'
+import { createChatSocket } from './chatSocket.js'
 import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
 import { MongoClient, ObjectId } from 'mongodb'
@@ -26,6 +28,8 @@ const configuration = isLocalDevelopment ? envFile.parsed ?? {} : process.env
 const mongoConnectionString = buildMongoConnectionString(configuration)
 
 const app = express()
+export const server = createServer(app)
+let sessionMiddleware
 const port = Number(process.env.PORT ?? configuration.PORT ?? 3001)
 const databaseName = 'deutsch'
 const sessionCookieName = 'deutsch.sid'
@@ -314,7 +318,7 @@ if (mongoConnectionString) {
     chatTyping.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
   ])
 
-  app.use(session({
+  sessionMiddleware = session({
     name: sessionCookieName,
     secret: configuration.SESSION_SECRET,
     resave: false,
@@ -332,7 +336,8 @@ if (mongoConnectionString) {
       maxAge: sessionLifetimeMs,
       path: '/',
     },
-  }))
+  })
+  app.use(sessionMiddleware)
 } else {
   console.warn('MongoDB settings are empty; account endpoints will return a configuration error.')
 }
@@ -512,14 +517,21 @@ app.patch('/api/auth/profile', requireUser, async (req, res) => {
 })
 
 if (relationships) {
-  app.use('/api/companions', createCompanionRouter({
+  const companionRouter = createCompanionRouter({
     users, progress, relationships, sharedWords, conversations, companionMessages, companionReports, practiceSessions,
     requireUser, mailer: accountMailer, renderAvatar: accountAvatarPng, chatTyping, chatLive, chatReplay, groups, groupMembers,
-  }))
+  })
   const isModerator = createModeratorCheck((configuration.MODERATOR_USER_IDS ?? '').split(','))
-  app.use('/api/groups', createGroupsRouter({
+  const groupRouter = createGroupsRouter({
     users, groups, groupMembers, groupMessages, groupReports, requireUser, isModerator, chatTyping, chatLive, chatReplay,
-  }))
+  })
+  const routers = { private: companionRouter, group: groupRouter }
+  const realtime = createChatSocket({ server, sessionMiddleware, requireUser, routers,
+    authorize: (kind, req, id) => routers[kind].chatAccess(req, id),
+  })
+  chatLive.setSocketPublisher?.(realtime.publish)
+  app.use('/api/companions', realtime.middleware('private'), companionRouter)
+  app.use('/api/groups', realtime.middleware('group'), groupRouter)
   app.use('/api/moderation', createModerationRouter({
     users, groupMessages, groupReports, companionReports, requireUser, isModerator,
   }))
@@ -591,6 +603,6 @@ app.get(/^(?!\/api\/).*/, (_req, res, next) => {
   })
 })
 
-export const server = app.listen(port, isLocalDevelopment ? '127.0.0.1' : '0.0.0.0', () => {
+server.listen(port, isLocalDevelopment ? '127.0.0.1' : '0.0.0.0', () => {
   console.log(`Deutsch account API listening on port ${port}`)
 })

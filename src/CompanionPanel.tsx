@@ -24,7 +24,7 @@ import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
 import { formatChatTime } from './chatTime'
 import { conversationEntryState, isChatOverlayEntry, isConversationEntry, withoutChatOverlay } from './conversationHistory'
-import { watchChatChanges } from './chatLive'
+import { watchConversation } from './chatSocket'
 import { replayUpdatesInRange } from './chatReplay'
 import { useChatScrollState } from './useChatScrollState'
 import { useChatOverlayHistory } from './useChatOverlayHistory'
@@ -455,6 +455,7 @@ export function CompanionPanel({
     mode: 'replace' | 'merge' = 'replace',
     before?: Pick<ChatMessage, 'createdAt' | 'id'>,
     replayCursor?: string,
+    pushed?: { messages: ChatMessage[]; hasMore: boolean; typing: boolean },
   ) => {
     if (!before && olderChatInFlight.current?.id === chatId && !replayCursor) return null
     const sequence = chatOpenSequence.current
@@ -468,7 +469,9 @@ export function CompanionPanel({
     let reset = false
     try {
       const cursor = replayCursor ?? cached?.cursor
-      if (cursor && cached) {
+      if (pushed) {
+        data = { ...pushed, cursor: cached?.cursor }
+      } else if (cursor && cached) {
         let sync: { reset: boolean; messages?: ChatMessage[]; typing?: boolean; cursor?: string }
         try {
           sync = await request(`/chats/${chatId}/sync?cursor=${encodeURIComponent(cursor)}`) as typeof sync
@@ -506,7 +509,7 @@ export function CompanionPanel({
       const updates = data.messages.map(normalizeMessage)
       const messages = replayed && cached ? mergeMessages(cached.messages, replayUpdatesInRange(cached.messages, updates)) : updates
       privateCache.set(chatId, { messages, hasMore: data.hasMore, ...(data.cursor ? { cursor: data.cursor } : {}) })
-      setChatTyping({ id: chatId, typing: data.typing })
+      if (!pushed) setChatTyping({ id: chatId, typing: data.typing })
     }
     setChatMessages((current) => replayed
       ? mergeMessages(current, replayUpdatesInRange(current, data.messages))
@@ -596,9 +599,13 @@ export function CompanionPanel({
       })
     }
     const onVisibilityChange = () => { void refresh() }
-    const stopLive = watchChatChanges(`/api/companions/chats/${chatId}/live`, async () => {
+    const stopLive = watchConversation(`/api/companions/chats/${chatId}/live`, async () => {
       await Promise.all([refresh(true), practiceLiveRefresh.current?.(chatId)])
-    })
+    }, (snapshot) => {
+      if (selectedChatId.current !== chatId) return
+      if (snapshot.page) void loadMessages(chatId, 'merge', undefined, undefined, snapshot.page as { messages: ChatMessage[]; hasMore: boolean; typing: boolean })
+      if ('practice' in snapshot) { setPractice(snapshot.practice as PracticeSession | null); setPracticeSyncError(false) }
+    }, (value) => setChatTyping({ id: chatId, typing: value.typing }))
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       stopLive()
