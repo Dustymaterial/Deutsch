@@ -290,6 +290,11 @@ export function CompanionPanel({
   const [openingChat, setOpeningChat] = useState<Profile | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatTyping, setChatTyping] = useState<{ id: string; typing: boolean } | null>(null)
+  useEffect(() => {
+    if (!chatTyping?.typing) return
+    const timer = window.setTimeout(() => setChatTyping((current) => current === chatTyping ? null : current), 8000)
+    return () => window.clearTimeout(timer)
+  }, [chatTyping])
   const [chatError, setChatError] = useState<string | null>(null)
   const [chatLoading, setChatLoading] = useState(false)
   const [chatUpdating, setChatUpdating] = useState(false)
@@ -306,6 +311,7 @@ export function CompanionPanel({
   const [practiceSyncError, setPracticeSyncError] = useState(false)
   const [practiceActionError, setPracticeActionError] = useState<string | null>(null)
   const practiceRefreshSequence = useRef(0)
+  const practiceLiveRefresh = useRef<((id: string) => Promise<void>) | null>(null)
   const [practiceTag, setPracticeTag] = useState('')
   const [practiceAnswer, setPracticeAnswer] = useState('')
   const [searchFor, setSearchFor] = useState<string | null>(null)
@@ -589,14 +595,12 @@ export function CompanionPanel({
         setChatError(failure instanceof Error ? failure.message : 'Could not refresh messages.')
       })
     }
-    const timer = window.setInterval(() => {
-      void refresh()
-    }, 5000)
     const onVisibilityChange = () => { void refresh() }
-    const stopLive = watchChatChanges(`/api/companions/chats/${chatId}/live`, () => refresh(true))
+    const stopLive = watchChatChanges(`/api/companions/chats/${chatId}/live`, async () => {
+      await Promise.all([refresh(true), practiceLiveRefresh.current?.(chatId)])
+    })
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
-      window.clearInterval(timer)
       stopLive()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
@@ -689,6 +693,7 @@ export function CompanionPanel({
       if (selectedChatId.current === chatId && sequence === practiceRefreshSequence.current) setPracticeSyncError(true)
     }
   }, [fetchPractice])
+  useEffect(() => { practiceLiveRefresh.current = refreshPractice }, [refreshPractice])
   const reconcileOutbox = outbox.reconcile
   const pendingMessages = outbox.items.filter((item) => item.kind === 'private'
     && (item.chatId === selectedChat?.id || (item.recipientId && item.recipientId === (selectedChat?.companion.id ?? openingChat?.id)))
@@ -705,8 +710,7 @@ export function CompanionPanel({
     const sequence = practiceRefreshSequence
     const refresh = () => { void refreshPractice(selectedChat.id) }
     refresh()
-    const timer = window.setInterval(refresh, 4000)
-    return () => { sequence.current++; window.clearInterval(timer) }
+    return () => { sequence.current++ }
   }, [selectedChat, refreshPractice])
 
   useEffect(() => {

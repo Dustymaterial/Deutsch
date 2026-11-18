@@ -1,11 +1,12 @@
 import { ObjectId } from 'mongodb'
 
-const collections = ['companionMessages', 'groupMessages', 'chatTyping', 'groups', 'groupMembers']
+const collections = ['companionMessages', 'groupMessages', 'chatTyping', 'groups', 'groupMembers', 'practiceSessions']
 
 function destination(change) {
   const document = change.fullDocument
   switch (change.ns?.coll) {
     case 'companionMessages':
+    case 'practiceSessions':
       return document?.conversationId && ['private', document.conversationId]
     case 'groupMessages':
       return document?.groupId && ['group', document.groupId]
