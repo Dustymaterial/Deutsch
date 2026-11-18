@@ -41,6 +41,8 @@ Choose **Use this word** on a shared group word card to write a German sentence.
 
 Chat updates arrive live when connected. Recently opened conversations can be saved on this device for faster reopening; the app checks them with the server when opened. Use companion tools to turn off **Save recent chats on this device** on a shared device. Signing out clears that account's saved chat copies.
 
+Reopening a saved chat shows its recent history while updates arrive in the background. Temporary connection failures keep that history visible. A first visit, expired cache or cleared storage can still need an initial download.
+
 ## Make the vocabulary yours
 
 Fresh installs include **2,593 starter cards** across core vocabulary and ten themes. Source-supplied A1/A2 labels and examples can contain errors and are not independently verified. Existing decks are preserved.

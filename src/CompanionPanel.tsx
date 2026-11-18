@@ -1,4 +1,5 @@
 import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { isCachedPrivateMessage } from './chatCacheValidation'
 import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, Check, LayoutGridCircles, Languages, Reply, Search, ShieldCheck, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
@@ -363,12 +364,7 @@ export function CompanionPanel({
     setChatDetailsMenuOpen(Boolean(chatDetailsMenu.current))
   }
   const [privateCache] = useState(() => new PersistentChatCache<ChatMessage>(accountId ?? '', 'private', false,
-    (value): value is ChatMessage => Boolean(value && typeof value === 'object' && 'id' in value && typeof value.id === 'string'
-      && 'text' in value && typeof value.text === 'string' && 'createdAt' in value && typeof value.createdAt === 'string'
-      && Number.isFinite(Date.parse(value.createdAt)) && 'senderId' in value && typeof value.senderId === 'string'
-      && 'isMine' in value && typeof value.isMine === 'boolean' && 'reported' in value && typeof value.reported === 'boolean'
-      && 'kind' in value && (value.kind === 'text' || value.kind === 'word' || value.kind === 'unsent')
-      && 'reactions' in value && Array.isArray(value.reactions)),
+    (value): value is ChatMessage => isCachedPrivateMessage(value),
     (failure) => setCacheProblem(failure instanceof Error ? `Chat storage is unavailable: ${failure.message}` : 'Chat storage is unavailable.')))
   const [groupCache] = useState(() => new PersistentChatCache<GroupMessage>(accountId ?? '', 'group', false,
     (value): value is GroupMessage => Boolean(value && typeof value === 'object' && 'id' in value && typeof value.id === 'string'
@@ -525,7 +521,7 @@ export function CompanionPanel({
       : mode === 'replace' || reset ? data.messages.map(normalizeMessage) : mergeMessages(current, data.messages))
     if (mode === 'replace' || before || reset) setHasOlderMessages(data.hasMore)
     setChatError(null)
-    if (!before) setChatUpdating(false)
+    if (!before) { setChatUpdating(false); setChatLoading(false) }
     return data
   }, [privateCache])
 
@@ -604,6 +600,7 @@ export function CompanionPanel({
           return
         }
         setChatUpdating(false)
+        setChatLoading(false)
         setChatError(failure instanceof Error ? failure.message : 'Could not refresh messages.')
       })
     }
@@ -1067,16 +1064,28 @@ export function CompanionPanel({
         if (typeof data.id !== 'string' || !data.companion) throw new Error('The chat service returned an incomplete response.')
         if (chatOpenSequence.current !== sequence) return
         selectedChatId.current = data.id
-        setSelectedChat({ id: data.id, companion: data.companion })
+        if (!existing) setSelectedChat({ id: data.id, companion: data.companion })
         setOpeningChat(null)
+        if (!cached) {
+          await privateCache.whenReady()
+          if (chatOpenSequence.current !== sequence) return
+          const restored = privateCache.get(data.id)
+          if (restored) {
+            setChatMessages(restored.messages)
+            setHasOlderMessages(restored.hasMore)
+            setChatLoading(false)
+            setChatUpdating(true)
+          }
+        }
         await loadMessages(data.id)
       } catch (failure) {
         if (chatOpenSequence.current === sequence) {
-          privateCache.delete(existing?.id ?? '')
-          if (cached) setChatMessages([])
           setChatUpdating(false)
+          setChatLoading(false)
           const description = failure instanceof Error ? failure.message : 'Could not open this conversation.'
           if (failure instanceof CompanionApiError && [401, 403, 404].includes(failure.status)) {
+            privateCache.delete(existing?.id ?? '')
+            setChatMessages([])
             chatOpenSequence.current += 1
             selectedChatId.current = null
             setSelectedChat(null)
@@ -1087,8 +1096,6 @@ export function CompanionPanel({
           setError(description)
           setOpeningChat(null)
         }
-      } finally {
-        if (chatOpenSequence.current === sequence) setChatLoading(false)
       }
     })()
   }
@@ -1891,7 +1898,7 @@ export function CompanionPanel({
             <div className="companion-chat-stream" ref={chatStream} role="log" aria-label={`Messages with ${selectedChat.companion.username}`} aria-live="polite" aria-busy={chatUpdating}>
               <ChatMessageList updating={chatUpdating}>
               {hasOlderMessages && <button className="companion-load-older" type="button" disabled={loadingOlder || busy || chatUpdating} onClick={loadOlderMessages}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
-              {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0 && pendingMessages.length === 0
+              {chatLoading ? <CompanionLoader label="Loading conversation" /> : chatMessages.length === 0 && pendingMessages.length === 0 && !chatUpdating && !chatError
                 ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Start a thoughtful conversation.</p><span>Share a word, ask a question, or encourage today’s practice.</span></div>
                 : chatMessages.map((chatMessage) => <article className={`companion-message-row${highlightId === chatMessage.id ? ' highlighted' : ''}`} id={`companion-message-${chatMessage.id}`} key={chatMessage.id}>
                   <div className="companion-message-content">

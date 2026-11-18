@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import 'fake-indexeddb/auto'
 import { PersistentChatCache, clearChatCache, chatCacheEnabled, setChatCacheEnabled } from '../src/chatPersistentCache.ts'
+import { isCachedPrivateMessage } from '../src/chatCacheValidation.ts'
 
 const storage = new Map()
 globalThis.localStorage = {
@@ -15,6 +16,24 @@ const cache = (account, kind = 'private', enabled = true) =>
   new PersistentChatCache(account, kind, enabled, (value) => typeof value === 'string', (error) => errors.push(error))
 const page = (...messages) => ({ messages, hasMore: false })
 const flush = async (instance) => { await instance.queue }
+
+test('reopening a workspace restores review summaries synchronously before disk hydration', async () => {
+  await clearChatCache()
+  const summary = { id: 'summary', kind: 'practice', text: 'Review session ended.', senderId: 'learner', createdAt: new Date().toISOString(), isMine: true, reported: false, reactions: [] }
+  const first = new PersistentChatCache('summary', 'private', true, isCachedPrivateMessage, (error) => errors.push(error))
+  await first.whenReady()
+  first.set('chat', { messages: [summary], hasMore: false, cursor: 'cursor' })
+  const reopened = new PersistentChatCache('summary', 'private', false, isCachedPrivateMessage, (error) => errors.push(error))
+  assert.deepEqual(reopened.get('chat')?.messages, [summary])
+  await flush(first)
+  await reopened.start()
+  assert.equal(reopened.get('chat')?.cursor, 'cursor')
+  assert.equal(isCachedPrivateMessage({ ...summary, kind: 'unknown' }), false)
+  assert.equal(isCachedPrivateMessage({ ...summary, createdAt: 'bad' }), false)
+  await clearChatCache('summary')
+  const cleared = new PersistentChatCache('summary', 'private', false, isCachedPrivateMessage, () => {})
+  assert.equal(cleared.get('chat'), null)
+})
 
 test('identical live pages do not queue another disk write', async () => {
   const instance = cache('unchanged')

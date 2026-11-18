@@ -72,6 +72,7 @@ export function createChatSocket({ server, sessionMiddleware, requireUser, route
     }
     if (page.status !== 200) { socket.emit('access-lost'); return }
     socket.data.pageInfo = { ...page.data, messages: [] }
+    delete socket.data.pageInfo.reset
     for (const id of changedIds) {
       if (channel.kind === 'private' && await routers.private.chatMessageChannel(socket.request, id) !== channel.id) continue
       const message = channel.kind === 'private' ? await routers.private.chatMessage(socket.request, id)

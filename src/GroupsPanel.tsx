@@ -17,7 +17,7 @@ import {
   errorMessage, groupsRequest, GroupsApiError,
   type GroupDirectory, type GroupMessage, type GroupReview, type GroupSummary, type Profile,
 } from './groupsApi'
-import type { ChatMemoryCache } from './chatMemoryCache'
+import type { PersistentChatCache } from './chatPersistentCache'
 import { useVisibleChatRead } from './useVisibleChatRead'
 import { ChatMessageList } from './ChatMessageList'
 import { useChatTyping } from './useChatTyping'
@@ -265,7 +265,7 @@ const mergeMessages = (current: GroupMessage[], incoming: GroupMessage[]) => {
 
 export function GroupConversation({ group, cache, outbox, canModerate, onClose, reload, wordTools, shareableCards, cardPayload, cardInDeck, onReceiveWord, onNotify }: {
   group: GroupSummary
-  cache: ChatMemoryCache<GroupMessage>
+  cache: PersistentChatCache<GroupMessage>
   outbox: ChatOutbox
   canModerate: boolean
   onClose: () => void
@@ -353,6 +353,18 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
   const sentPendingKey = pendingMessages.filter((item) => item.status === 'sent').map((item) => item.id).join(',')
   const refreshedSends = useRef(new Set<string>())
   useEffect(() => {
+    let active = true
+    void cache.whenReady().then(() => {
+      const restored = cache.get(group.id)
+      if (active && restored && firstLoad.current && !accessDenied.current) {
+        setMessages(restored.messages)
+        setHasOlder(restored.hasMore)
+        setLoaded(true)
+      }
+    })
+    return () => { active = false }
+  }, [cache, group.id])
+  useEffect(() => {
     reconcileOutbox('group', group.id, messages.map((message) => message.id))
   }, [group.id, messages, reconcileOutbox])
   const overlay = [
@@ -432,6 +444,8 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     const sequence = ++loadSequence.current
     loadingRef.current = true
     try {
+      await cache.whenReady()
+      if (sequence !== loadSequence.current) return
       const cached = cache.get(group.id)
       let replayed = false
       let reset = false
@@ -489,7 +503,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     } catch (failure) {
       if (sequence !== loadSequence.current) return
       const denied = failure instanceof GroupsApiError && [401, 403, 404].includes(failure.status)
-      if (firstLoad.current || denied) {
+      if (denied) {
         cache.delete(group.id)
         setMessages([])
       }
@@ -1150,7 +1164,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     <div className="companion-chat-stream" ref={stream} role="log" aria-label={`Messages in ${group.name}`} aria-live="polite" aria-busy={updating}>
       <ChatMessageList updating={updating}>
       {hasOlder && <button className="companion-load-older" type="button" disabled={loadingOlder || updating} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}
-      {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0 && pendingMessages.length === 0
+      {!loaded ? <p className="companion-empty-note">Loading messages…</p> : messages.length === 0 && pendingMessages.length === 0 && !updating && !error
         ? <div className="companion-chat-empty"><img className="companion-welcome-logo" src="/app-icon.svg" alt="" /><p>Say hello to the group.</p><span>Ask a question, share a tip, or welcome someone new.</span></div>
         : messages.map((message) => message.kind === 'system'
           ? <p className="group-system-message" key={message.id}>{message.text}</p>

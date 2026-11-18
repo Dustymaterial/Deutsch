@@ -32,17 +32,20 @@ export function watchConversation(path: string, refresh: () => Promise<void> | v
   ready = false
   const client = socket = io({ transports: ['websocket'], autoConnect: false })
   let fallback: (() => void) | undefined
+  let fallbackTimer: ReturnType<typeof setTimeout> | undefined
   const startFallback = () => { ready = false; fallback ??= watchChatChanges(path, refresh) }
   client.on('connect', () => {
     client.timeout(10000).emit('subscribe', { ...channel, ...resume?.() }, (error: Error | null, result: { ok?: boolean }) => {
       if (error || !result?.ok) { startFallback(); return }
       ready = true
+      clearTimeout(fallbackTimer)
       fallback?.(); fallback = undefined
     })
   })
   client.on('snapshot', (value: Snapshot) => {
     if (value.kind !== channel.kind || value.id !== channel.id) return
     ready = true
+    clearTimeout(fallbackTimer)
     fallback?.(); fallback = undefined
     onSnapshot(value)
   })
@@ -52,9 +55,10 @@ export function watchConversation(path: string, refresh: () => Promise<void> | v
   client.on('connect_error', startFallback)
   client.on('refresh-error', startFallback)
   client.on('access-lost', () => { void refresh() })
-  startFallback()
+  fallbackTimer = setTimeout(startFallback, 1000)
   client.connect()
   return () => {
+    clearTimeout(fallbackTimer)
     client.removeAllListeners(); client.disconnect(); fallback?.()
     if (socket === client) { socket = null; active = null; ready = false }
   }
