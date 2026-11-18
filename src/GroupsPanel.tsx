@@ -281,6 +281,11 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
   const [cachedPage] = useState(() => cache.get(group.id))
   const [messages, setMessages] = useState<GroupMessage[]>(cachedPage?.messages ?? [])
   const [typing, setTyping] = useState<Profile[]>([])
+  useEffect(() => {
+    if (!typing.length) return
+    const timer = window.setTimeout(() => setTyping((current) => current === typing ? [] : current), 8000)
+    return () => window.clearTimeout(timer)
+  }, [typing])
   const [loaded, setLoaded] = useState(Boolean(cachedPage))
   const [updating, setUpdating] = useState(Boolean(cachedPage))
   const [unavailable, setUnavailable] = useState(false)
@@ -577,12 +582,10 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     }
     const onVisibilityChange = () => { void refresh() }
     const first = window.setTimeout(() => { void refresh() }, 0)
-    const timer = window.setInterval(() => { void refresh() }, 5000)
     const stopLive = watchChatChanges(`/api/groups/${group.id}/live`, () => refresh(true))
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       window.clearTimeout(first)
-      window.clearInterval(timer)
       stopLive()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       loadSequence.current += 1

@@ -20,6 +20,22 @@ class Response extends EventEmitter {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
+test('review changes notify only their private conversation without sending card or answer content', async () => {
+  const stream = new EventEmitter()
+  const hub = createChatLiveHub({ watch: () => stream })
+  const req = new EventEmitter()
+  const res = new Response()
+  hub.subscribe(req, res, 'private', 'chat-a', async () => true)
+  stream.emit('change', { ns: { coll: 'practiceSessions' }, operationType: 'update', fullDocument: { conversationId: 'chat-b', answer: 'private answer' } })
+  await tick()
+  assert.equal(res.chunks.some((chunk) => chunk.startsWith('event: change')), false)
+  stream.emit('change', { ns: { coll: 'practiceSessions' }, operationType: 'update', fullDocument: { conversationId: 'chat-a', answer: 'private answer' } })
+  await tick()
+  assert.equal(res.chunks.filter((chunk) => chunk.startsWith('event: change')).length, 1)
+  assert.equal(res.chunks.some((chunk) => chunk.includes('private answer')), false)
+  req.emit('close')
+})
+
 test('live hints are scoped, reauthorized and coalesced while authorization is pending', async () => {
   const stream = new EventEmitter()
   stream.close = async () => {}

@@ -1,9 +1,13 @@
-export function watchChatChanges(path: string, refresh: () => Promise<void> | void) {
+export function watchChatChanges(path: string, refresh: () => Promise<void> | void, onConnection?: (connected: boolean) => void) {
   const source = new EventSource(path)
-  let warned = false
   let closed = false
   let pending = false
   let running = false
+  let fallback: ReturnType<typeof setInterval> | undefined
+  const stopFallback = () => { clearInterval(fallback); fallback = undefined }
+  const startFallback = () => {
+    if (!closed && fallback === undefined) fallback = setInterval(invalidate, 5000)
+  }
   const invalidate = () => {
     pending = true
     if (running) return
@@ -22,17 +26,17 @@ export function watchChatChanges(path: string, refresh: () => Promise<void> | vo
     })()
   }
   const onOpen = () => {
-    warned = false
+    stopFallback()
+    onConnection?.(true)
     invalidate()
   }
   const onError = () => {
-    if (!warned) {
-      console.warn('Live chat is disconnected; periodic refresh remains active.')
-      warned = true
-    }
+    startFallback()
+    onConnection?.(false)
   }
   source.addEventListener('open', onOpen)
   source.addEventListener('change', invalidate)
   source.addEventListener('error', onError)
-  return () => { closed = true; source.close() }
+  startFallback()
+  return () => { closed = true; stopFallback(); source.close() }
 }
