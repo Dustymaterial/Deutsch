@@ -186,7 +186,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
             <div className="learn-search">
               <span>Select a word</span>
               <MenuSelect ariaLabel="Select a word" value={card?.id ?? ''}
-                options={visible.map((item) => ({ value: item.id, label: `${item.prompt} — ${item.meaning}` }))}
+                options={visible.map((item) => ({ value: item.id, label: `${item.prompt}: ${item.meaning}` }))}
                 onChange={selectWord} />
             </div>
           )}
@@ -215,7 +215,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
                         ))}
                       </div>
                     ) : <p className="learn-note">Not enough distinct choices yet. You can continue without a check.</p>}
-                    {choice && <p role="status" className="learn-note">{choice === card.id ? 'That’s right.' : `Not quite—${card.prompt} means ${card.meaning}.`} This check doesn’t affect your score or schedule.</p>}
+                    {choice && <p role="status" className="learn-note">{choice === card.id ? 'That’s right.' : `Not quite. ${card.prompt} means ${card.meaning}.`}</p>}
                   </div>
                 ) : (
                   <>

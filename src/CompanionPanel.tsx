@@ -215,7 +215,7 @@ function CompanionPracticeSession({
                   <strong lang="de">{card.example}</strong>
                   {card.translation && <span className="translation" lang="en">{card.translation}</span>}
                 </div>}
-                <p className="companion-practice-feedback" role="status">{practice.feedback === 'correct' ? 'Correct — nice recall.' : 'Take a moment to review the answer.'}</p>
+                <p className="companion-practice-feedback" role="status">{practice.feedback === 'correct' ? 'Correct. Nice recall.' : 'Review the answer when ready.'}</p>
               </div>
               : card
                 ? <div className="card-front companion-practice-card-content">
@@ -1405,7 +1405,7 @@ export function CompanionPanel({
     const scope = practiceTag ? ` from ${practiceTag}` : ''
     const confirmed = await confirmDialog({
       title: `Ask ${selectedChat.companion.username} to practise together?`,
-      message: `Deutsch Deck will choose five reviewed words${scope} at random. Neither of you sees them before the session begins, and practice never changes your review history or schedule.`,
+      message: `Ask for help reviewing five randomly chosen words${scope}? Your review schedule will not change.`,
       confirmLabel: 'Ask to practise',
     })
     if (!confirmed) return
@@ -1783,7 +1783,7 @@ export function CompanionPanel({
                   <summary className="companion-header-pill" aria-label="Review together" title="Review together"><BookOpen size={16} aria-hidden="true" /></summary>
                   <div className="companion-practice-fab-panel">
                     <div className="group-popover-heading"><strong>Review together</strong></div>
-                    <p>Five reviewed words are chosen at random. You’ll see them when your companion joins.</p>
+                    <p>Review five randomly chosen words with your companion.</p>
                     <div className="companion-field">Limit to a lesson or topic (optional)
                       <MenuSelect ariaLabel="Lesson or topic for practice" value={practiceTag} onChange={setPracticeTag} options={[{ value: '', label: 'All reviewed words' }, ...practiceTags.map((tag) => ({ value: tag, label: tag }))]} />
                     </div>
@@ -1825,7 +1825,7 @@ export function CompanionPanel({
                 : <CompanionLoader label="Searching" compact />)}
             </div>}
             {!practice && <aside className="companion-practice-nudge" aria-label="Practice suggestion">
-              <p>Try using one word you reviewed recently in a sentence. A small practice moment counts.</p>
+              <p>Try using a recently reviewed word in a sentence.</p>
             </aside>}
             {practice ? <CompanionPracticeSession
               practice={practice}
