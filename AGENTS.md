@@ -34,6 +34,7 @@ Deutsch Daily Deck is a mobile-friendly German vocabulary trainer with an option
 - Word-level example highlights are a limited, manually verified prototype in Learn and revealed or submitted answers. Match only the exact German and English sentence pair; never guess word alignments for other examples.
 - Keep scrollbars hidden inside cards and let Learn and revealed Recall cards expand for longer content.
 - Keep Add a word, Tune session, and Goal & pace in anchored panels; outside clicks must not discard unfinished entries or goal edits. Tune session changes apply immediately.
+- App anchored panels use the shared panel layers above the mobile chat workspace, with the active panel in front and portalled selects above it. Chat headers and message actions must never cover an app form.
 - Keep scheduling deterministic, testable, local, and independent from AI or network services.
 - Store progress locally by default. Never require a backend for core study; add sync or a database only for a clear user need and with explicit privacy/security design.
 - Require email verification for new accounts while allowing existing unverified accounts to sign in and study. Account codes are time-limited, single-use, rate-limited, and stored as keyed digests; password resets invalidate existing sessions. Never expose Mailjet credentials or log codes.

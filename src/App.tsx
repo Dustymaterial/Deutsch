@@ -454,7 +454,7 @@ function AddCardDialog({
       <section
         ref={panelRef}
         className="add-dialog anchored-panel"
-        style={{ zIndex: isFront ? 4 : 3 }}
+        data-front={isFront}
         onPointerDownCapture={onActivate}
         onFocusCapture={onActivate}
         role="dialog"
@@ -826,7 +826,7 @@ function StudyPlanDialog({
         ref={panelRef}
         tabIndex={-1}
         className="add-dialog study-plan-dialog anchored-panel"
-        style={{ zIndex: isFront ? 4 : 3 }}
+        data-front={isFront}
         onPointerDownCapture={onActivate}
         onFocusCapture={onActivate}
         role="dialog"
@@ -1072,7 +1072,7 @@ function SessionSettingsDialog({
         ref={panelRef}
         tabIndex={-1}
         className="add-dialog session-settings-dialog anchored-panel"
-        style={{ zIndex: isFront ? 4 : 3 }}
+        data-front={isFront}
         onPointerDownCapture={onActivate}
         onFocusCapture={onActivate}
         role="dialog"
