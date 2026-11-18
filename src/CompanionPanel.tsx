@@ -163,15 +163,13 @@ function CompanionPracticeSession({
       <div className="card card-back card-back-2" aria-hidden="true" />
       <article className="flashcard companion-practice-card">
         <header className="card-header">
-          <span className="tag">{waiting ? 'Together' : card?.category ?? 'Practice'}</span>
+          <span className="tag">{waiting ? 'Practice' : card?.category ?? 'Practice'}</span>
           <span className="progress">{waiting ? '5 words' : `${practice.position}/${practice.total}`}</span>
         </header>
 
         {waiting
           ? <div className="card-front companion-practice-card-content">
-            <p className="prompt-label">Review together</p>
             <h2>{helping ? `${companionName} asked for your help` : 'Ready to review together'}</h2>
-            <p className="companion-practice-copy">Review five words together, one at a time. Your schedule stays unchanged.</p>
             {helping
               ? <div className="companion-practice-cta">
                 <button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('accept')}>Help practise</button>
@@ -1783,7 +1781,7 @@ export function CompanionPanel({
                   <summary className="companion-header-pill" aria-label="Review together" title="Review together"><BookOpen size={16} aria-hidden="true" /></summary>
                   <div className="companion-practice-fab-panel">
                     <div className="group-popover-heading"><strong>Review together</strong></div>
-                    <p>Review five randomly chosen words with your companion.</p>
+                    <p>Five reviewed words, chosen at random.</p>
                     <div className="companion-field">Limit to a lesson or topic (optional)
                       <MenuSelect ariaLabel="Lesson or topic for practice" value={practiceTag} onChange={setPracticeTag} options={[{ value: '', label: 'All reviewed words' }, ...practiceTags.map((tag) => ({ value: tag, label: tag }))]} />
                     </div>
