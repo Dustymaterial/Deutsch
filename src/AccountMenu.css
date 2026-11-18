@@ -1728,6 +1728,15 @@
 .companion-practice-session .quiet-button { min-height: 38px; width: 100%; margin: 0; }
 .companion-practice-waiting, .companion-practice-feedback { margin: 0; color: #625b54; font-size: 0.84rem; line-height: 1.48; }
 .companion-practice-waiting { margin-top: auto; padding-top: 20px; }
+.companion-wait-dots span { animation: companion-wait-pulse 1.4s infinite ease-in-out; }
+.companion-wait-dots span:nth-child(2) { animation-delay: 0.2s; }
+.companion-wait-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes companion-wait-pulse { 0%, 60%, 100% { opacity: 0.35; } 30% { opacity: 1; } }
+.companion-practice-presence { flex: 0 1 auto !important; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; padding: 4px 9px 4px 4px; border-radius: 999px; background: #f0f2ed; color: #58665c; font: 600 0.65rem system-ui, sans-serif; }
+.companion-practice-presence img { width: 24px; height: 24px; flex: none; border-radius: 8px; background: #e2eadd; animation: companion-presence-bob 2s ease-in-out infinite; }
+.companion-practice-presence span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes companion-presence-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .companion-wait-dots span, .companion-practice-presence img { animation: none; } }
 .companion-practice-expected {
   display: grid;
   gap: 5px;
@@ -1786,6 +1795,7 @@
 .companion-practice-fab-panel > p { margin: 0; color: #706974; font-size: 0.72rem; line-height: 1.45; }
 .companion-practice-fab-panel .menu-select-trigger { width: 100%; background: #fffefa; }
 .companion-practice-fab-panel .companion-card-actions { margin-top: 0; }
+.companion-practice-fab-panel .companion-card-actions button { background: #292a2d; color: #fffefa; }
 .companion-word-card {
   max-width: 380px;
   display: grid;

@@ -141,13 +141,14 @@ function CompanionLoader({ label, compact = false }: { label: string; compact?: 
 }
 
 function CompanionPracticeSession({
-  practice, companionName, answer, busy, onAnswerChange, onSubmitAnswer, onDecision,
+  practice, companionName, answer, busy, onAnswerChange, onAnswerBlur, onSubmitAnswer, onDecision,
 }: {
   practice: PracticeSession
   companionName: string
   answer: string
   busy: boolean
   onAnswerChange: (value: string) => void
+  onAnswerBlur: () => void
   onSubmitAnswer: (event: React.FormEvent<HTMLFormElement>) => void
   onDecision: (decision: PracticeDecision) => void
 }) {
@@ -194,7 +195,7 @@ function CompanionPracticeSession({
                   <span>{companionName} answered</span>
                   <strong>{practice.answer}</strong>
                 </div>
-                : <p className="companion-practice-waiting" role="status">Waiting for their answer.</p>}
+                : <p className="companion-practice-waiting companion-practice-waiting-animated" role="status">Waiting for their answer<span className="companion-wait-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>}
               {practice.answer && !practice.feedback && <div className="companion-practice-actions" role="group" aria-label="Respond to answer">
                 <button type="button" className="rating good" disabled={busy} onClick={() => onDecision('correct')}><Check size={17} aria-hidden="true" />Correct</button>
                 <button type="button" className="rating hard" disabled={busy} onClick={() => onDecision('try-again')}>Try again</button>
@@ -225,7 +226,7 @@ function CompanionPracticeSession({
                       ? <p className="companion-practice-waiting" role="status">Waiting for {companionName}’s feedback.</p>
                       : <form className="production-answer-form companion-practice-answer-form" onSubmit={onSubmitAnswer}>
                         <label>English meaning
-                          <input value={answer} maxLength={1000} autoComplete="off" onChange={(event) => onAnswerChange(event.target.value)} placeholder="Type your answer" />
+                          <input value={answer} maxLength={1000} autoComplete="off" onChange={(event) => onAnswerChange(event.target.value)} onBlur={onAnswerBlur} placeholder="Type your answer" />
                         </label>
                         <button type="submit" className="primary-button" disabled={busy || !answer.trim()}>Send answer</button>
                       </form>}
@@ -802,6 +803,11 @@ export function CompanionPanel({
     useCallback(async (id: string, typing: boolean) => { await request(`/chats/${id}/typing`, { typing }) }, []),
     useCallback((failure: unknown) => setChatError(failure instanceof Error ? failure.message : 'Could not update typing status.'), []),
   )
+  useEffect(() => {
+    const chatId = selectedChat?.id
+    if (!chatId || practice?.status !== 'active' || practice.role !== 'learner') return
+    return () => publishTyping(chatId, false)
+  }, [selectedChat?.id, practice?.id, practice?.role, practice?.status, publishTyping])
   useVisibleChatRead({
     chatKey: selectedChat?.id ?? null,
     messageId: newestMessageId,
@@ -1432,6 +1438,7 @@ export function CompanionPanel({
   const submitPracticeAnswer = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!selectedChat || !practice || !practiceAnswer.trim()) return
+    publishTyping(selectedChat.id, false)
     void run(async () => {
       const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/answer`, { answer: practiceAnswer }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not save your answer.')
@@ -1776,6 +1783,10 @@ export function CompanionPanel({
             <header className="companion-chat-header">
               <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
+              {practice?.status === 'active' && ((practice.role === 'helper' && ((!practice.answer && !practice.feedback && chatTyping?.id === selectedChat.id && chatTyping.typing) || (practice.answer && !practice.feedback))) || (practice.role === 'learner' && !practice.answer && !practice.feedback)) && <div className="companion-practice-presence" role="status">
+                <img src={avatarDataUri(selectedChat.companion.avatarSeed)} alt="" />
+                <span>{selectedChat.companion.username} is {practice.role === 'helper' && !practice.answer && chatTyping?.id === selectedChat.id && chatTyping.typing ? 'typing' : 'waiting'}</span>
+              </div>}
               {!practice && <div className="companion-chat-header-actions">
                 <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>
                   <summary className="companion-header-pill" aria-label="Review together" title="Review together"><BookOpen size={16} aria-hidden="true" /></summary>
@@ -1830,7 +1841,8 @@ export function CompanionPanel({
               companionName={selectedChat.companion.username}
               answer={practiceAnswer}
               busy={busy}
-              onAnswerChange={setPracticeAnswer}
+              onAnswerChange={(value) => { setPracticeAnswer(value); publishTyping(selectedChat.id, Boolean(value.trim())) }}
+              onAnswerBlur={() => publishTyping(selectedChat.id, false)}
               onSubmitAnswer={submitPracticeAnswer}
               onDecision={decidePractice}
             /> : <>
