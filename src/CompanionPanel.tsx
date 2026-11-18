@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, Check, LayoutGridCircles, Languages, Reply, Search, ShieldCheck, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
 import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
@@ -81,9 +81,10 @@ type PracticeSession = {
   position?: number
   card?: PracticeCard
   answer?: string
+  revealRequested?: boolean
   feedback?: 'try-again' | 'correct' | 'reveal'
 }
-type PracticeDecision = 'accept' | 'decline' | 'end' | 'try-again' | 'correct' | 'reveal' | 'retry' | 'next'
+type PracticeDecision = 'accept' | 'decline' | 'end' | 'try-again' | 'correct' | 'reveal' | 'request-reveal' | 'retry' | 'next'
 export type CompanionDirectory = { companions: Companion[]; sharedWords: SharedWordPreview[]; emailsEnabled: boolean; chats: ChatSummary[] }
 type SelectedChat = { id: string; companion: Profile }
 type SidebarView = 'chats' | 'requests' | 'shared' | 'groups' | 'moderation'
@@ -141,8 +142,13 @@ function CompanionLoader({ label, compact = false }: { label: string; compact?: 
   return <div className={`companion-loader${compact ? ' compact' : ''}`} role="status" aria-label={label}><span /></div>
 }
 
+function PracticeStatusText({ children }: { children: React.ReactNode }) {
+  const text = Children.toArray(children).join('')
+  return <><span className="companion-visually-hidden">{text}</span><span aria-hidden="true" key={text}>{text.split(/\s+/).map((word, index) => <span key={index}><span className="companion-status-word" style={{ animationDelay: `${Math.min(index, 18) * 65}ms` }}>{word}</span>{' '}</span>)}</span></>
+}
+
 function PracticeWaiting({ children }: { children: React.ReactNode }) {
-  return <p className="companion-practice-waiting" role="status"><span className="companion-wait-text">{children}<span aria-hidden="true">…</span></span></p>
+  return <p className="companion-practice-waiting" role="status"><PracticeStatusText>{children}</PracticeStatusText></p>
 }
 
 function CompanionPracticeSession({
@@ -200,13 +206,14 @@ function CompanionPracticeSession({
                   <span>{companionName} answered</span>
                   <strong>{practice.answer}</strong>
                 </div>
-                : <PracticeWaiting>Waiting for their answer</PracticeWaiting>}
-              {practice.answer && !practice.feedback && <div className="companion-practice-handoff" key={`${practice.position}-${practice.answer}`}><p>Choose your feedback</p><div className="companion-practice-actions" role="group" aria-label="Respond to answer">
+                : !practice.feedback && !practice.revealRequested && <PracticeWaiting>Waiting for their answer</PracticeWaiting>}
+              {practice.revealRequested && <div className="companion-practice-cta"><p className="companion-practice-feedback" role="status"><PracticeStatusText>{companionName} asked for a reveal.</PracticeStatusText></p><button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('reveal')}>Reveal answer</button></div>}
+              {practice.answer && !practice.feedback && !practice.revealRequested && <div className="companion-practice-handoff" key={`${practice.position}-${practice.answer}`}><p>Choose your feedback</p><div className="companion-practice-actions" role="group" aria-label="Respond to answer">
                 <button type="button" className="rating companion-practice-correct" disabled={busy} onClick={() => onDecision('correct')}>Correct</button>
                 <button type="button" className="rating" disabled={busy} onClick={() => onDecision('try-again')}>Try again</button>
                 <button type="button" className="rating" disabled={busy} onClick={() => onDecision('reveal')}>Reveal</button>
               </div></div>}
-              {practice.feedback && <p key={practice.feedback} className="companion-practice-waiting companion-practice-status-in" role="status">{practice.feedback === 'try-again' ? 'They can try another answer.' : practice.feedback === 'correct' ? 'Marked correct. They can continue when ready.' : 'The answer was revealed. They can continue when ready.'}</p>}
+              {practice.feedback && !practice.revealRequested && <p key={practice.feedback} className="companion-practice-waiting" role="status"><PracticeStatusText>{practice.feedback === 'try-again' ? 'They can try another answer.' : practice.feedback === 'correct' ? 'Marked correct. They can continue when ready.' : 'The answer was revealed. They can continue when ready.'}</PracticeStatusText></p>}
             </div>
             : card && revealed
               ? <div className="card-back-content companion-practice-reveal">
@@ -219,14 +226,14 @@ function CompanionPracticeSession({
                   <strong lang="de">{card.example}</strong>
                   {card.translation && <span className="translation" lang="en">{card.translation}</span>}
                 </div>}
-                <p className="companion-practice-feedback" role="status">{practice.feedback === 'correct' ? 'Correct. Nice recall.' : 'Review the answer when ready.'}</p>
+                <p className="companion-practice-feedback" role="status"><PracticeStatusText>{practice.feedback === 'correct' ? 'Correct. Nice recall.' : 'Review the answer when ready.'}</PracticeStatusText></p>
               </div>
               : card
                 ? <div className="card-front companion-practice-card-content">
                   <p className="prompt-label">What does this mean?</p>
                   <h2 lang="de">{prompt}</h2>
-                  {practice.feedback === 'try-again'
-                    ? <div className="companion-practice-cta companion-practice-status-in"><p className="companion-practice-feedback" role="status">Not quite yet. Take another look when you are ready.</p><button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('retry')}>Try again</button></div>
+                  {practice.revealRequested ? <PracticeWaiting>Waiting for {companionName} to reveal</PracticeWaiting> : practice.feedback === 'try-again'
+                    ? <div className="companion-practice-cta"><p className="companion-practice-feedback" role="status"><PracticeStatusText>Not quite yet. Take another look when you are ready.</PracticeStatusText></p><button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('retry')}>Try again</button></div>
                     : practice.answer
                       ? <><div className="companion-practice-response"><span>Your answer</span><strong>{practice.answer}</strong></div><PracticeWaiting>Waiting for {companionName}’s feedback</PracticeWaiting></>
                       : <form className="production-answer-form companion-practice-answer-form" onSubmit={onSubmitAnswer}>
@@ -235,6 +242,7 @@ function CompanionPracticeSession({
                         </label>
                         <button type="submit" className="primary-button" disabled={busy || !answer.trim()}>Send answer</button>
                       </form>}
+                  {!practice.revealRequested && <button type="button" className="quiet-button companion-practice-request-reveal" disabled={busy} onClick={() => onDecision('request-reveal')}>Ask to reveal</button>}
                 </div>
                 : null}
       </article>

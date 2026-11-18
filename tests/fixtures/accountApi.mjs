@@ -582,6 +582,7 @@ try {
   assert.equal(helperPractice.body.practice.total, 5)
   const practiceDecision = `${practicePath}/${startedPractice.body.practice.id}/decision`
   const practiceAnswer = `${practicePath}/${startedPractice.body.practice.id}/answer`
+  assert.equal((await request(practiceDecision, { decision: 'request-reveal' }, learner.cookie)).status, 409)
   assert.equal((await request(practiceDecision, { decision: 'accept' }, learner.cookie)).status, 409)
   const acceptedSocketPractice = await socketCall(helperSocket, 'command', { path: practiceDecision.replace('/api/companions', ''), body: { decision: 'accept' } })
   const acceptedPractice = { status: acceptedSocketPractice.status, body: acceptedSocketPractice.data }
@@ -616,10 +617,19 @@ try {
     assert.equal((await request(practiceDecision, { decision: 'retry' }, learner.cookie)).status, 200)
   }
   assert.equal((await request(practiceAnswer, { answer: 'one more attempt' }, learner.cookie)).status, 400)
+  assert.equal((await request(practiceDecision, { decision: 'request-reveal' }, other.cookie)).status, 409)
+  const revealRequest = await request(practiceDecision, { decision: 'request-reveal' }, learner.cookie)
+  assert.equal(revealRequest.body.practice.revealRequested, true)
+  assert.equal(revealRequest.body.practice.card.meaning, undefined)
+  assert.equal((await request(practiceDecision, { decision: 'request-reveal' }, learner.cookie)).status, 200)
+  assert.equal((await request(practiceDecision, { decision: 'reveal' }, learner.cookie)).status, 409)
+  assert.equal((await request(practiceDecision, { decision: 'reveal' }, other.cookie)).status, 200)
+  assert.equal((await request(practiceDecision, { decision: 'reveal' }, other.cookie)).status, 409)
+  assert.equal(typeof (await request(practicePath, null, learner.cookie)).body.practice.card.example, 'string')
   assert.equal((await request(practiceDecision, { decision: 'end' }, other.cookie)).body.practice.status, 'ended')
   const firstSummary = records.companionMessages.find((item) => item._id.toString() === startedPractice.body.practice.id)
   assert.match(firstSummary.text, /Review session ended/)
-  assert.match(firstSummary.text, /0 recalled · 0 after retry · 0 revealed/)
+  assert.match(firstSummary.text, /0 recalled · 0 after retry · 1 revealed/)
   const secondPractice = await request(practicePath, {}, learner.cookie)
   const secondDecision = `${practicePath}/${secondPractice.body.practice.id}/decision`
   const secondAnswer = `${practicePath}/${secondPractice.body.practice.id}/answer`
@@ -646,6 +656,12 @@ try {
   assert.equal((await request(fullDecision, { decision: 'accept' }, other.cookie)).status, 200)
   for (let index = 0; index < 5; index++) {
     assert.equal((await request(fullAnswer, { answer: 'an answer' }, learner.cookie)).status, 200)
+    if (index === 2) {
+      assert.equal((await request(fullDecision, { decision: 'try-again' }, other.cookie)).status, 200)
+      assert.equal((await request(fullDecision, { decision: 'request-reveal' }, learner.cookie)).body.practice.revealRequested, true)
+      assert.equal((await request(fullDecision, { decision: 'retry' }, learner.cookie)).status, 409)
+      assert.equal((await request(fullAnswer, { answer: 'another answer' }, learner.cookie)).status, 409)
+    }
     if (index === 1) {
       assert.equal((await request(fullDecision, { decision: 'try-again' }, other.cookie)).status, 200)
       assert.equal((await request(fullDecision, { decision: 'retry' }, learner.cookie)).status, 200)
