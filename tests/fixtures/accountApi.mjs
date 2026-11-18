@@ -582,6 +582,13 @@ try {
   assert.equal((await request(secondDecision, { decision: 'accept' }, other.cookie)).status, 200)
   assert.equal((await request(secondAnswer, { answer: 'desk' }, learner.cookie)).status, 200)
   assert.equal((await request(secondDecision, { decision: 'correct' }, other.cookie)).body.practice.feedback, 'correct')
+  const learnerRevealedPractice = (await request(practicePath, null, learner.cookie)).body.practice
+  const revealedCard = practiceCards.find((card) => card.prompt === learnerRevealedPractice.card.prompt)
+  assert.equal(learnerRevealedPractice.card.meaning, revealedCard.meaning)
+  assert.equal(learnerRevealedPractice.card.example, revealedCard.example)
+  assert.equal(learnerRevealedPractice.card.translation, revealedCard.translation)
+  assert.equal(learnerRevealedPractice.card.article, revealedCard.article)
+  assert.equal(learnerRevealedPractice.card.plural, revealedCard.plural)
   assert.equal((await request(secondDecision, { decision: 'next' }, learner.cookie)).body.practice.position, 2)
   assert.equal((await request(secondDecision, { decision: 'end' }, other.cookie)).body.practice.status, 'ended')
   assert.equal((await request(practicePath, null, learner.cookie)).body.practice, null)

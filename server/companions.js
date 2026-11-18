@@ -118,6 +118,7 @@ export function createCompanionRouter({
     const active = session.status === 'active'
     const card = active ? session.cards[session.cardIndex] : null
     const feedback = session.round?.feedback
+    const answerVisible = feedback === 'correct' || feedback === 'reveal'
     return {
       id: session._id.toString(),
       role: helper ? 'helper' : 'learner',
@@ -131,7 +132,12 @@ export function createCompanionRouter({
               prompt: card.prompt,
               ...(card.article ? { article: card.article } : {}),
               category: card.category,
-              ...(feedback === 'reveal' ? { meaning: card.meaning, ...(card.plural ? { plural: card.plural } : {}) } : {}),
+              ...(answerVisible ? {
+                meaning: card.meaning,
+                ...(card.plural ? { plural: card.plural } : {}),
+                example: card.example,
+                ...(card.translation ? { translation: card.translation } : {}),
+              } : {}),
             },
         ...(session.round?.answer ? { answer: session.round.answer } : {}),
         ...(feedback ? { feedback } : {}),
