@@ -202,9 +202,9 @@ function CompanionPracticeSession({
                 </div>
                 : <PracticeWaiting>Waiting for their answer</PracticeWaiting>}
               {practice.answer && !practice.feedback && <div className="companion-practice-handoff" key={`${practice.position}-${practice.answer}`}><p>Choose your feedback</p><div className="companion-practice-actions" role="group" aria-label="Respond to answer">
-                <button type="button" className="rating good" disabled={busy} onClick={() => onDecision('correct')}><Check size={17} aria-hidden="true" />Correct</button>
-                <button type="button" className="rating hard" disabled={busy} onClick={() => onDecision('try-again')}>Try again</button>
-                <button type="button" className="rating easy" disabled={busy} onClick={() => onDecision('reveal')}>Reveal</button>
+                <button type="button" className="rating companion-practice-correct" disabled={busy} onClick={() => onDecision('correct')}>Correct</button>
+                <button type="button" className="rating" disabled={busy} onClick={() => onDecision('try-again')}>Try again</button>
+                <button type="button" className="rating" disabled={busy} onClick={() => onDecision('reveal')}>Reveal</button>
               </div></div>}
               {practice.feedback && <p className="companion-practice-waiting" role="status">{practice.feedback === 'try-again' ? 'They can try another answer.' : practice.feedback === 'correct' ? 'Marked correct. They can continue when ready.' : 'The answer was revealed. They can continue when ready.'}</p>}
             </div>
