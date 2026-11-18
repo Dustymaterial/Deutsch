@@ -157,7 +157,7 @@ function CompanionPracticeSession({
   const helping = practice.role === 'helper'
   const revealed = practice.feedback === 'correct' || practice.feedback === 'reveal'
 
-  return <section className="companion-practice-session" aria-label="Practice together">
+  return <section className="companion-practice-session" aria-label="Review together">
     <div className="deck-shell companion-practice-deck">
       <div className="card card-back card-back-3" aria-hidden="true" />
       <div className="card card-back card-back-2" aria-hidden="true" />
@@ -169,9 +169,9 @@ function CompanionPracticeSession({
 
         {waiting
           ? <div className="card-front companion-practice-card-content">
-            <p className="prompt-label">Practice together</p>
-            <h2>{helping ? `${companionName} asked for your help` : 'A surprise review is ready'}</h2>
-            <p className="companion-practice-copy">Five previously reviewed words will appear one at a time. Practice stays separate from both learners’ schedules.</p>
+            <p className="prompt-label">Review together</p>
+            <h2>{helping ? `${companionName} asked for your help` : 'Ready to review together'}</h2>
+            <p className="companion-practice-copy">Review five words together, one at a time. Your schedule stays unchanged.</p>
             {helping
               ? <div className="companion-practice-cta">
                 <button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('accept')}>Help practise</button>
@@ -215,7 +215,7 @@ function CompanionPracticeSession({
                   <strong lang="de">{card.example}</strong>
                   {card.translation && <span className="translation" lang="en">{card.translation}</span>}
                 </div>}
-                <p className="companion-practice-feedback" role="status">{practice.feedback === 'correct' ? 'Correct — nice recall. This does not change your schedule.' : 'Answer revealed. Take a moment to connect the word and meaning.'}</p>
+                <p className="companion-practice-feedback" role="status">{practice.feedback === 'correct' ? 'Correct — nice recall.' : 'Take a moment to review the answer.'}</p>
               </div>
               : card
                 ? <div className="card-front companion-practice-card-content">
@@ -229,7 +229,6 @@ function CompanionPracticeSession({
                         <label>English meaning
                           <input value={answer} maxLength={1000} autoComplete="off" onChange={(event) => onAnswerChange(event.target.value)} placeholder="Type your answer" />
                         </label>
-                        <p>Use the meaning you remember. Your companion will respond before you move on.</p>
                         <button type="submit" className="primary-button" disabled={busy || !answer.trim()}>Send answer</button>
                       </form>}
                 </div>
@@ -1781,10 +1780,10 @@ export function CompanionPanel({
               <div className="companion-chat-identity"><h2>{selectedChat.companion.username}</h2><span className="companion-status-tag connected">Connected</span></div>
               {!practice && <div className="companion-chat-header-actions">
                 <details className="companion-practice-fab" ref={practicePicker} onToggle={onChatDetailsToggle}>
-                  <summary className="companion-header-pill" aria-label="Practice together" title="Practice together"><BookOpen size={16} aria-hidden="true" /></summary>
+                  <summary className="companion-header-pill" aria-label="Review together" title="Review together"><BookOpen size={16} aria-hidden="true" /></summary>
                   <div className="companion-practice-fab-panel">
-                    <strong>Surprise practice</strong>
-                    <p>Five reviewed words are chosen at random. Neither of you sees them before the session begins.</p>
+                    <div className="group-popover-heading"><strong>Review together</strong></div>
+                    <p>Five reviewed words are chosen at random. You’ll see them when your companion joins.</p>
                     <div className="companion-field">Limit to a lesson or topic (optional)
                       <MenuSelect ariaLabel="Lesson or topic for practice" value={practiceTag} onChange={setPracticeTag} options={[{ value: '', label: 'All reviewed words' }, ...practiceTags.map((tag) => ({ value: tag, label: tag }))]} />
                     </div>
