@@ -268,11 +268,12 @@ function AboutContent({ onDone, introduction = false }: { onDone: () => void; in
       {introduction && <h1>Welcome to Deutsch Deck</h1>}
       <section>
         <h2>What Deutsch Deck is</h2>
-        <p>A vocabulary trainer for discovering and practising German, on its own or alongside your course. Study works fully on your own; if you like, invite a companion to learn alongside you.</p>
+        <p>A German vocabulary trainer for words you want to use. Organize them by lesson, learn them in context, and practise recalling them over time. Study on your own or alongside your course.</p>
       </section>
       <section>
         <h2>Learning with others</h2>
-        <p>Companions are optional and by invitation: you choose who you connect with, chat privately, and share words and gentle corrections. Groups are open spaces that any verified learner can join, so share only what you are happy for members to read. Your messages are never sent to AI or other services.</p>
+        <p>Invite a companion to review words together, share vocabulary, and offer kind sentence feedback. Join optional groups to ask questions, try words in sentences, and learn from others’ suggestions. You choose what to save to your deck.</p>
+        <p>Private chats stay between companions. Group posts are visible to members. Messages are never sent to AI or translation services.</p>
       </section>
       <section>
         <h2>What Deutsch Deck isn’t</h2>

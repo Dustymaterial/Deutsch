@@ -630,6 +630,15 @@ try {
   const firstSummary = records.companionMessages.find((item) => item._id.toString() === startedPractice.body.practice.id)
   assert.match(firstSummary.text, /Review session ended/)
   assert.match(firstSummary.text, /0 recalled · 0 after retry · 1 revealed/)
+  for (const participant of [learner, other]) {
+    const history = await request(messagesPath, null, participant.cookie)
+    assert.equal(history.body.messages.find((item) => item.id === firstSummary._id.toString()).kind, 'practice')
+  }
+  assert.equal((await request(`/api/companions/messages/${firstSummary._id}/edit`, { text: 'All recalled!' }, learner.cookie)).status, 404)
+  assert.equal((await request(`/api/companions/messages/${firstSummary._id}/correction`, { approve: true }, other.cookie)).status, 404)
+  const ordinaryReviewMessage = await request(messagesPath, { text: firstSummary.text, kind: 'practice' }, learner.cookie)
+  assert.equal(ordinaryReviewMessage.status, 201)
+  assert.equal(ordinaryReviewMessage.body.message.kind, 'text')
   const secondPractice = await request(practicePath, {}, learner.cookie)
   const secondDecision = `${practicePath}/${secondPractice.body.practice.id}/decision`
   const secondAnswer = `${practicePath}/${secondPractice.body.practice.id}/answer`

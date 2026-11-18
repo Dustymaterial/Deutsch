@@ -78,6 +78,7 @@ export function createCompanionRouter({
   const sentNudgeAt = (userId) => `nudges.sentAt.${userId}`
   const readNudgeAt = (userId) => `nudges.readAt.${userId}`
   const previewText = (message) => message.text.slice(0, 140)
+  const isPracticeSummary = (message) => message.clientRequestHash === `practice-summary:${message._id}`
   const serializeMessage = (message, me) => {
     const base = {
       id: message._id.toString(),
@@ -89,7 +90,7 @@ export function createCompanionRouter({
     if (message.unsentAt) return { ...base, kind: 'unsent', text: unsentText, reactions: [], reported: false }
     return {
       ...base,
-      kind: message.card ? 'word' : 'text',
+      kind: message.card ? 'word' : isPracticeSummary(message) ? 'practice' : 'text',
       text: message.text,
       ...(message.card ? { card: message.card } : {}),
       ...(message.replyTo ? {
@@ -801,7 +802,7 @@ export function createCompanionRouter({
     if (!result.success) return res.status(400).json({ error: 'Write the corrected sentence, or mark the message as looking good. Notes can be up to 200 characters.' })
     const me = req.accountUser._id.toString()
     const found = await visibleMessage(me, req.params.id)
-    if (!found || found.message.senderId === me || found.message.card) return unavailable(res)
+    if (!found || found.message.senderId === me || found.message.card || isPracticeSummary(found.message)) return unavailable(res)
     const { message, active } = found
     if (message.correction) return res.status(409).json({ error: 'This message has already been reviewed.' })
     if (!result.data.approve && result.data.text === message.text) {
@@ -847,7 +848,7 @@ export function createCompanionRouter({
     if (!result.success) return res.status(400).json({ error: 'Write a message up to 2,000 characters.' })
     const me = req.accountUser._id.toString()
     const found = await visibleMessage(me, req.params.id)
-    if (!found || found.message.senderId !== me || found.message.card) return unavailable(res)
+    if (!found || found.message.senderId !== me || found.message.card || isPracticeSummary(found.message)) return unavailable(res)
     const { message } = found
     if (Date.now() - message.createdAt.getTime() > editWindow) {
       return res.status(403).json({ error: 'Messages can be edited for 10 minutes after sending.' })
