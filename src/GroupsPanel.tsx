@@ -274,7 +274,7 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
   shareableCards: Card[]
   cardPayload: (card: Card) => SharedWordPreview['card']
   cardInDeck: (card: SharedWordPreview['card'], id: string) => boolean
-  onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
+  onReceiveWord: (share: SharedWordPreview) => Promise<'added' | 'already-present' | false>
   onNotify: (message: string) => void
 }) {
   const confirmDialog = useConfirm()
@@ -705,9 +705,9 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     composer.current?.focus()
   }
 
-  const saveSentence = (message: GroupMessage, meaning: string) => {
+  const saveSentence = async (message: GroupMessage, meaning: string) => {
     if (!message.sender || !meaning.trim()) return
-    const result = onReceiveWord({
+    const result = await onReceiveWord({
       id: `sentence-${message.id}`,
       card: { prompt: message.text, meaning: meaning.trim(), example: message.text, translation: meaning.trim(), category: 'phrase' },
       note: '', sender: message.sender, createdAt: message.createdAt,
@@ -745,9 +745,9 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     setMessages((current) => mergeMessages(current, [data.message]))
   }
 
-  const saveReview = (message: GroupMessage, review: GroupReview, meaning: string) => {
+  const saveReview = async (message: GroupMessage, review: GroupReview, meaning: string) => {
     if (!review.text || !meaning.trim()) return
-    const result = onReceiveWord({
+    const result = await onReceiveWord({
       id: `correction-${message.id}-${review.authorId}`,
       card: { prompt: review.text, meaning: meaning.trim(), example: review.text, translation: meaning.trim(), category: 'phrase' },
       note: review.note ?? '', sender: review.author ?? { id: review.authorId, username: 'Former member', avatarSeed: '' }, createdAt: review.createdAt,
@@ -809,9 +809,9 @@ export function GroupConversation({ group, cache, outbox, canModerate, onClose, 
     })
   }
 
-  const addWord = (message: GroupMessage) => {
+  const addWord = async (message: GroupMessage) => {
     if (!message.card) return
-    const result = onReceiveWord({
+    const result = await onReceiveWord({
       id: message.id, card: message.card, note: '',
       sender: message.sender ?? { id: '', username: 'Former member', avatarSeed: '' }, createdAt: message.createdAt,
     })
