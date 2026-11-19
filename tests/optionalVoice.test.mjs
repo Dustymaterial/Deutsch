@@ -2,10 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { webcrypto } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { createVoiceInstallation, validateRelease, checkDevice } from '../optional/german-voice/installation.mjs'
+import { createVoiceInstallation, validateRelease, checkDevice, requiredRoles, downloadAssets } from '../optional/german-voice/installation.mjs'
 
 const origin = 'https://deutsch.example'
-const roles = ['model', 'config', 'runtime', 'runtime-wasm', 'phonemizer', 'phonemizer-wasm', 'phonemizer-data', 'notices', 'source', 'build-recipe', 'model-card']
+const roles = requiredRoles
 const body = new TextEncoder().encode('fixture only')
 const hash = Buffer.from(await webcrypto.subtle.digest('SHA-256', body)).toString('hex')
 const manifest = () => ({ schema: 1, id: 'thorsten-medium', version: 'test-1', enabled: true,
@@ -19,6 +19,7 @@ function fixture(release = manifest()) {
   const environment = {
     isSecureContext: true, crypto: webcrypto, WebAssembly, AbortSignal, Worker: class {}, AudioContext: class {},
     navigator: {
+      serviceWorker: { register: () => {} },
       storage: { estimate: async () => ({ quota: 1e9, usage: 0 }) },
       locks: { request: (_name, options, action) => {
         const next = lock.then(() => { options.signal?.throwIfAborted(); return action() })
@@ -32,7 +33,7 @@ function fixture(release = manifest()) {
       open: async (name) => {
         if (!storage.has(name)) storage.set(name, new Map())
         const cache = storage.get(name)
-        return { match: async (key) => cache.get(key)?.clone(), put: async (key, value) => cache.set(key, value.clone()) }
+        return { keys: async () => [...cache.keys()].map((url) => ({ url })), match: async (key) => cache.get(key)?.clone(), put: async (key, value) => cache.set(key, value.clone()) }
       },
     },
   }
@@ -66,7 +67,8 @@ test('installation is explicit, complete and readable offline without another fe
   const progress = []
   await installer.install({ consent: true, onProgress: (value) => progress.push(value) })
   assert.equal(await installer.status(), 'installed')
-  assert.equal(calls.length, roles.length)
+  assert.equal(calls.length, downloadAssets(manifest()).length)
+  assert.ok(calls.every(({ url }) => !url.endsWith('/source') && !url.endsWith('/build-recipe')))
   assert.equal(progress.at(-1).received, progress.at(-1).total)
   assert.ok(calls.every(({ options }) => options.credentials === 'omit' && options.redirect === 'error'))
   environment.fetch = () => { throw new Error('offline') }
@@ -114,6 +116,23 @@ test('different installer instances serialize downloads instead of deleting each
   const { installer, environment, calls } = fixture()
   const other = createVoiceInstallation({ release: manifest(), origin, environment })
   await Promise.all([installer.install({ consent: true }), other.install({ consent: true })])
-  assert.equal(calls.length, roles.length)
+  assert.equal(calls.length, downloadAssets(manifest()).length)
   assert.equal(await other.status(), 'installed')
+})
+
+test('a preview needs explicit opt-in and never bypasses source/license/offline checks', () => {
+ const release={...manifest(),channel:'preview',review:{...manifest().review,ios:false,android:false}}
+ assert.throws(()=>validateRelease(release,origin),/not ready/)
+ assert.ok(validateRelease(release,origin,{allowPreview:true}).bytes>0)
+ for(const key of ['correspondingSource','licenses','coldStartOffline']) assert.throws(()=>validateRelease({...release,review:{...release.review,[key]:false}},origin,{allowPreview:true}),/not ready/)
+ assert.throws(()=>validateRelease({...release,enabled:false},origin,{allowPreview:true}),/not ready/)
+})
+test('cached code preserves its MIME/CSP headers without stale transfer encoding', async () => {
+ const {installer,environment,storage}=fixture()
+ environment.fetch=async()=>new Response(body,{headers:{'content-type':'text/javascript','content-security-policy':"default-src 'self'",'content-encoding':'gzip'}})
+ await installer.install({consent:true})
+ const saved=[...storage.values()][0].get(`${origin}/optional-voice/releases/test-1/runtime`)
+ assert.equal(saved.headers.get('content-type'),'text/javascript')
+ assert.equal(saved.headers.get('content-security-policy'),"default-src 'self'")
+ assert.equal(saved.headers.get('content-encoding'),null)
 })
