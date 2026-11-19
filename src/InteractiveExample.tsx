@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { CopyText } from './CopyText'
 import { getSentenceWords } from './sentenceWords'
+import { splitMessage } from './wordLookup'
+import { useWordLookup } from './useWordLookup'
+import { ChatWordPeek } from './ChatWordPeek'
 
 export function InteractiveExample({ example, translation, onCopy, variant = 'learn' }: {
   example: string
@@ -10,15 +13,13 @@ export function InteractiveExample({ example, translation, onCopy, variant = 'le
 }) {
   const [selected, setSelected] = useState<string | null>(null)
   const words = getSentenceWords(example, translation)
-  const german = words ? words.german.map((part, index) => part.match ? (
-    <button
-      type="button"
-      className="sentence-word"
-      aria-pressed={selected === part.match}
-      key={index}
-      onClick={() => setSelected(selected === part.match ? null : part.match ?? null)}
+  const lookup = useWordLookup(selected)
+  const german = splitMessage(example).map((part, index) => part.word ? (
+    <button type="button" className="sentence-word" lang="de" key={index}
+      aria-pressed={selected === part.text} aria-label={`Look up ${part.text}`}
+      onClick={() => { if (!window.getSelection()?.toString()) setSelected(selected === part.text ? null : part.text) }}
     >{part.text}</button>
-  ) : part.text) : example
+  ) : part.text)
   const english = words ? words.english.map((part, index) => part.match && selected === part.match
     ? <mark className="sentence-translation-highlight" key={index}>{part.text}</mark>
     : part.text) : translation
@@ -32,14 +33,10 @@ export function InteractiveExample({ example, translation, onCopy, variant = 'le
       {translation && (variant === 'learn'
         ? <p lang="en">{english}</p>
         : <span className={variant === 'recall' ? 'translation' : 'choice-translation'} lang="en">{english}</span>)}
-      {words ? (
-        <>
-          <small className="sentence-word-hint">Tap an underlined word to see its meaning.</small>
-          <span className="sentence-word-announcement" role="status">
-            {selected ? `${selected}: ${words.english.find((part) => part.match === selected)?.text}` : ''}
-          </span>
-        </>
-      ) : null}
+      {selected && <ChatWordPeek key={selected} word={selected} preferGerman german={lookup.german} english={lookup.english}
+        loading={lookup.loading} unavailable={lookup.unavailable} onRetry={lookup.retry}
+        inDeck={lookup.inDeck} onAdd={lookup.onAdd} onClose={() => setSelected(null)} />}
+
     </div>
   )
 }

@@ -11,6 +11,7 @@ export type MessageWordTools = {
   english: WordEntry[]
   loading: boolean
   unavailable: boolean
+  retry?: () => void
   inDeck: (entry: WordEntry) => boolean
   onAdd: (entry: WordEntry) => void
   onClose: () => void
@@ -41,6 +42,7 @@ export function MessageWords({ id, text, tools }: { id: string; text: string; to
       english={tools.english}
       loading={tools.loading}
       unavailable={tools.unavailable}
+      onRetry={tools.retry}
       inDeck={tools.inDeck}
       onAdd={tools.onAdd}
       onClose={tools.onClose}

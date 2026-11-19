@@ -1,3 +1,4 @@
+import { WordLookupProvider } from './WordLookupProvider'
 import { Component, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { ArrowRight, ArrowUpRight, Check, Clock3, MessagesSquare } from 'lucide-react'
 import {
@@ -2016,7 +2017,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       entry.example ?? '',
       entry.translation ?? '',
       entry.category,
-      [...new Set([entry.category, 'From chat', ...level])],
+      [...new Set([entry.category, 'Dictionary', ...level])],
       article ? { article, ...(entry.plural ? { plural: entry.plural } : {}) } : {},
     )
     if (cards.some((item) => cardContentKey(item) === cardContentKey(card))) return 'already-present' as const
@@ -2542,8 +2543,6 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       accountId={accountUser?.id ?? null}
       outbox={chatOutbox}
       onReceiveWord={receiveSharedWord}
-      onAddStarterWord={addStarterWord}
-      onAddDictionaryWord={addDictionaryWord}
       onNotify={showToast}
       onBack={closeCompanionWorkspace}
       invitationToken={groupInvitation}
@@ -3118,7 +3117,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   )
 
   return (
-    <>
+    <WordLookupProvider cards={cards} onAdd={addDictionaryWord} onAddStarter={addStarterWord}>
       <div inert={pauseVisible || undefined} aria-hidden={pauseVisible || undefined}>
       {appContent}
       {accountUser && !companionWorkspaceOpen && !showIntroduction && !pauseVisible && (
@@ -3178,7 +3177,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         <PauseScreen remainingMs={pauseState.until - pauseNow} duration={pauseState.settings.seconds}
           onSkip={() => changePause(finishPause)} />
       )}
-    </>
+    </WordLookupProvider>
   )
 }
 

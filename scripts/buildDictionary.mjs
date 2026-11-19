@@ -27,6 +27,7 @@ const POS_ALIASES = {
   adv: 'adverb',
   num: 'numeral',
   prep: 'preposition',
+  contraction: 'contraction',
   conj: 'conjunction',
   pron: 'pronoun',
   det: 'determiner',
@@ -58,6 +59,13 @@ const cachedText = async (name, url) => {
   await writeFile(file, text)
   return text
 }
+
+// Include source-backed vocabulary used by our own examples, even outside the frequency cut.
+const starter = JSON.parse(await readFile(resolve('src/data/german-starter-pack.json'), 'utf8'))
+const requiredWords = new Set(starter.cards.flatMap((card) =>
+  [...card.example.matchAll(/[\p{L}\p{M}]+(?:[-'’][\p{L}\p{M}]+)*/gu)].map((match) => formKey(match[0])),
+))
+const requiredAliases = new Map()
 
 const frequencyText = await cachedText(`frequency-${FREQUENCY_REVISION.slice(0, 8)}.txt`, FREQUENCY_URL)
 const ranks = new Map()
@@ -93,8 +101,8 @@ const pluralOf = (forms) => {
 
 const keptSenses = (entry) => (entry.senses ?? []).filter((sense) =>
   Array.isArray(sense.glosses) && sense.glosses.length
-  && !sense.form_of && !sense.alt_of
-  && !sense.tags?.some((tag) => SKIPPED_SENSE_TAGS.has(tag))
+  && !sense.form_of && (!sense.alt_of || entry.pos === 'contraction')
+  && !sense.tags?.some((tag) => SKIPPED_SENSE_TAGS.has(tag) && !(entry.pos === 'contraction' && tag === 'alt-of'))
   && !ALTERNATIVE_GLOSS.test(sense.glosses.at(-1)))
 
 const pickExample = (senses) => {
@@ -121,10 +129,14 @@ for await (const line of createInterface({ input, crlfDelay: Infinity })) {
   if (!pos) continue
   const entry = JSON.parse(line)
   const word = entry.word
-  if (typeof word !== 'string' || !WORD_PATTERN.test(word) || word.length > 30) continue
+  if (typeof word !== 'string' || !WORD_PATTERN.test(word) || word.length > 60) continue
   // Hyphenated spellings such as "E-Mail" are ranked by how often people write them without the hyphen.
   const rank = Math.min(ranks.get(formKey(word)) ?? Infinity, ranks.get(formKey(word).replaceAll('-', '')) ?? Infinity)
-  if (rank > MAX_RANK) continue
+  if (requiredWords.has(formKey(word))) {
+    const bases = (entry.senses ?? []).flatMap((sense) => sense.form_of ?? []).map((item) => item.word)
+    if (bases.length) requiredAliases.set(formKey(word), [...new Set([...(requiredAliases.get(formKey(word)) ?? []), ...bases])])
+  }
+  if (rank > MAX_RANK && !requiredWords.has(formKey(word))) continue
   const senses = keptSenses(entry)
   if (!senses.length) continue
   const key = `${pos}|${word}`
@@ -133,6 +145,27 @@ for await (const line of createInterface({ input, crlfDelay: Infinity })) {
   group.senses.push(...senses)
   group.forms.push(...(entry.forms ?? []))
   groups.set(key, group)
+}
+// A required surface form can refer to an uncommon lemma outside the frequency cut.
+// Resolve that source reference in a second pass rather than inventing a stem.
+const extraBases = new Set([...requiredAliases.values()].flat().map(formKey))
+for (const group of groups.values()) extraBases.delete(formKey(group.word))
+if (extraBases.size) {
+  const source = createReadStream(await downloadKaikki().then((result) => result.path), { encoding: 'utf8' })
+  for await (const line of createInterface({ input: source, crlfDelay: Infinity })) {
+    const entry = JSON.parse(line)
+    if (!extraBases.has(formKey(entry.word ?? ''))) continue
+    const pos = POS_ALIASES[entry.pos]
+    if (!pos || !WORD_PATTERN.test(entry.word)) continue
+    const senses = keptSenses(entry)
+    if (!senses.length) continue
+    const id = `${pos}|${entry.word}`
+    const group = groups.get(id) ?? { pos, word: entry.word, rank: Infinity, senses: [], forms: [], heads: [] }
+    group.heads.push(entry.head_templates?.[0]?.expansion ?? '')
+    group.senses.push(...senses)
+    group.forms.push(...(entry.forms ?? []))
+    groups.set(id, group)
+  }
 }
 console.log(`Read ${lines} source entries; kept ${groups.size} words at or above rank ${MAX_RANK}.`)
 
@@ -233,13 +266,22 @@ const forms = new Map()
 const merge = (key, indexes) => forms.set(key, [...new Set([...(forms.get(key) ?? []), ...indexes])])
 for (const [key, indexes] of reindex(headwords)) merge(key, indexes)
 for (const [key, indexes] of reindex(inflections)) merge(key, indexes)
+const keptHeadwords = reindex(headwords)
+for (const [alias, bases] of requiredAliases) {
+  for (const base of bases) {
+    const indexes = keptHeadwords.get(formKey(base))
+    if (indexes) merge(alias, indexes)
+  }
+}
 for (const [key, indexes] of reindex(closedInflections)) {
   if (!forms.has(key)) merge(key, indexes)
 }
 for (const [key, indexes] of forms) forms.set(key, indexes.length === 1 ? indexes[0] : [...indexes].sort((a, b) => a - b))
 
 const { lastModified } = await downloadKaikki()
+const requiredCoverage = [...requiredWords].filter((word) => !forms.has(word))
 const output = {
+  coverage: { exampleTokens: requiredWords.size, dictionaryMatches: requiredWords.size - requiredCoverage.length, missing: requiredCoverage },
   format: 'deutsch-dictionary',
   version: 1,
   source: 'English Wiktionary (German entries) as extracted by Wiktextract and published by Kaikki.org',
@@ -247,7 +289,7 @@ const output = {
   sourceDate: lastModified,
   frequencySource: `slovymovy/words German frequency list at revision ${FREQUENCY_REVISION}`,
   license: 'CC BY-SA 4.0',
-  modified: `Reduced to the ${keptLemmas.length} most frequent single-word German entries (frequency rank ${MAX_RANK} or better) that have an English gloss; inflected-form entries and obsolete, archaic and historical senses are left out. Keeps up to ${MAX_GLOSSES} short English glosses, noun article and plural, one example sentence with its English translation where Wiktionary has one, and single-word inflected forms for tap-to-translate lookup. Field order: word, part of speech, English gloss, article, plural, example, translation, learner level (unused).`,
+  modified: `Reduced to the ${keptLemmas.length} most frequent single-word German entries (frequency rank ${MAX_RANK} or better, plus source-backed words and form-of links required by starter examples) that have an English gloss; inflected-form entries and obsolete, archaic and historical senses are left out. Keeps up to ${MAX_GLOSSES} short English glosses, noun article and plural, one example sentence with its English translation where Wiktionary has one, and single-word inflected forms for tap-to-translate lookup. Field order: word, part of speech, English gloss, article, plural, example, translation, learner level (unused).`,
   lemmas: keptLemmas,
   forms: Object.fromEntries([...forms.entries()].sort(([a], [b]) => a.localeCompare(b, 'de'))),
 }
@@ -256,3 +298,5 @@ await writeFile(OUTPUT_PATH, `${JSON.stringify(output)}\n`)
 console.log(`Dropped ${dropped.size} entries that are inflected forms of another word.`)
 console.log(`Wrote ${keptLemmas.length} words and ${forms.size} word forms to ${OUTPUT_PATH}`)
 console.log(posCounts)
+const uncovered = [...requiredWords].filter((word) => !forms.has(word))
+console.log(`Starter example coverage: ${requiredWords.size - uncovered.length}/${requiredWords.size}; uncovered: ${uncovered.join(', ')}`)

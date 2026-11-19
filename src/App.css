@@ -2580,3 +2580,25 @@ input[aria-invalid="true"]:focus,
     }
   }
 }
+
+.lookup-sense-label { display: grid; gap: 0.4rem; margin-block: 0.7rem; }
+.lookup-sense-label .menu-select { min-width: 0; max-width: 100%; }
+.lookup-sense-label button { white-space: normal; overflow-wrap: anywhere; }
+.learn-example .companion-word-peek, .example-row .companion-word-peek, .answer-example .companion-word-peek { width: 100%; max-width: 100%; box-sizing: border-box; }
+.companion-word-peek {
+  --companion-blue-bg: #b9d9fb; --companion-blue: #3569a6;
+  --companion-amber-bg: #ffe2a0; --companion-amber: #8b5a15;
+  --companion-green-bg: #c6e8be; --companion-green: #356442; --companion-text: #292b2a;
+}
+.learn-example .companion-word-peek button,
+.example-row .companion-word-peek button,
+.answer-example .companion-word-peek button { min-height: 44px; }
+.learn-example .companion-word-peek-meaning,
+.example-row .companion-word-peek-meaning,
+.answer-example .companion-word-peek-meaning { font-size: 1rem; }
+.learn-example .companion-word-peek-example,
+.example-row .companion-word-peek-example,
+.answer-example .companion-word-peek-example { font-size: 0.9rem; }
+.learn-example .companion-word-peek small,
+.example-row .companion-word-peek small,
+.answer-example .companion-word-peek small { font-size: 0.75rem; }

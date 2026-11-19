@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MenuSelect } from './MenuSelect'
 import { ChevronDown } from 'lucide-react'
 import { addReason, needsExample, preferredLanguage } from './dictionaryLookup'
 import type { WordEntry } from './wordLookup'
@@ -12,6 +13,9 @@ type Props = {
   inDeck: (entry: WordEntry) => boolean
   onAdd: (entry: WordEntry) => void
   onClose: () => void
+  onRetry?: () => void
+  allowAdd?: boolean
+  preferGerman?: boolean
 }
 
 const categoryLabel = (category: string) => category.charAt(0).toUpperCase() + category.slice(1)
@@ -45,13 +49,11 @@ function AddControl({ entry, inDeck, onAdd }: { entry: WordEntry; inDeck: boolea
   )
 }
 
-export function ChatWordPeek({ word, german, english, loading, unavailable, inDeck, onAdd, onClose }: Props) {
+export function ChatWordPeek({ word, german, english, loading, unavailable, inDeck, onAdd, onClose, onRetry, allowAdd = true, preferGerman = false }: Props) {
   const [choice, setChoice] = useState<'de' | 'en' | null>(null)
-  const mode = choice ?? preferredLanguage(german, english)
-  const [entry, ...rest] = german
-  // Only other kinds of word are worth listing (noun vs verb); more verbs sharing a form are just noise.
-  const others = rest.filter((item, index) => item.category !== entry?.category
-    && rest.findIndex((other) => other.category === item.category) === index)
+  const mode = choice ?? (preferGerman ? german.length ? 'de' : null : preferredLanguage(german, english))
+  const [sense, setSense] = useState(0)
+  const entry = german[sense] ?? german[0]
   const lookups = [
     { label: 'Wiktionary', href: `https://de.wiktionary.org/wiki/${encodeURIComponent(word)}` },
     { label: 'dict.cc', href: `https://www.dict.cc/?s=${encodeURIComponent(word)}` },
@@ -78,6 +80,10 @@ export function ChatWordPeek({ word, german, english, loading, unavailable, inDe
           : heading ?? <small>{mode === 'en' ? `“${word}” in German` : `“${word}”`}</small>}
         <button className="companion-word-peek-close" type="button" aria-label="Collapse translation" title="Collapse" onClick={onClose}><ChevronDown size={16} aria-hidden="true" /></button>
       </div>
+      {mode === 'de' && german.length > 1 && <label className="lookup-sense-label">Meaning
+        <MenuSelect value={String(sense)} ariaLabel="Choose a meaning" onChange={(value) => setSense(Number(value))}
+          options={german.map((item, index) => ({ value: String(index), label: `${item.prompt}: ${item.meaning}` }))} />
+      </label>}
       {mode === 'de' && entry && <>
         {both && <div className="companion-word-peek-head">
           <strong lang="de">{entry.prompt}</strong>
@@ -89,8 +95,8 @@ export function ChatWordPeek({ word, german, english, loading, unavailable, inDe
         {entry.plural && <small>Plural: <span lang="de">{entry.plural}</span></small>}
         {entry.example && <p className="companion-word-peek-example" lang="de">{entry.example}</p>}
         {entry.translation && <p className="companion-word-peek-translation">{entry.translation}</p>}
-        {others.length > 0 && <small>Also: {others.map((item) => `${item.prompt} (${item.meaning})`).join(' · ')}</small>}
-        <div className="companion-word-peek-actions"><AddControl entry={entry} inDeck={inDeck(entry)} onAdd={onAdd} /></div>
+
+        {allowAdd && <div className="companion-word-peek-actions"><AddControl key={entry.id} entry={entry} inDeck={inDeck(entry)} onAdd={onAdd} /></div>}
       </>}
       {mode === 'en' && english.length > 0 && <>
         <ul className="companion-word-peek-list">
@@ -102,7 +108,7 @@ export function ChatWordPeek({ word, german, english, loading, unavailable, inDe
             <p className="companion-word-peek-meaning">{item.meaning}</p>
             {item.example && <p className="companion-word-peek-example" lang="de">{item.example}</p>}
             {item.translation && <p className="companion-word-peek-translation">{item.translation}</p>}
-            <div className="companion-word-peek-actions"><AddControl entry={item} inDeck={inDeck(item)} onAdd={onAdd} /></div>
+            {allowAdd && <div className="companion-word-peek-actions"><AddControl entry={item} inDeck={inDeck(item)} onAdd={onAdd} /></div>}
           </li>)}
         </ul>
       </>}
@@ -117,8 +123,9 @@ export function ChatWordPeek({ word, german, english, loading, unavailable, inDe
             {lookups.map((lookup) => <a key={lookup.label} className="companion-word-peek-link" href={lookup.href} target="_blank" rel="noopener noreferrer">Look up on {lookup.label}</a>)}
           </div>
         </>)}
+      {unavailable && onRetry && <button type="button" className="quiet-button" onClick={onRetry}>Retry lookup</button>}
       {usesDictionary && <small className="companion-word-peek-source">
-        Meanings from <a href="https://kaikki.org/dictionary/German/" target="_blank" rel="noopener noreferrer">English Wiktionary, via Kaikki.org</a> · CC BY-SA 4.0
+        Dictionary: <a href="https://kaikki.org/dictionary/German/" target="_blank" rel="noopener noreferrer">English Wiktionary, via Kaikki.org</a> · CC BY-SA 4.0
       </small>}
     </div>
   )

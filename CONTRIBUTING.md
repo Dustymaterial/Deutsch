@@ -118,3 +118,9 @@ Held items use the existing hidden-content paths so member serializers, search, 
 Moderation decisions publish a scoped live message update directly, so restoring or hiding content does not depend on a database change stream. The API integration test verifies restoration over a live socket with the in-memory database.
 
 HTTP(S)/www links remain visible with a warning, including cached messages. No URL is fetched or certified safe; no message goes to an external classifier. Existing link, rate, duplicate and reporting limits remain, and suggestions also have the two-link cap. Expand these rules only with a documented moderation decision and tests for vocabulary false positives.
+
+## Shared word lookup
+
+`WordLookupProvider` supplies local vocabulary to card and community surfaces. `useWordLookup` lazily loads the dictionary and starter set, preserves personal example/translation fields, and offers an explicit retry after a failed download. `lookupResults.ts` preserves distinct senses and uses verified dictionary lemma mappings to resolve inflected words back to personal vocabulary. None of this data is sent to another learner or a remote translation service.
+
+The dictionary builder includes source-backed words and form-of references needed by supplied examples beyond the normal frequency cut, including contractions. Its coverage metadata lists unresolved tokens; do not fabricate meanings to reach a percentage. Exact bilingual sentence alignment stays separate from context-free word lookup.

@@ -14,7 +14,7 @@ This is independent supplemental vocabulary, not a vhs-Lernportal or Goethe cour
 
 [src/data/german-dictionary.json](./src/data/german-dictionary.json) adapts German entries from English Wiktionary as extracted by Wiktextract and published by [Kaikki.org](https://kaikki.org/dictionary/German/). The file records its source date, license and modifications. Frequency selection/ranking uses the same pinned slovymovy list.
 
-The adaptation keeps about 22,800 single-word entries at rank 30,000 or better, up to four short glosses, noun article/plural, translated examples where supplied, and roughly 128,000 inflected lookup forms. It removes inflected-form headword entries and obsolete, archaic or historical senses, and trims bracketed clarifications. About one in five entries has an example. Wiktionary content is available under CC BY-SA 4.0 and GFDL; this adapted subset uses CC BY-SA 4.0.
+The adaptation keeps about 23,000 single-word entries at rank 30,000 or better, plus source-backed entries and form-of links needed by starter examples, up to four short glosses, noun article/plural, translated examples where supplied, and roughly 129,000 lookup forms. It removes inflected-form headword entries and obsolete, archaic or historical senses, and trims bracketed clarifications. About one in five entries has an example. Wiktionary content is available under CC BY-SA 4.0 and GFDL; this adapted subset uses CC BY-SA 4.0.
 
 Dictionary glosses are short and context-free, not sentence translations. Unrecorded senses, compounds, names and variants can be missing. The separate dictionary downloads on first use and can then work offline; it is not part of the startup app bundle.
 
@@ -22,6 +22,6 @@ Dictionary glosses are short and context-free, not sentence translations. Unreco
 
 Human pronunciation coverage is limited to five verified nouns: Haus, Gesundheit, Wasser, Buch and Familie. Each applicable card links its Wikimedia Commons source, author and CC BY-SA 3.0 license and states that the recording is unchanged. These recordings omit articles. Listen requests the recording directly from Commons, which can see the request; recordings are not bundled or app-cached. Other words use a German device voice when available.
 
-Example word highlights are a limited manually verified prototype for an exact German/English sentence pair. Other examples do not have inferred word alignments. Imported and learner-written content remains the learner's responsibility to check.
+German example words offer dictionary lookup across Learn and revealed review cards. Exact English counterpart highlights remain limited to a verified German/English sentence pair. Dictionary glosses do not establish sentence alignments. The dictionary records coverage against starter example tokens and leaves uncovered words explicit. Imported and learner-written content remains the learner's responsibility to check.
 
 For regeneration commands and development setup, see [CONTRIBUTING.md](./CONTRIBUTING.md).
