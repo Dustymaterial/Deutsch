@@ -75,6 +75,7 @@ type ChatSummary = {
 type PracticeCard = Pick<Card, 'prompt' | 'article' | 'meaning' | 'plural' | 'example' | 'translation' | 'category'>
 type PracticeSession = {
   id: string
+  revision: number
   role: 'learner' | 'helper'
   status: 'pending' | 'active' | 'declined' | 'ended' | 'completed'
   total: number
@@ -1437,7 +1438,7 @@ export function CompanionPanel({
     practiceRefreshSequence.current++
     setPracticeActionError(null)
     void run(async () => {
-      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/decision`, { decision }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not update the review.'); throw failure }) as { practice?: PracticeSession }
+      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/decision`, { decision, revision: practice.revision }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not update the review.'); throw failure }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not update the practice session.')
       practiceRefreshSequence.current++
       const finished = data.practice.status === 'ended' || data.practice.status === 'completed' || data.practice.status === 'declined'
@@ -1455,7 +1456,7 @@ export function CompanionPanel({
     setPracticeActionError(null)
     publishTyping(selectedChat.id, false)
     void run(async () => {
-      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/answer`, { answer: practiceAnswer }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not send your answer.'); throw failure }) as { practice?: PracticeSession }
+      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/answer`, { answer: practiceAnswer, revision: practice.revision }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not send your answer.'); throw failure }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not save your answer.')
       practiceRefreshSequence.current++
       setPractice(data.practice)

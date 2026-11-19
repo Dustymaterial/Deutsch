@@ -198,8 +198,17 @@ const connectSocket = async (cookie) => {
   await Promise.race([once(socket, 'connect'), once(socket, 'connect_error').then(([error]) => Promise.reject(error))])
   return socket
 }
-const socketCall = (socket, event, data) => socket.timeout(3000).emitWithAck(event, data)
+const currentPracticeBody = (path, body) => {
+  const id = path.match(/\/practice\/([a-f0-9]{24})\/(?:answer|decision)$/)?.[1]
+  if (!id || !body || Object.hasOwn(body, 'revision')) return body
+  const session = records.practiceSessions.find((item) => item._id.toString() === id)
+  return { ...body, revision: session?.revision ?? 0 }
+}
+const socketCall = (socket, event, data) => socket.timeout(3000).emitWithAck(event,
+  event === 'command' ? { ...data, body: currentPracticeBody(data.path, data.body) } : data)
+  .catch((error) => { throw new Error(`Socket ${event} ${data.path ?? ''}: ${error.message}`) })
 const request = async (path, body, cookie) => {
+  body = currentPracticeBody(path, body)
   const response = await nativeFetch(`${base}${path}`, {
     method: body ? 'POST' : 'GET',
     headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}) },
@@ -688,7 +697,17 @@ try {
   const fullDecision = `${practicePath}/${fullPractice.body.practice.id}/decision`
   const fullAnswer = `${practicePath}/${fullPractice.body.practice.id}/answer`
   assert.equal((await request(fullDecision, { decision: 'accept' }, other.cookie)).status, 200)
+  const revisionTestSocket = await connectSocket(other.cookie)
+  await socketCall(revisionTestSocket, 'subscribe', { kind: 'private', id: openedChat.body.id })
+  const firstRoundRevision = records.practiceSessions.find((item) => item._id.toString() === fullPractice.body.practice.id).revision
   for (let index = 0; index < 5; index++) {
+    if (index === 1) {
+      const before = JSON.stringify(records.practiceSessions)
+      assert.equal((await request(fullAnswer, { answer: 'late card-zero answer', revision: firstRoundRevision }, learner.cookie)).status, 409)
+      assert.equal((await socketCall(revisionTestSocket, 'command', { path: fullDecision.replace('/api/companions', ''), body: { decision: 'correct', revision: firstRoundRevision } })).status, 409)
+      assert.equal((await request(fullDecision, { decision: 'request-reveal', revision: null }, learner.cookie)).status, 400)
+      assert.equal(JSON.stringify(records.practiceSessions), before)
+    }
     if (index === 3) {
       assert.equal((await request(fullDecision, { decision: 'request-reveal' }, learner.cookie)).body.practice.revealRequested, true)
       assert.equal((await request(fullAnswer, { answer: 'an answer' }, learner.cookie)).status, 409)
@@ -701,7 +720,11 @@ try {
       assert.equal((await request(fullDecision, { decision: 'next' }, learner.cookie)).status, 200)
       continue
     }
-    assert.equal((await request(fullAnswer, { answer: 'an answer' }, learner.cookie)).status, 200)
+    if (index === 0) {
+      const concurrent = await Promise.all([0, 1].map(() => request(fullAnswer, { answer: 'an answer', revision: firstRoundRevision }, learner.cookie)))
+      assert.deepEqual(concurrent.map((item) => item.status).sort(), [200, 409])
+      assert.equal(concurrent.find((item) => item.status === 200).body.practice.revision, firstRoundRevision + 1)
+    } else assert.equal((await request(fullAnswer, { answer: 'an answer' }, learner.cookie)).status, 200)
     if (index === 2) {
       assert.equal((await request(fullDecision, { decision: 'try-again' }, other.cookie)).status, 200)
       assert.equal((await request(fullDecision, { decision: 'request-reveal' }, learner.cookie)).body.practice.revealRequested, true)
@@ -716,6 +739,7 @@ try {
     assert.equal((await request(fullDecision, { decision: index === 2 ? 'reveal' : 'correct' }, other.cookie)).status, 200)
     assert.equal((await request(fullDecision, { decision: 'next' }, learner.cookie)).status, 200)
   }
+  revisionTestSocket.disconnect()
   const fullSummary = records.companionMessages.find((item) => item._id.toString() === fullPractice.body.practice.id)
   assert.match(fullSummary.text, /5\/5 reviewed · 2 recalled · 1 after retry · 2 revealed/)
   assert.equal(JSON.stringify(records.progress), progressBeforePractice)
