@@ -87,3 +87,4 @@ The app code is [MIT licensed](./LICENSE). The adapted starter vocabulary and di
 
 Study actions remain pending if the browser cannot save them. Saved accepted answers survive newer reviews synced from another device.
 Peer practice rejects delayed answers or feedback from an earlier round. Refresh keeps an unsent answer available.
+The offline shell keeps its last successful page if the server fails. Cache errors do not block a fresh page.
