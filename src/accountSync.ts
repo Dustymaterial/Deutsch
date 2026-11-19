@@ -55,8 +55,11 @@ const mergeCard = (local: Card, remote: Card): Card => {
     (left, right) => Date.parse(left.at) - Date.parse(right.at),
   )
 
+  const pluralSource = [local, remote].filter((card) => card.pluralUpdatedAt)
+    .sort((a, b) => Date.parse(b.pluralUpdatedAt!) - Date.parse(a.pluralUpdatedAt!))[0]
   const merged: Card = {
     ...latest,
+    ...(pluralSource ? { plural: pluralSource.plural, pluralUpdatedAt: pluralSource.pluralUpdatedAt } : {}),
     activity: mergeWordActivity(local, remote),
     firstReviewScheduledAt,
     ...(learning ? { learning } : {}),

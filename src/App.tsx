@@ -1,3 +1,4 @@
+import { NounPlural } from './NounPlural'
 import { WordLookupProvider } from './WordLookupProvider'
 import { Component, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { ArrowRight, ArrowUpRight, Check, Clock3, MessagesSquare } from 'lucide-react'
@@ -2517,6 +2518,12 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     recordCompletedWord(id, 'learn')
     return true
   }
+  const saveNounPlural = (id: string, plural: string) => {
+    const card = cards.find((item) => item.id === id)
+    if (!card || card.plural || card.category !== 'noun' || !canSave) return
+    const updatedCards = cards.map((item) => item.id === id ? { ...item, plural, pluralUpdatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : item)
+    if (saveDeck(updatedCards)) setCards(updatedCards)
+  }
   const learnContent = learnOpen && (
     <LearnMode
       cards={cards}
@@ -2890,12 +2897,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
                         <strong>{activeCard.article}</strong>
                       </div>
                     )}
-                    {activeCard.plural && (
-                      <div className="fact-row">
-                        <span className="label">Plural</span>
-                        <strong>{activeCard.plural}</strong>
-                      </div>
-                    )}
+                    <NounPlural card={activeCard} allowSave />
                     <InteractiveExample variant="recall" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
                     {activeCard.sharedFrom && <p className="shared-attribution">Shared by {activeCard.sharedFrom.username}{activeCard.sharedFrom.note ? `: ${activeCard.sharedFrom.note}` : ''}</p>}
                   </div>
@@ -2944,9 +2946,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
                 <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
                 <WordAudio card={activeCard} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
-                {activeCard.plural && (
-                  <span className="choice-plural">Plural: {activeCard.plural}</span>
-                )}
+                <NounPlural card={activeCard} allowSave />
                 <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
                 {activeCard.sharedFrom && <p className="shared-attribution">Shared by {activeCard.sharedFrom.username}{activeCard.sharedFrom.note ? `: ${activeCard.sharedFrom.note}` : ''}</p>}
               </div>
@@ -3021,9 +3021,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
                 <CopyText as="strong" text={activeCard.prompt} label="Copy German answer" onCopy={copyText} />
                 <WordAudio card={activeCard} />
                 <span className="choice-meaning">{activeCard.meaning}</span>
-                {activeCard.plural && (
-                  <span className="choice-plural">Plural: {activeCard.plural}</span>
-                )}
+                <NounPlural card={activeCard} allowSave />
                 <InteractiveExample variant="answer" example={activeCard.example} translation={activeCard.translation ?? ''} onCopy={copyText} />
                 {activeCard.sharedFrom && <p className="shared-attribution">Shared by {activeCard.sharedFrom.username}{activeCard.sharedFrom.note ? `: ${activeCard.sharedFrom.note}` : ''}</p>}
               </div>
@@ -3150,7 +3148,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   )
 
   return (
-    <WordLookupProvider cards={cards} onAdd={addDictionaryWord} onAddStarter={addStarterWord}>
+    <WordLookupProvider cards={cards} onAdd={addDictionaryWord} onAddStarter={addStarterWord} onSavePlural={saveNounPlural}>
       <div inert={pauseVisible || undefined} aria-hidden={pauseVisible || undefined}>
       {appContent}
       {accountUser && !companionWorkspaceOpen && !showIntroduction && !pauseVisible && (

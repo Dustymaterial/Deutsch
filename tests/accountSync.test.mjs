@@ -149,3 +149,12 @@ test('sync and reset replay retain the latest explicit answer key',()=>{
  const reviewed=scheduleReview(reset,'hard',new Date('2026-11-18T12:00:00.000Z'),[],'production',true)
  assert.deepEqual(mergeAccountCards([reviewed],[remote])[0].acceptedAnswers,['das Gebäude'])
 })
+
+test('explicitly saved plural metadata survives a later review on an older device',()=>{
+ const local=card({plural:'die Gebäude',pluralUpdatedAt:'2026-11-16T12:00:00.000Z',updatedAt:'2026-11-16T12:00:00.000Z'})
+ const remote=scheduleReview(card({plural:undefined}),'good',new Date('2026-11-17T12:00:00.000Z'))
+ const merged=mergeAccountCards([local],[remote])[0]
+ assert.equal(merged.plural,'die Gebäude')
+ assert.equal(merged.pluralUpdatedAt,local.pluralUpdatedAt)
+ assert.equal(merged.lastReviewedAt,remote.lastReviewedAt)
+})

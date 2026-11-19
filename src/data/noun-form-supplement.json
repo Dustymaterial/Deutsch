@@ -1,0 +1,1143 @@
+{
+  "source": "Curated English Wiktionary German noun forms, checked against the source extract and sense-specific source entries on 19 November 2026",
+  "sourceUrl": "https://en.wiktionary.org/",
+  "license": "CC BY-SA 4.0",
+  "modified": "Selected common missing plural forms and verified usual-number states. Match exact word, article and meaning. Unresolved entries stay unknown; do not automatically attach a spelling-level plural to every sense.",
+  "entries": [
+    {
+      "word": "Gesundheit",
+      "meaning": "health",
+      "article": "die",
+      "status": "usually-singular",
+      "source": "https://en.wiktionary.org/wiki/Gesundheit#German"
+    },
+    {
+      "word": "Kopfschmerzen",
+      "meaning": "headache",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Bh",
+      "meaning": "bra",
+      "article": "der",
+      "status": "known",
+      "plural": "die BHs",
+      "source": "https://en.wiktionary.org/wiki/BH#German"
+    },
+    {
+      "word": "Schuh",
+      "meaning": "shoe",
+      "article": "der",
+      "status": "known",
+      "plural": "die Schuhe",
+      "source": "https://en.wiktionary.org/wiki/Schuh#German"
+    },
+    {
+      "word": "Schal",
+      "meaning": "scarf",
+      "article": "der",
+      "status": "known",
+      "plural": "die Schals",
+      "source": "https://en.wiktionary.org/wiki/Schal#German"
+    },
+    {
+      "word": "Kragen",
+      "meaning": "collar",
+      "article": "der",
+      "status": "known",
+      "plural": "die Kragen",
+      "source": "https://en.wiktionary.org/wiki/Kragen#German"
+    },
+    {
+      "word": "Kochen",
+      "meaning": "cooking",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Sahne",
+      "meaning": "cream",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Knoblauch",
+      "meaning": "garlic",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Glück",
+      "meaning": "happiness",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Glück",
+      "meaning": "luck",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Lachen",
+      "meaning": "laughter",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Langeweile",
+      "meaning": "boredom",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Wut",
+      "meaning": "rage",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Ärger",
+      "meaning": "anger",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Ärger",
+      "meaning": "trouble",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Mutter",
+      "meaning": "mother",
+      "article": "die",
+      "status": "known",
+      "plural": "die Mütter",
+      "source": "https://en.wiktionary.org/wiki/Mutter#German"
+    },
+    {
+      "word": "Baby",
+      "meaning": "baby",
+      "article": "das",
+      "status": "known",
+      "plural": "die Babys",
+      "source": "https://en.wiktionary.org/wiki/Baby#German"
+    },
+    {
+      "word": "Schwager",
+      "meaning": "brother-in-law",
+      "article": "der",
+      "status": "known",
+      "plural": "die Schwäger",
+      "source": "https://en.wiktionary.org/wiki/Schwager#German"
+    },
+    {
+      "word": "Regenbogen",
+      "meaning": "rainbow",
+      "article": "der",
+      "status": "known",
+      "plural": "die Regenbogen",
+      "source": "https://en.wiktionary.org/wiki/Regenbogen#German"
+    },
+    {
+      "word": "Schnee",
+      "meaning": "snow",
+      "article": "der",
+      "status": "usually-singular",
+      "source": "https://en.wiktionary.org/wiki/Schnee#German"
+    },
+    {
+      "word": "Eis",
+      "meaning": "ice",
+      "article": "das",
+      "status": "usually-singular",
+      "source": "https://en.wiktionary.org/wiki/Eis#German"
+    },
+    {
+      "word": "Eis",
+      "meaning": "ice cream",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Sand",
+      "meaning": "sand",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Pflanzen",
+      "meaning": "plants",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Rechnen",
+      "meaning": "arithmetic",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Tag",
+      "meaning": "day",
+      "article": "der",
+      "status": "known",
+      "plural": "die Tage",
+      "source": "https://en.wiktionary.org/wiki/Tag#German"
+    },
+    {
+      "word": "März",
+      "meaning": "March",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Juli",
+      "meaning": "July",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Jahr",
+      "meaning": "year",
+      "article": "das",
+      "status": "known",
+      "plural": "die Jahre",
+      "source": "https://en.wiktionary.org/wiki/Jahr#German"
+    },
+    {
+      "word": "Mathematik",
+      "meaning": "mathematics",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Englisch",
+      "meaning": "English",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Erdkunde",
+      "meaning": "geography",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Physik",
+      "meaning": "physics",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Lernen",
+      "meaning": "learning",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Lesen",
+      "meaning": "reading",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Antworten",
+      "meaning": "answers",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Test",
+      "meaning": "test",
+      "article": "der",
+      "status": "known",
+      "plural": "die Tests",
+      "source": "https://en.wiktionary.org/wiki/Test#German"
+    },
+    {
+      "word": "Handgepäck",
+      "meaning": "hand luggage",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Fliegen",
+      "meaning": "flies",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Ausland",
+      "meaning": "abroad",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Arbeiten",
+      "meaning": "papers",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Mal",
+      "meaning": "time",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Andere",
+      "meaning": "the other woman",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Mann",
+      "meaning": "man",
+      "article": "der",
+      "status": "known",
+      "plural": "die Männer",
+      "source": "https://en.wiktionary.org/wiki/Mann#German"
+    },
+    {
+      "word": "Mann",
+      "meaning": "husband",
+      "article": "der",
+      "status": "known",
+      "plural": "die Männer",
+      "source": "https://en.wiktionary.org/wiki/Mann#German"
+    },
+    {
+      "word": "Wegen",
+      "meaning": "paths",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Land",
+      "meaning": "country",
+      "article": "das",
+      "status": "known",
+      "plural": "die Länder",
+      "source": "https://en.wiktionary.org/wiki/Land#German"
+    },
+    {
+      "word": "Land",
+      "meaning": "countryside",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Land",
+      "meaning": "land",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Euro",
+      "meaning": "euro",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Spielen",
+      "meaning": "games",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Spielen",
+      "meaning": "playing",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Stellen",
+      "meaning": "places",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Halt",
+      "meaning": "stop",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Stunden",
+      "meaning": "hours",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Thema",
+      "meaning": "topic",
+      "article": "das",
+      "status": "known",
+      "plural": "die Themen",
+      "source": "https://en.wiktionary.org/wiki/Thema#German"
+    },
+    {
+      "word": "Dank",
+      "meaning": "thanks",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Wasser",
+      "meaning": "water",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Beste",
+      "meaning": "best",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Internet",
+      "meaning": "internet",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Wort",
+      "meaning": "word",
+      "article": "das",
+      "status": "known",
+      "note": "For individual words.",
+      "plural": "die Wörter",
+      "source": "https://en.wiktionary.org/wiki/Wort#German"
+    },
+    {
+      "word": "Mädchen",
+      "meaning": "girl",
+      "article": "das",
+      "status": "known",
+      "plural": "die Mädchen",
+      "source": "https://en.wiktionary.org/wiki/Mädchen#German"
+    },
+    {
+      "word": "Fahren",
+      "meaning": "driving",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Neues",
+      "meaning": "new",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Zahlen",
+      "meaning": "numbers",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Links",
+      "meaning": "links",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Stück",
+      "meaning": "piece",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Stück",
+      "meaning": "play",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Sex",
+      "meaning": "sex",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Laufen",
+      "meaning": "walking",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Gesicht",
+      "meaning": "face",
+      "article": "das",
+      "status": "known",
+      "plural": "die Gesichter",
+      "source": "https://en.wiktionary.org/wiki/Gesicht#German"
+    },
+    {
+      "word": "Gesicht",
+      "meaning": "expression",
+      "article": "das",
+      "status": "known",
+      "plural": "die Gesichter",
+      "source": "https://en.wiktionary.org/wiki/Gesicht#German"
+    },
+    {
+      "word": "Versuchen",
+      "meaning": "attempts",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Gutes",
+      "meaning": "good",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Nähe",
+      "meaning": "proximity",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Schwarz",
+      "meaning": "black",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Nachrichten",
+      "meaning": "news",
+      "article": "die",
+      "status": "usually-plural",
+      "source": "https://en.wiktionary.org/wiki/Nachrichten#German"
+    },
+    {
+      "word": "Nachrichten",
+      "meaning": "messages",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Licht",
+      "meaning": "light",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Licht",
+      "meaning": "daylight",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Grad",
+      "meaning": "degree",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Fallen",
+      "meaning": "traps",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Dollar",
+      "meaning": "dollar",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Bank",
+      "meaning": "bench",
+      "article": "die",
+      "status": "known",
+      "plural": "die Bänke",
+      "source": "https://en.wiktionary.org/wiki/Bank#German"
+    },
+    {
+      "word": "Bank",
+      "meaning": "bank",
+      "article": "die",
+      "status": "known",
+      "plural": "die Banken",
+      "source": "https://en.wiktionary.org/wiki/Bank#German"
+    },
+    {
+      "word": "Gold",
+      "meaning": "gold",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Rechten",
+      "meaning": "rights",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Start",
+      "meaning": "start",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Ruhe",
+      "meaning": "quiet",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Ruhe",
+      "meaning": "rest",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Hund",
+      "meaning": "dog",
+      "article": "der",
+      "status": "known",
+      "plural": "die Hunde",
+      "source": "https://en.wiktionary.org/wiki/Hund#German"
+    },
+    {
+      "word": "Anzahl",
+      "meaning": "number",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Baden",
+      "meaning": "bathing",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Bau",
+      "meaning": "construction",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Bau",
+      "meaning": "building",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Handy",
+      "meaning": "mobile phone",
+      "article": "das",
+      "status": "known",
+      "plural": "die Handys",
+      "source": "https://en.wiktionary.org/wiki/Handy#German"
+    },
+    {
+      "word": "Bier",
+      "meaning": "beer",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Jugend",
+      "meaning": "youth",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Ding",
+      "meaning": "thing",
+      "article": "das",
+      "status": "known",
+      "plural": "die Dinge",
+      "source": "https://en.wiktionary.org/wiki/Ding#German"
+    },
+    {
+      "word": "Party",
+      "meaning": "party",
+      "article": "die",
+      "status": "known",
+      "plural": "die Partys",
+      "source": "https://en.wiktionary.org/wiki/Party#German"
+    },
+    {
+      "word": "Vergangenheit",
+      "meaning": "past",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Aussehen",
+      "meaning": "appearance",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Zuhause",
+      "meaning": "home",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Osten",
+      "meaning": "east",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Star",
+      "meaning": "star",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Westen",
+      "meaning": "west",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Westen",
+      "meaning": "vests",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Fernsehen",
+      "meaning": "television",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Finale",
+      "meaning": "final",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Park",
+      "meaning": "park",
+      "article": "der",
+      "status": "known",
+      "plural": "die Parks",
+      "source": "https://en.wiktionary.org/wiki/Park#German"
+    },
+    {
+      "word": "Frieden",
+      "meaning": "peace",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Rum",
+      "meaning": "rum",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Fleisch",
+      "meaning": "meat",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Geist",
+      "meaning": "ghost",
+      "article": "der",
+      "status": "known",
+      "plural": "die Geister",
+      "source": "https://en.wiktionary.org/wiki/Geist#German"
+    },
+    {
+      "word": "Blau",
+      "meaning": "blue",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Lager",
+      "meaning": "camp",
+      "article": "das",
+      "status": "known",
+      "plural": "die Lager",
+      "source": "https://en.wiktionary.org/wiki/Lager#German"
+    },
+    {
+      "word": "Lager",
+      "meaning": "warehouse",
+      "article": "das",
+      "status": "known",
+      "plural": "die Lager",
+      "source": "https://en.wiktionary.org/wiki/Lager#German"
+    },
+    {
+      "word": "Norden",
+      "meaning": "north",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Kriegen",
+      "meaning": "wars",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Schönes",
+      "meaning": "something nice",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Glas",
+      "meaning": "glass",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Glas",
+      "meaning": "jar",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Streit",
+      "meaning": "argument",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "West",
+      "meaning": "west",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Ton",
+      "meaning": "sound",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Süden",
+      "meaning": "south",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Singen",
+      "meaning": "singing",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Nord",
+      "meaning": "north",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Mut",
+      "meaning": "courage",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Ausdruck",
+      "meaning": "expression",
+      "article": "der",
+      "status": "known",
+      "plural": "die Ausdrücke",
+      "source": "https://en.wiktionary.org/wiki/Ausdruck#German"
+    },
+    {
+      "word": "Schmerzen",
+      "meaning": "pains",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Silber",
+      "meaning": "silver",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Bitten",
+      "meaning": "requests",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Braun",
+      "meaning": "brown",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Milch",
+      "meaning": "milk",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Mist",
+      "meaning": "crap",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Alltag",
+      "meaning": "everyday life",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Erfolgen",
+      "meaning": "successes",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Rollen",
+      "meaning": "roles",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Dingen",
+      "meaning": "things",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Pflege",
+      "meaning": "care",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Hunger",
+      "meaning": "hunger",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Lkw",
+      "meaning": "truck",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Konto",
+      "meaning": "bank account",
+      "article": "das",
+      "status": "known",
+      "plural": "die Konten",
+      "source": "https://en.wiktionary.org/wiki/Konto#German"
+    },
+    {
+      "word": "Konto",
+      "meaning": "account",
+      "article": "das",
+      "status": "known",
+      "plural": "die Konten",
+      "source": "https://en.wiktionary.org/wiki/Konto#German"
+    },
+    {
+      "word": "Loch",
+      "meaning": "hole",
+      "article": "das",
+      "status": "known",
+      "plural": "die Löcher",
+      "source": "https://en.wiktionary.org/wiki/Loch#German"
+    },
+    {
+      "word": "Süd",
+      "meaning": "South",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Rad",
+      "meaning": "bike",
+      "article": "das",
+      "status": "known",
+      "plural": "die Räder",
+      "source": "https://en.wiktionary.org/wiki/Rad#German"
+    },
+    {
+      "word": "Rad",
+      "meaning": "wheel",
+      "article": "das",
+      "status": "known",
+      "plural": "die Räder",
+      "source": "https://en.wiktionary.org/wiki/Rad#German"
+    },
+    {
+      "word": "Müll",
+      "meaning": "garbage",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Pop",
+      "meaning": "pop",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Hammer",
+      "meaning": "hammer",
+      "article": "der",
+      "status": "known",
+      "plural": "die Hämmer",
+      "source": "https://en.wiktionary.org/wiki/Hammer#German"
+    },
+    {
+      "word": "Tanzen",
+      "meaning": "dancing",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Vorsicht",
+      "meaning": "caution",
+      "article": "die",
+      "status": "unknown"
+    },
+    {
+      "word": "Burg",
+      "meaning": "castle",
+      "article": "die",
+      "status": "known",
+      "plural": "die Burgen",
+      "source": "https://en.wiktionary.org/wiki/Burg#German"
+    },
+    {
+      "word": "Französisch",
+      "meaning": "French",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Schwimmen",
+      "meaning": "swimming",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Cent",
+      "meaning": "cent",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Filmen",
+      "meaning": "films",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Pkw",
+      "meaning": "car",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Berufen",
+      "meaning": "professions",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Knie",
+      "meaning": "knee",
+      "article": "das",
+      "status": "known",
+      "plural": "die Knie",
+      "source": "https://en.wiktionary.org/wiki/Knie#German"
+    },
+    {
+      "word": "Stock",
+      "meaning": "floor",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Stock",
+      "meaning": "stick",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Einkaufen",
+      "meaning": "shopping",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Quatsch",
+      "meaning": "nonsense",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Gebieten",
+      "meaning": "areas",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Block",
+      "meaning": "pad",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Block",
+      "meaning": "block",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Pizza",
+      "meaning": "pizza",
+      "article": "die",
+      "status": "known",
+      "plural": "die Pizzen",
+      "source": "https://en.wiktionary.org/wiki/Pizza#German"
+    },
+    {
+      "word": "Räumen",
+      "meaning": "rooms",
+      "article": "das",
+      "status": "unknown"
+    },
+    {
+      "word": "Unsinn",
+      "meaning": "nonsense",
+      "article": "der",
+      "status": "unknown"
+    },
+    {
+      "word": "Kumpel",
+      "meaning": "buddy",
+      "article": "der",
+      "status": "known",
+      "plural": "die Kumpel",
+      "source": "https://en.wiktionary.org/wiki/Kumpel#German"
+    }
+  ],
+  "coverage": {
+    "usually-singular": 3,
+    "unknown": 130,
+    "known": 40,
+    "usually-plural": 1
+  }
+}

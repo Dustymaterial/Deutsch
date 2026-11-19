@@ -1,3 +1,4 @@
+import { NounPlural } from './NounPlural'
 import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isCachedPrivateMessage } from './chatCacheValidation'
 import { BookOpen, ChevronDown, ChevronLeft, Ellipsis, Inbox, Check, LayoutGridCircles, Languages, Reply, Search, ShieldCheck, SmilePlus, SpellCheck, Users, X } from 'lucide-react'
@@ -194,7 +195,7 @@ function CompanionPracticeSession({
               <div className="companion-practice-expected">
                 <span className="label">Expected meaning</span>
                 <strong>{card.meaning}</strong>
-                {card.plural && <span>Plural: <span lang="de">{card.plural}</span></span>}
+                <NounPlural card={card} />
               </div>
               {practice.answer
                 ? <div className="companion-practice-response">
@@ -215,7 +216,7 @@ function CompanionPracticeSession({
                 <p className="answer-word" lang="de">{prompt}</p>
                 <div className="answer-meaning"><span className="label">Meaning</span><strong>{card.meaning}</strong></div>
                 {card.article && <div className="fact-row"><span className="label">Article</span><strong lang="de">{card.article}</strong></div>}
-                {card.plural && <div className="fact-row"><span className="label">Plural</span><strong lang="de">{card.plural}</strong></div>}
+                <NounPlural card={card} />
                 {card.example && <div className="fact-row example-row companion-practice-example">
                   <span className="label">In a sentence</span>
                   <strong lang="de">{card.example}</strong>

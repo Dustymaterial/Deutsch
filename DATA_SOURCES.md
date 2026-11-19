@@ -30,3 +30,7 @@ German browser voices are detected as their list becomes available. Local speech
 German example words offer dictionary lookup across Learn and revealed review cards. Exact English counterpart highlights remain limited to a verified German/English sentence pair. Dictionary glosses do not establish sentence alignments. The dictionary records coverage against starter example tokens and leaves uncovered words explicit. Imported and learner-written content remains the learner's responsibility to check.
 
 For regeneration commands and development setup, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+## Missing noun forms
+
+`noun-form-supplement.json` is a curated, CC BY-SA 4.0 supplement for the 174 starter noun cards without plural values. Forty have checked plural suggestions, three have a verified usually-singular status and one a usually-plural status; 130 remain explicitly unknown. Entries link to their Wiktionary source and match exact word, article and meaning. Financial Bank uses Banken; the bench sense uses Bänke. Wort's Wörter suggestion is qualified as individual words. Do not regenerate these decisions from a spelling-level table or treat unknown as having no plural. Suggestions only become a learner's saved plural through an explicit action.
