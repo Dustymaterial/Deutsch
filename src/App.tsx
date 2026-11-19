@@ -1821,8 +1821,8 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), rating, reviewedAt, struggledWith)
         : card,
     )
+    if (!saveDeck(updatedCards)) return
     setCards(updatedCards)
-    saveDeck(updatedCards)
     recordCompletedWord(activeCard.id, 'recall')
     setRevealed(false)
     includeDueFirstReviews(reviewedAt)
@@ -1832,11 +1832,11 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const handleChoice = (selectedId: string) => {
     if (!activeCard || choiceFeedback || choiceOptions.length !== 4) return
     const correct = selectedId === activeCard.id
-    recordCompletedWord(activeCard.id, 'choice', true)
     if (practiceLoopActive) {
       const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
+      if (!saveDeck(updatedCards)) return
       setCards(updatedCards)
-      saveDeck(updatedCards)
+      recordCompletedWord(activeCard.id, 'choice', true)
       setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
       return
     }
@@ -1846,8 +1846,9 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), correct ? 'hard' : 'again', reviewedAt, [], 'choice', correct)
         : card,
     )
+    if (!saveDeck(updatedCards)) return
     setCards(updatedCards)
-    saveDeck(updatedCards)
+    recordCompletedWord(activeCard.id, 'choice', true)
     setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
     includeDueFirstReviews(reviewedAt)
   }
@@ -1870,7 +1871,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     const reviewedAt = new Date()
     const updatedCards = cards.map((card) => {
       if (card.id !== activeCard.id) return card
-      const withAnswers = acceptAlternative ? { ...card, acceptedAnswers, updatedAt: reviewedAt.toISOString() } : card
+      const withAnswers = acceptAlternative ? { ...card, acceptedAnswers, acceptedAnswersUpdatedAt: reviewedAt.toISOString(), updatedAt: reviewedAt.toISOString() } : card
       const active = recordWordActivity(withAnswers, 'reviewed', reviewedAt)
       return practiceLoopActive ? active : reviewLearningCard(active, correct ? 'hard' : 'again', reviewedAt, [], 'production', correct)
     })
@@ -1904,8 +1905,8 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     if (!practiceLoopIds?.length) return
     if (studyMode === 'recall' && activeCard) {
       const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
+      if (!saveDeck(updatedCards)) return
       setCards(updatedCards)
-      saveDeck(updatedCards)
       recordCompletedWord(activeCard.id, 'recall')
     }
     setPracticeLoopIndex((index) => (index + 1) % practiceLoopIds.length)
@@ -1961,14 +1962,15 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         ? { article: input.article, plural: input.plural || undefined }
         : {},
     )
-    if (input.acceptedAnswers.length) card.acceptedAnswers = input.acceptedAnswers
+    if (input.acceptedAnswers.length) {
+      card.acceptedAnswers = input.acceptedAnswers
+      card.acceptedAnswersUpdatedAt = card.createdAt
+    }
     const updatedCards = [...cards, card]
+    if (!saveDeck(updatedCards)) return
     setCards(updatedCards)
-    const saved = saveDeck(updatedCards)
     closeAddCard(true)
-    showToast(saved
-      ? `${prompt} is ready for your next study set.`
-      : `${prompt} was added for this visit but could not be saved.`, saved ? 'success' : 'error')
+    showToast(`${prompt} is ready for your next study set.`, 'success')
   }
 
   const receiveSharedWord = (share: SharedWordPreview) => {
@@ -2090,8 +2092,8 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       const restored = incomingById.get(card.id)
       return restored ? { ...card, activity: mergeWordActivity(card, restored) } : card
     }), ...additions]
-    setCards(merged)
     const saved = saveDeck(merged)
+    if (saved) setCards(merged)
     const itemLabel = kind === 'vocabulary'
       ? additions.length === 1 ? 'new word' : 'new words'
       : additions.length === 1 ? 'card' : 'cards'
@@ -2487,15 +2489,14 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     closeActivity, closeAppSettings, closeLearnSettings])
 
   const studyPlanSummary = `Goal: ${studyPlan.targetLevel} · ${goalEstimate.daysRemaining} days · ${intensitySettings.label} · up to ${intensitySettings.newCardsPerDay} new cards/day`
-  const saveLearningCard = (id: string, notify = true) => {
+  const saveLearningCard = (id: string) => {
     if (!canSave) return
     const at = new Date()
     const updatedCards = cards.map((card) => card.id === id
       ? saveForLearning(card, at)
       : card)
+    if (!saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')) return
     setCards(updatedCards)
-    const saved = saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')
-    if (notify && !saved) showToast('Word saved for this visit only.', 'error')
   }
   const addToReviews = (id: string, beyondLimit: boolean) => {
     const card = cards.find((item) => item.id === id && item.status === 'active' && isUnintroduced(item))

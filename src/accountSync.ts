@@ -57,9 +57,17 @@ const mergeCard = (local: Card, remote: Card): Card => {
 
   const pluralSource = [local, remote].filter((card) => card.pluralUpdatedAt)
     .sort((a, b) => Date.parse(b.pluralUpdatedAt!) - Date.parse(a.pluralUpdatedAt!))[0]
+  // Lexical edits must not be displaced by an unrelated, newer review.
+  // Explicit empty edits also win; legacy nonempty keys survive stale reviews.
+  const answersSource = [local, remote].filter((card) => card.acceptedAnswersUpdatedAt)
+    .sort((a, b) => Date.parse(b.acceptedAnswersUpdatedAt!) - Date.parse(a.acceptedAnswersUpdatedAt!)
+      || JSON.stringify(a.acceptedAnswers ?? []).localeCompare(JSON.stringify(b.acceptedAnswers ?? []), 'de'))[0]
+    ?? [local, remote].filter((card) => card.acceptedAnswers?.length)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
   const merged: Card = {
     ...latest,
     ...(pluralSource ? { plural: pluralSource.plural, pluralUpdatedAt: pluralSource.pluralUpdatedAt } : {}),
+    ...(answersSource ? { acceptedAnswers: answersSource.acceptedAnswers ?? [], acceptedAnswersUpdatedAt: answersSource.acceptedAnswersUpdatedAt } : {}),
     activity: mergeWordActivity(local, remote),
     firstReviewScheduledAt,
     ...(learning ? { learning } : {}),

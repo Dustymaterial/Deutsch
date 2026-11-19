@@ -34,6 +34,28 @@ const card = (overrides = {}) => ({
   ...overrides,
 })
 
+test('accepted answers survive newer stale-device reviews, including legacy keys', () => {
+  for (const timestamp of [undefined, '2026-11-16T10:00:00.000Z']) {
+    const edited = card({ acceptedAnswers: ['das Gebäude'], acceptedAnswersUpdatedAt: timestamp })
+    const reviewed = scheduleReview(card(), 'good', new Date('2026-11-17T10:00:00.000Z'))
+    for (const [a, b] of [[edited, reviewed], [reviewed, edited]]) {
+      const merged = mergeAccountCards([a], [b])[0]
+      assert.deepEqual(merged.acceptedAnswers, ['das Gebäude'])
+      assert.equal(merged.lastReviewedAt, reviewed.lastReviewedAt)
+      assert.equal(merged.dueAt, reviewed.dueAt)
+    }
+  }
+})
+
+test('explicit answer-key removals survive stale keys and merge ties converge', () => {
+  const old = card({ acceptedAnswers: ['das Gebäude'], acceptedAnswersUpdatedAt: '2026-11-16T10:00:00.000Z' })
+  const removed = card({ acceptedAnswers: [], acceptedAnswersUpdatedAt: '2026-11-17T10:00:00.000Z' })
+  assert.deepEqual(mergeAccountCards([old], [removed])[0].acceptedAnswers, [])
+  const simultaneous = { ...old, acceptedAnswersUpdatedAt: removed.acceptedAnswersUpdatedAt }
+  assert.deepEqual(mergeAccountCards([simultaneous], [removed])[0].acceptedAnswers,
+    mergeAccountCards([removed], [simultaneous])[0].acceptedAnswers)
+})
+
 test('merges cards from both devices and keeps the newest schedule and unique history', () => {
   const local = card({
     tags: ['A1', 'Lesson 1'],

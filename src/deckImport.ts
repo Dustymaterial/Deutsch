@@ -10,6 +10,7 @@ export type Card = {
   plural?: string
   pluralUpdatedAt?: string
   acceptedAnswers?: string[]
+  acceptedAnswersUpdatedAt?: string
   example: string
   translation?: string
   category: string
@@ -95,6 +96,7 @@ export const isDeckCard = (value: unknown): value is Card => {
     typeof card.meaning === 'string' &&
     (card.plural === undefined || typeof card.plural === 'string') &&
     (card.acceptedAnswers === undefined || validAcceptedAnswers(card.acceptedAnswers, card.category ?? '')) &&
+    (card.acceptedAnswersUpdatedAt === undefined || (typeof card.acceptedAnswersUpdatedAt === 'string' && Number.isFinite(Date.parse(card.acceptedAnswersUpdatedAt)))) &&
     typeof card.example === 'string' &&
     (card.translation === undefined || typeof card.translation === 'string') &&
     typeof card.category === 'string' &&
@@ -200,7 +202,7 @@ const fromVocabularyEntry = (entry: VocabularyEntry, now: Date): Card => {
     ...(article ? { article } : {}),
     meaning: entry.meaning.trim(),
     ...(entry.plural?.trim() ? { plural: entry.plural.trim() } : {}),
-    ...(entry.acceptedAnswers?.length ? { acceptedAnswers: entry.acceptedAnswers.map((answer) => answer.trim()) } : {}),
+    ...(entry.acceptedAnswers?.length ? { acceptedAnswers: entry.acceptedAnswers.map((answer) => answer.trim()), acceptedAnswersUpdatedAt: timestamp } : {}),
     example: entry.example.trim(),
     translation: entry.translation?.trim() ?? '',
     category: entry.category,
