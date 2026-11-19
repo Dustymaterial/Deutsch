@@ -1,3 +1,4 @@
+import { meaningsOverlap } from './quizMeaning.ts'
 import type { Card } from './deckImport'
 
 export type ChoiceOption = {
@@ -16,21 +17,22 @@ const hash = (value: string) => {
 }
 
 const normalize = (value: string) =>
-  value.trim().toLocaleLowerCase('de-DE').replace(/\s+/g, ' ')
+  value.normalize('NFC').trim().toLocaleLowerCase('de-DE').replace(/\s+/g, ' ')
 
 export const getChoiceOptions = (
   target: Card,
   cards: Card[],
   sessionQuestion: number,
 ): ChoiceOption[] => {
-  const targetMeaning = normalize(target.meaning)
   const targetPrompt = normalize(target.prompt)
   const targetLevel = target.tags.find((tag) => /^A[12]$/.test(tag))
   const candidates = cards.filter(
     (card) =>
       card.status === 'active' &&
       card.id !== target.id &&
-      normalize(card.meaning) !== targetMeaning &&
+      !meaningsOverlap(card.meaning, target.meaning) &&
+      !(target.acceptedAnswers ?? []).some((answer) => normalize(answer) === normalize(card.prompt)) &&
+      !(card.acceptedAnswers ?? []).some((answer) => normalize(answer) === targetPrompt) &&
       normalize(card.prompt) !== targetPrompt,
   )
 
@@ -51,7 +53,12 @@ export const getChoiceOptions = (
         hash(`${target.id}:${sessionQuestion}:${a.id}`) -
         hash(`${target.id}:${sessionQuestion}:${b.id}`),
     )
-  const distractors = [...ranked(preferred), ...ranked(sameCategory), ...ranked(otherCards)].slice(0, 3)
+  const unique = new Map<string, Card>()
+  for (const card of [...ranked(preferred), ...ranked(sameCategory), ...ranked(otherCards)]) {
+    const key = normalize(card.prompt)
+    if (!unique.has(key)) unique.set(key, card)
+  }
+  const distractors = [...unique.values()].slice(0, 3)
   const options = [
     { cardId: target.id, prompt: target.prompt, correct: true },
     ...distractors.map((card) => ({

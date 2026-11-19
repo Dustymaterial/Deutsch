@@ -139,3 +139,13 @@ test('replayed legacy recall reviews without a mode do not duplicate on sync', (
   const merged = mergeAccountCards([reset], [legacy])[0]
   assert.equal(mergeAccountCards([merged], [legacy])[0].reviewHistory.length, 1)
 })
+
+test('sync and reset replay retain the latest explicit answer key',()=>{
+ const local=card({acceptedAnswers:['das Gebäude'],updatedAt:'2026-11-16T12:00:00.000Z'})
+ const remote=card()
+ const merged=mergeAccountCards([local],[remote])[0]
+ assert.deepEqual(merged.acceptedAnswers,['das Gebäude'])
+ const reset=resetReviewProgress(merged,new Date('2026-11-17T12:00:00.000Z'))
+ const reviewed=scheduleReview(reset,'hard',new Date('2026-11-18T12:00:00.000Z'),[],'production',true)
+ assert.deepEqual(mergeAccountCards([reviewed],[remote])[0].acceptedAnswers,['das Gebäude'])
+})

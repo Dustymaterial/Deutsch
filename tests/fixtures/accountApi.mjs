@@ -267,6 +267,27 @@ try {
   }
   const learnerId = records.users.find((item) => item.email === email)._id.toString()
   const otherId = companion._id.toString()
+  // Accepted answer keys survive sync but malformed keys cannot enter progress.
+  const aliasCard = {
+    id:'alias-check',prompt:'die Wohnung',article:'die',meaning:'apartment',category:'noun',
+    acceptedAnswers:['das Appartement'],example:'Die Wohnung ist schön.',translation:'The apartment is nice.',
+    tags:['A1'],status:'active',dueAt:'2026-01-01T12:00:00.000Z',intervalDays:0,repetitions:0,easeFactor:2.5,lapses:0,
+    lastReviewedAt:null,lastRating:null,correctCount:0,incorrectCount:0,reviewHistory:[],
+    createdAt:'2026-01-01T12:00:00.000Z',updatedAt:'2026-01-01T12:00:00.000Z',
+  }
+  const aliasPayload = {cards:[aliasCard],expectedRevision:0,studyPlan:{currentLevel:'unknown',targetLevel:'B1',targetDate:'2027-01-01',intensity:'steady'}}
+  const putAliases = async payload => {
+    const response=await nativeFetch(`${base}/api/progress`,{method:'PUT',headers:{cookie:learner.cookie,'content-type':'application/json'},body:JSON.stringify(payload)})
+    return response.status
+  }
+  for (const answers of [['Appartement'],Array(11).fill('das Haus'),['das '+ 'x'.repeat(201)],'das Haus']) {
+    assert.equal(await putAliases({...aliasPayload,cards:[{...aliasCard,acceptedAnswers:answers}]}),400)
+  }
+  assert.equal(await putAliases(aliasPayload),200)
+  const savedAliases=(await request('/api/progress',null,learner.cookie)).body.progress.cards[0]
+  assert.deepEqual(savedAliases.acceptedAnswers,['das Appartement'])
+  assert.equal(savedAliases.reviewHistory.length,0)
+  records.progress=records.progress.filter(item=>item.userId!==learnerId)
   assert.equal((await request('/api/companions/', null, null)).status, 401)
   assert.equal((await request('/api/companions/search', { username: 'legacy' }, learner.cookie)).status, 404)
   assert.equal((await request('/api/companions/request', { id: legacy._id.toString() }, learner.cookie)).status, 404)

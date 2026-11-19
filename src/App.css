@@ -2602,3 +2602,5 @@ input[aria-invalid="true"]:focus,
 .learn-example .companion-word-peek small,
 .example-row .companion-word-peek small,
 .answer-example .companion-word-peek small { font-size: 0.75rem; }
+.production-alternative-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.25rem; }
+.production-context { color: #6b706d; font-size: 1rem; line-height: 1.45; }

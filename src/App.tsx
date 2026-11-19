@@ -32,7 +32,7 @@ import {
   type StudyIntensity,
   type StudyPlan,
 } from './studyPlan'
-import { isProductionAnswerCorrect } from './productionQuiz'
+import { findProductionAlternative, isProductionAnswerCorrect, productionMismatch, validAcceptedAnswers } from './productionQuiz'
 import { AccountMenu, type AccountUser } from './AccountMenu'
 import type { SharedWordPreview } from './CompanionPanel'
 import { useConfirm } from './confirmContext'
@@ -93,6 +93,7 @@ class CompanionLoadBoundary extends Component<{ children: ReactNode; onBack: () 
 }
 
 type NewCardInput = {
+  acceptedAnswers: string[]
   word: string
   category: string
   article: string
@@ -415,6 +416,7 @@ function AddCardDialog({
   const [category, setCategory] = useState('noun')
   const [article, setArticle] = useState('')
   const [articleError, setArticleError] = useState(false)
+  const [answersError, setAnswersError] = useState(false)
   const [level, setLevel] = useState('A1')
   const { errors, validate, handleInput } = useFormValidation()
   const panelRef = useRef<HTMLElement>(null)
@@ -428,17 +430,22 @@ function AddCardDialog({
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const acceptedAnswers = String(new FormData(event.currentTarget).get('acceptedAnswers') ?? '').split('|').map((answer) => answer.trim()).filter(Boolean)
+    const answersValid = validAcceptedAnswers(acceptedAnswers, category)
+    setAnswersError(!answersValid)
     const valid = validate(event.currentTarget)
     const missingArticle = category === 'noun' && !article
     setArticleError(missingArticle)
-    if (!valid || missingArticle) {
+    if (!valid || missingArticle || !answersValid) {
       if (valid && missingArticle) {
         requestAnimationFrame(() => panelRef.current?.querySelector<HTMLButtonElement>('[aria-label="Article"]')?.focus())
       }
+      if (!answersValid) panelRef.current?.querySelector<HTMLInputElement>('[name="acceptedAnswers"]')?.focus()
       return
     }
     const formData = new FormData(event.currentTarget)
     onSave({
+      acceptedAnswers,
       word: String(formData.get('word') ?? '').trim(),
       category,
       article,
@@ -566,6 +573,11 @@ function AddCardDialog({
             Example translation
             <input name="translation" aria-label="Example translation" required maxLength={240} placeholder="The apartment is very beautiful." aria-invalid={Boolean(errors.translation) || undefined} aria-describedby={errors.translation ? 'add-translation-error' : undefined} />
             {errors.translation && <span className="field-error" id="add-translation-error">{errors.translation}</span>}
+          </label>
+          <label>
+            Other accepted German answers <small>Optional, separated by |</small>
+            <input name="acceptedAnswers" maxLength={2010} onChange={() => setAnswersError(false)} aria-invalid={answersError || undefined} aria-describedby={answersError ? 'add-answers-error' : undefined} />
+            {answersError && <span className="field-error" id="add-answers-error">Use up to 10 answers of 200 characters each. Include articles for nouns.</span>}
           </label>
           <label>
             Course or unit tags <small>Separate tags with |</small>
@@ -1325,6 +1337,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const [studyTag, setStudyTag] = useState('')
   const [choiceFeedback, setChoiceFeedback] = useState<ChoiceFeedback | null>(null)
   const [productionAnswer, setProductionAnswer] = useState('')
+  const [productionAlternative, setProductionAlternative] = useState<{ cardId: string; answer: string } | null>(null)
   const [productionFeedback, setProductionFeedback] = useState<ProductionFeedback | null>(null)
   const recordCompletedWord = (id: string, activity: PauseActivity, defer = false) => {
     changePause((state) => recordPauseWord(state, id, Date.now(), defer, activity))
@@ -1722,7 +1735,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     const timer = window.setInterval(() => {
       const currentNow = Date.now()
       setNow(currentNow)
-      if ((learnOpen || queue.length === 0) && !choiceFeedback && !productionFeedback && !practiceLoopIds) {
+      if ((learnOpen || queue.length === 0) && !choiceFeedback && !productionFeedback && !productionAlternative && !practiceLoopIds) {
         includeDueFirstReviews(new Date(currentNow))
       }
       if (practiceLoopIds && practiceLoopDay !== getLocalDayKey(new Date(currentNow))) {
@@ -1732,11 +1745,11 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       }
     }, 30_000)
     return () => window.clearInterval(timer)
-  }, [practiceLoopDay, practiceLoopIds, learnOpen, queue.length, choiceFeedback, productionFeedback, includeDueFirstReviews])
+  }, [practiceLoopDay, practiceLoopIds, learnOpen, queue.length, choiceFeedback, productionFeedback, productionAlternative, includeDueFirstReviews])
 
   const choiceScore = studyProgress.choice
   const productionScore = studyProgress.production
-  const feedbackCardId = choiceFeedback?.cardId ?? productionFeedback?.cardId
+  const feedbackCardId = choiceFeedback?.cardId ?? productionFeedback?.cardId ?? productionAlternative?.cardId
   const feedbackCard = feedbackCardId
     ? cards.find((card) => card.id === feedbackCardId)
     : undefined
@@ -1838,33 +1851,40 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     includeDueFirstReviews(reviewedAt)
   }
 
-  const handleProductionSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!activeCard || studyMode !== 'production' || productionFeedback) return
-    const answer = productionAnswer.trim()
-    if (!answer) return
-
-    const correct = isProductionAnswerCorrect(answer, activeCard.prompt)
-    recordCompletedWord(activeCard.id, 'production', true)
-    if (practiceLoopActive) {
-      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
-      setCards(updatedCards)
-      saveDeck(updatedCards)
-      setProductionFeedback({ cardId: activeCard.id, answer, correct })
-      setProductionAnswer('')
+  const gradeProductionAnswer = (answer: string, acceptAlternative = false) => {
+    if (!activeCard || studyMode !== 'production' || productionFeedback || !answer.trim()) return
+    const candidate = findProductionAlternative(answer, activeCard, cards)
+    const acceptedAnswers = acceptAlternative
+      ? [...new Set([...(activeCard.acceptedAnswers ?? []), answer.trim()])]
+      : activeCard.acceptedAnswers ?? []
+    if (acceptAlternative && (!candidate || !validAcceptedAnswers(acceptedAnswers, activeCard.category))) {
+      showToast('This alternative could not be saved. Check the word and try again.', 'error')
+      return
+    }
+    const correct = isProductionAnswerCorrect(answer, activeCard.prompt, acceptedAnswers)
+    if (!correct && candidate) {
+      setProductionAlternative({ cardId: activeCard.id, answer })
       return
     }
     const reviewedAt = new Date()
-    const updatedCards = cards.map((card) =>
-      card.id === activeCard.id
-        ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), correct ? 'hard' : 'again', reviewedAt, [], 'production', correct)
-        : card,
-    )
+    const updatedCards = cards.map((card) => {
+      if (card.id !== activeCard.id) return card
+      const withAnswers = acceptAlternative ? { ...card, acceptedAnswers, updatedAt: reviewedAt.toISOString() } : card
+      const active = recordWordActivity(withAnswers, 'reviewed', reviewedAt)
+      return practiceLoopActive ? active : reviewLearningCard(active, correct ? 'hard' : 'again', reviewedAt, [], 'production', correct)
+    })
+    if (!saveDeck(updatedCards)) return
     setCards(updatedCards)
-    saveDeck(updatedCards)
+    recordCompletedWord(activeCard.id, 'production', true)
+    setProductionAlternative(null)
     setProductionFeedback({ cardId: activeCard.id, answer, correct })
-    includeDueFirstReviews(reviewedAt)
     setProductionAnswer('')
+    if (!practiceLoopActive) includeDueFirstReviews(reviewedAt)
+  }
+
+  const handleProductionSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    gradeProductionAnswer(productionAnswer.trim())
   }
 
   const continueQuiz = (resumeActivity?: PauseActivity) => {
@@ -1874,6 +1894,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     })
     setChoiceFeedback(null)
     setProductionFeedback(null)
+    setProductionAlternative(null)
     setProductionAnswer('')
     setStruggledWith([])
   }
@@ -1939,6 +1960,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         ? { article: input.article, plural: input.plural || undefined }
         : {},
     )
+    if (input.acceptedAnswers.length) card.acceptedAnswers = input.acceptedAnswers
     const updatedCards = [...cards, card]
     setCards(updatedCards)
     const saved = saveDeck(updatedCards)
@@ -2263,6 +2285,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       setLearnSettingsOpen(false)
       setChoiceFeedback(null)
       setProductionFeedback(null)
+    setProductionAlternative(null)
       setStruggledWith([])
       setRevealed(false)
     }
@@ -2909,7 +2932,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             <div className="choice-result" aria-live="polite">
               <p className={choiceFeedback.correct ? 'choice-result-title correct' : 'choice-result-title incorrect'}>
                 {choiceFeedback.correct
-                  ? practiceLoopActive ? 'Correct. Nice recall.' : 'Correct. One point.'
+                  ? 'Correct.'
                   : 'Not quite. Take another look.'}
               </p>
               {!choiceFeedback.correct && (
@@ -2977,10 +3000,19 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
                 </div>
               )}
             </div>
+          ) : productionAlternative ? (
+            <div className="choice-result production-result" role="status">
+              <p className="choice-result-title">Another saved translation fits.</p>
+              <p lang="de">{productionAlternative.answer}</p>
+              <div className="production-alternative-actions">
+                <button type="button" className="rating" disabled={!canSave || (activeCard.acceptedAnswers?.length ?? 0) >= 10} onClick={() => gradeProductionAnswer(productionAlternative.answer, true)}>Save and accept</button>
+                <button type="button" className="quiet-button" onClick={() => { setProductionAlternative(null); setProductionAnswer('') }}>Try the saved word</button>
+              </div>
+            </div>
           ) : productionFeedback ? (
             <div className="choice-result production-result" aria-live="polite">
               <p className={`choice-result-title ${productionFeedback.correct ? 'correct' : 'incorrect'}`}>
-                {productionFeedback.correct ? 'Correct. Good recall.' : 'Not quite. Review this one.'}
+                {productionFeedback.correct ? 'Correct.' : productionMismatch(productionFeedback.answer, activeCard.prompt)}
               </p>
               <p className="choice-your-answer">
                 You typed: <span lang="de">{productionFeedback.answer}</span>
@@ -3006,8 +3038,9 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           ) : (
             <div className="choice-question production-question">
               <div className="choice-prompt">
-                <p className="prompt-label">Type the German for</p>
+                <p className="prompt-label">Recall your saved German word</p>
                 <h2>{activeCard.meaning}</h2>
+                {activeCard.translation && <p className="production-context">{activeCard.translation}</p>}
               </div>
               <form className="production-answer-form" onSubmit={handleProductionSubmit}>
                 <label>

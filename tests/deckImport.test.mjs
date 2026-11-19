@@ -133,3 +133,14 @@ test('shared-word attribution is validated and survives as optional card metadat
   card.sharedFrom.note = 'x'.repeat(241)
   assert.equal(isDeckCard(card), false)
 })
+
+test('explicit answer alternatives survive vocabulary import and backup validation',()=>{
+ const payload=[{word:'Wohnung',article:'die',category:'noun',meaning:'apartment',example:'Die Wohnung ist schön.',acceptedAnswers:['das Appartement']}]
+ const card=parseDeckImport(payload,now).cards[0]
+ assert.deepEqual(card.acceptedAnswers,['das Appartement'])
+ assert.equal(isDeckCard(card),true)
+ const backup=parseDeckImport({format:'deutsch-daily-deck',version:1,cards:[card]},now)
+ assert.deepEqual(backup.cards[0].acceptedAnswers,card.acceptedAnswers)
+ assert.equal(isDeckCard({...card,acceptedAnswers:['Appartement']}),false)
+ assert.throws(()=>parseDeckImport([{...payload[0],acceptedAnswers:['Appartement']}],now))
+})
