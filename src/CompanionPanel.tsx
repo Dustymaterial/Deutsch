@@ -262,7 +262,7 @@ export function CompanionPanel({
   cards: Card[]
   accountId: string | null
   outbox: ChatOutbox
-  onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
+  onReceiveWord: (share: SharedWordPreview) => Promise<'added' | 'already-present' | false>
   onNotify: (message: string, kind?: 'success' | 'error') => void
   onBack: (conversationEntry: boolean, viewDepth: number) => void
   invitationToken: string | null
@@ -1189,11 +1189,11 @@ export function CompanionPanel({
     replaceMessage(data.message)
   }
 
-  const saveCorrection = (chatMessage: ChatMessage, meaning: string) => {
+  const saveCorrection = async (chatMessage: ChatMessage, meaning: string) => {
     if (!selectedChat || !chatMessage.correction?.text || !meaning.trim()) return
     const { correction } = chatMessage
     const sentence = correction.text as string
-    const result = onReceiveWord({
+    const result = await onReceiveWord({
       id: `correction-${chatMessage.id}`,
       card: { prompt: sentence, meaning: meaning.trim(), example: sentence, translation: meaning.trim(), category: 'phrase' },
       note: correction.note ?? '',
@@ -1378,9 +1378,9 @@ export function CompanionPanel({
     })
   }
 
-  const addChatWord = (chatMessage: ChatMessage) => {
+  const addChatWord = async (chatMessage: ChatMessage) => {
     if (!selectedChat || !chatMessage.card) return
-    const result = onReceiveWord({
+    const result = await onReceiveWord({
       id: chatMessage.id,
       card: chatMessage.card,
       note: '',
@@ -1407,9 +1407,9 @@ export function CompanionPanel({
     })
   }
 
-  const resolveShare = (share: SharedWordPreview, choice: 'add' | 'dismiss') => {
+  const resolveShare = async (share: SharedWordPreview, choice: 'add' | 'dismiss') => {
     void run(async () => {
-      const receiveResult = choice === 'add' ? onReceiveWord(share) : false
+      const receiveResult = choice === 'add' ? await onReceiveWord(share) : false
       if (choice === 'add' && !receiveResult) return
       await request(`/shares/${share.id}/${choice === 'add' ? 'add' : 'dismiss'}`, {})
       setSharedWords((current) => current.filter((item) => item.id !== share.id))

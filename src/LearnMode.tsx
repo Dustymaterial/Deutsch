@@ -22,7 +22,7 @@ type Props = {
   settingsOpen: boolean
   onCloseSettings: (restoreFocus?: boolean) => void
   onSave: (id: string) => void
-  onSchedule: (id: string, beyondLimit: boolean) => boolean
+  onSchedule: (id: string, beyondLimit: boolean) => Promise<boolean>
   onCopy: (text: string) => void
 }
 
@@ -243,8 +243,8 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
               <strong>Your daily new-word target is complete.</strong>
               <p>Adding this word continues beyond today’s target.</p>
               <div className="learn-review-actions">
-                <button type="button" className="rating learn-review-confirm" disabled={!canSave} onClick={() => {
-                  if (onSchedule(card.id, true)) next(true)
+                <button type="button" className="rating learn-review-confirm" disabled={!canSave} onClick={async () => {
+                  if (await onSchedule(card.id, true)) next(true)
                 }}>Add anyway</button>
                 <button type="button" className="rating learn-review-cancel" onClick={() => setShowReview(false)}>Not yet</button>
               </div>
@@ -254,9 +254,9 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
               <div className="learn-actions" aria-label="Learning actions">
                 <button type="button" className="rating" onClick={toggleQuiz}>{showQuiz ? 'Back to word' : 'Gentle check'}</button>
                 <button type="button" className="rating" disabled={!canSave || (card.learning?.saved && !savingError)} onClick={() => onSave(card.id)}>{card.learning?.saved && !savingError ? 'Saved' : 'Save'}</button>
-                <button type="button" className="rating learn-ready" disabled={!canSave} onClick={() => {
+                <button type="button" className="rating learn-ready" disabled={!canSave} onClick={async () => {
                   if (dailyLimitReached) setShowReview(true)
-                  else if (onSchedule(card.id, false)) next(true)
+                  else if (await onSchedule(card.id, false)) next(true)
                 }}>Add to reviews</button>
               </div>
             </>
