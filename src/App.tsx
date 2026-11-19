@@ -1274,6 +1274,9 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const dismissToast = useCallback((id: number) => {
     setToasts((current) => current.filter((item) => item.id !== id))
   }, [])
+  useEffect(() => {
+    if (chatOutbox.storageError) showToast(chatOutbox.storageError, 'error')
+  }, [chatOutbox.storageError, showToast])
   const [loadedPause] = useState(loadPauseState)
   const [pauseState, setPauseState] = useState(loadedPause.state)
   const pauseStateRef = useRef(loadedPause.state)

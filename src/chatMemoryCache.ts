@@ -45,6 +45,13 @@ export class ChatMemoryCache<T> {
     this.pages.delete(id)
   }
 
+  entries(now = Date.now()): [string, CachedChatPage<T>][] {
+    return [...this.pages.keys()].flatMap((id) => {
+      const page = this.get(id, now)
+      return page ? [[id, page] as [string, CachedChatPage<T>]] : []
+    })
+  }
+
   retain(ids: Set<string>) {
     for (const id of this.pages.keys()) {
       if (!ids.has(id)) this.pages.delete(id)
