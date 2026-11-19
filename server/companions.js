@@ -35,8 +35,9 @@ const shareSchema = z.object({
   note: z.string().trim().max(240).optional(),
 })
 const practiceStartSchema = z.object({ tag: z.string().trim().min(1).max(100).optional() })
-const practiceAnswerSchema = z.object({ answer: z.string().trim().min(1).max(1000) })
-const practiceDecisionSchema = z.object({ decision: z.enum(['accept', 'decline', 'end', 'try-again', 'correct', 'reveal', 'request-reveal', 'retry', 'next']) })
+const practiceRevision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER - 1)
+const practiceAnswerSchema = z.object({ revision: practiceRevision, answer: z.string().trim().min(1).max(1000) })
+const practiceDecisionSchema = z.object({ revision: practiceRevision, decision: z.enum(['accept', 'decline', 'end', 'try-again', 'correct', 'reveal', 'request-reveal', 'retry', 'next']) })
 const practiceCategories = new Set(['noun', 'verb', 'adjective', 'adverb', 'numeral', 'phrase'])
 const hour = 60 * 60 * 1000
 const searchableFields = (message) => [
@@ -114,7 +115,7 @@ export function createCompanionRouter({
     }
   }
 
-  const serializePractice = (session, me) => {
+  const serializePractice = (session, me, committed = false) => {
     const helper = session.helperId === me
     const active = session.status === 'active'
     const card = active ? session.cards[session.cardIndex] : null
@@ -122,6 +123,7 @@ export function createCompanionRouter({
     const answerVisible = feedback === 'correct' || feedback === 'reveal'
     return {
       id: session._id.toString(),
+      revision: (session.revision ?? 0) + (committed ? 1 : 0),
       role: helper ? 'helper' : 'learner',
       status: session.status,
       total: session.total,
@@ -146,6 +148,11 @@ export function createCompanionRouter({
       } : {}),
     }
   }
+
+  const mutatePractice = (session, filter, update) => practiceSessions.updateOne({
+    ...filter, cardIndex: session.cardIndex,
+    revision: session.revision ?? { $exists: false },
+  }, { ...update, $inc: { ...update.$inc, revision: 1 } })
 
   async function reserveMessageSlot(user, now) {
     const throttle = await users.updateOne({
@@ -466,6 +473,7 @@ export function createCompanionRouter({
       total: selected.length,
       stats: { recalled: 0, retried: 0, revealed: 0 },
       cardIndex: 0,
+      revision: 0,
       createdAt: now,
       updatedAt: now,
       expiresAt: new Date(now.getTime() + practiceLifetime),
@@ -487,15 +495,16 @@ export function createCompanionRouter({
     const me = req.accountUser._id.toString()
     const found = await activePractice(me, req.params.id)
     if (!found?.session || found.session._id.toString() !== req.params.practiceId || found.session.learnerId !== me || found.session.status !== 'active') return unavailable(res)
+    if (result.data.revision !== (found.session.revision ?? 0)) return changed(res)
     if (found.session.round?.answer || found.session.round?.feedback || found.session.revealRequested) return changed(res)
     if ((found.session.attempts ?? 0) >= 5) return res.status(400).json({ error: 'Five answers have been tried. Ask your companion to reveal the answer or mark it correct.' })
     const now = new Date()
-    const updated = await practiceSessions.updateOne({ _id: found.session._id, status: 'active', revealRequested: { $ne: true }, 'round.answer': { $exists: false } }, {
+    const updated = await mutatePractice(found.session, { _id: found.session._id, status: 'active', revealRequested: { $ne: true }, 'round.answer': { $exists: false } }, {
       $set: { round: { answer: result.data.answer }, attempts: (found.session.attempts ?? 0) + 1, updatedAt: now },
     })
     if (!updated.modifiedCount) return changed(res)
     const practice = { ...found.session, round: { answer: result.data.answer }, attempts: (found.session.attempts ?? 0) + 1, updatedAt: now }
-    res.json({ practice: serializePractice(practice, me) })
+    res.json({ practice: serializePractice(practice, me, true) })
   })
 
   router.post('/chats/:id/practice/:practiceId/decision', async (req, res) => {
@@ -514,6 +523,7 @@ export function createCompanionRouter({
       return unavailable(res)
     }
     const session = found.session
+    if (result.data.revision !== (session.revision ?? 0)) return changed(res)
     const { decision } = result.data
     const isLearner = session.learnerId === me
     const isHelper = session.helperId === me
@@ -524,40 +534,40 @@ export function createCompanionRouter({
       if (!isHelper || session.status !== 'pending') return changed(res)
       const status = decision === 'accept' ? 'active' : 'declined'
       const values = { status, updatedAt: now, ...(status === 'declined' ? { cards: [], round: null } : {}) }
-      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'pending' }, { $set: values })
+      const updated = await mutatePractice(session, { _id: session._id, status: 'pending' }, { $set: values })
       if (!updated.modifiedCount) return changed(res)
-      return res.json({ practice: serializePractice({ ...session, ...values }, me) })
+      return res.json({ practice: serializePractice({ ...session, ...values }, me, true) })
     }
 
     if (decision === 'end') {
       const values = { status: 'ended', wasActive: session.status === 'active', cards: [], round: null, updatedAt: now, expiresAt: now }
-      const updated = await practiceSessions.updateOne({ _id: session._id, status: session.status, updatedAt: session.updatedAt }, { $set: values })
+      const updated = await mutatePractice(session, { _id: session._id, status: session.status, updatedAt: session.updatedAt }, { $set: values })
       if (!updated.modifiedCount) return changed(res)
       if (session.status === 'active') await postPracticeSummary(session, now)
-      return res.json({ practice: serializePractice({ ...session, ...values }, me) })
+      return res.json({ practice: serializePractice({ ...session, ...values }, me, true) })
     }
 
     if (session.status !== 'active') return changed(res)
     if (decision === 'request-reveal') {
       if (!isLearner || ['correct', 'reveal'].includes(session.round?.feedback)) return changed(res)
       if (session.revealRequested) return res.json({ practice: serializePractice(session, me) })
-      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', cardIndex: session.cardIndex, 'round.feedback': session.round?.feedback ?? { $exists: false } }, { $set: { revealRequested: true, updatedAt: now } })
+      const updated = await mutatePractice(session, { _id: session._id, status: 'active', cardIndex: session.cardIndex, 'round.feedback': session.round?.feedback ?? { $exists: false } }, { $set: { revealRequested: true, updatedAt: now } })
       if (!updated.modifiedCount) return changed(res)
-      return res.json({ practice: serializePractice({ ...session, revealRequested: true, updatedAt: now }, me) })
+      return res.json({ practice: serializePractice({ ...session, revealRequested: true, updatedAt: now }, me, true) })
     }
     if (session.revealRequested) {
       if (!isHelper || decision !== 'reveal') return changed(res)
-      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', cardIndex: session.cardIndex, revealRequested: true }, {
+      const updated = await mutatePractice(session, { _id: session._id, status: 'active', cardIndex: session.cardIndex, revealRequested: true }, {
         $set: { round: { ...session.round, feedback: 'reveal' }, revealRequested: false, updatedAt: now }, $inc: { 'stats.revealed': 1 },
       })
       if (!updated.modifiedCount) return changed(res)
-      return res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback: 'reveal' }, revealRequested: false, updatedAt: now }, me) })
+      return res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback: 'reveal' }, revealRequested: false, updatedAt: now }, me, true) })
     }
     if (decision === 'retry') {
       if (!isLearner || session.round?.feedback !== 'try-again') return changed(res)
-      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', revealRequested: { $ne: true }, 'round.feedback': 'try-again' }, { $unset: { round: '' }, $set: { updatedAt: now } })
+      const updated = await mutatePractice(session, { _id: session._id, status: 'active', revealRequested: { $ne: true }, 'round.feedback': 'try-again' }, { $unset: { round: '' }, $set: { updatedAt: now } })
       if (!updated.modifiedCount) return changed(res)
-      return res.json({ practice: serializePractice({ ...session, round: undefined, updatedAt: now }, me) })
+      return res.json({ practice: serializePractice({ ...session, round: undefined, updatedAt: now }, me, true) })
     }
 
     if (decision === 'next') {
@@ -566,22 +576,23 @@ export function createCompanionRouter({
       const values = complete
         ? { status: 'completed', cards: [], round: null, updatedAt: now, expiresAt: now }
         : { cardIndex: session.cardIndex + 1, round: null, attempts: 0, revealRequested: false, updatedAt: now }
-      const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', 'round.feedback': session.round.feedback }, { $set: values })
+      const updated = await mutatePractice(session, { _id: session._id, status: 'active', 'round.feedback': session.round.feedback }, { $set: values })
       if (!updated.modifiedCount) return changed(res)
       if (complete) await postPracticeSummary(session, now)
-      return res.json({ practice: serializePractice({ ...session, ...values }, me) })
+      return res.json({ practice: serializePractice({ ...session, ...values }, me, true) })
     }
 
     if (!isHelper || !session.round?.answer || session.round.feedback) return changed(res)
     const feedback = decision
     if (!['try-again', 'correct', 'reveal'].includes(feedback)) return changed(res)
-    const updated = await practiceSessions.updateOne({ _id: session._id, status: 'active', revealRequested: { $ne: true }, 'round.answer': session.round.answer, 'round.feedback': { $exists: false } }, {
+    const updated = await mutatePractice(session, { _id: session._id, status: 'active', revealRequested: { $ne: true }, 'round.answer': session.round.answer, 'round.feedback': { $exists: false } }, {
       $set: { 'round.feedback': feedback, updatedAt: now },
       ...(['correct', 'reveal'].includes(feedback) ? { $inc: { [`stats.${feedback === 'reveal' ? 'revealed' : (session.attempts ?? 1) > 1 ? 'retried' : 'recalled'}`]: 1 } } : {}),
     })
     if (!updated.modifiedCount) return changed(res)
-    res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback }, updatedAt: now }, me) })
+    res.json({ practice: serializePractice({ ...session, round: { ...session.round, feedback }, updatedAt: now }, me, true) })
   })
+
 
   router.get('/chats/:id/messages', async (req, res) => {
     const me = req.accountUser._id.toString()

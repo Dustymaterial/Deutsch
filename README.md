@@ -86,3 +86,4 @@ Open the URL printed by Vite. Local study works without server credentials. See 
 The app code is [MIT licensed](./LICENSE). The adapted starter vocabulary and dictionary are separate **CC BY-SA 4.0** works derived from Wiktionary, Kaikki/Wiktextract and the slovymovy word lists. Human audio has its own attribution and license. See [DATA_SOURCES.md](./DATA_SOURCES.md) for sources, modifications and limitations.
 
 Study actions remain pending if the browser cannot save them. Saved accepted answers survive newer reviews synced from another device.
+Peer practice rejects delayed answers or feedback from an earlier round. Refresh keeps an unsent answer available.
