@@ -9,7 +9,7 @@ export function PendingChatMessages({ items, outbox }: { items: OutboxMessage[];
       <div className="companion-message-meta"><strong>You</strong><time dateTime={item.createdAt}>{formatChatTime(item.createdAt)}</time>
         {item.status === 'sending' ? <MessageReceipt status="sending" />
           : item.status === 'sent' ? <MessageReceipt status="sent" />
-          : <span className="companion-send-failed" role="alert">Not sent</span>}
+          : <span className="companion-send-failed" role="alert">{item.deliveryUnconfirmed ? 'Not confirmed' : 'Not sent'}</span>}
       </div>
       <p className="companion-message-text">{item.text}</p>
       {item.status === 'failed' && <div className="companion-send-error">

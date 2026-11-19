@@ -6,7 +6,8 @@ export const chatCacheClearedKey = 'deutsch-chat-cache-cleared'
 const maxAge = 24 * 60 * 60 * 1000
 const maxPages = 20
 const maxMessages = 50
-type Kind = 'private' | 'group'
+type Kind = 'private' | 'group' | 'outbox'
+export const chatCachePreferenceEvent = 'deutsch-chat-cache-preference'
 type PageRecord = { accountId: string; kind: Kind; id: string; savedAt: number; page: unknown }
 type Metadata = { accountId: string; generation: number }
 const warmPages = new Map<string, Map<string, PageRecord>>()
@@ -79,6 +80,7 @@ export function chatCacheEnabled() {
 
 export function setChatCacheEnabled(enabled: boolean) {
   localStorage.setItem(preferenceKey, String(enabled))
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(chatCachePreferenceEvent))
 }
 
 export async function clearChatCache(accountId?: string) {
@@ -111,6 +113,7 @@ export async function clearChatCache(accountId?: string) {
     finish()
   })
   localStorage.setItem(chatCacheClearedKey, `${accountId ?? '*'}:${crypto.randomUUID()}`)
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(chatCacheClearedKey, { detail: accountId ?? '*' }))
 }
 
 export class PersistentChatCache<T> extends ChatMemoryCache<T> {

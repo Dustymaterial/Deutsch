@@ -875,6 +875,12 @@ export function CompanionPanel({
   const togglePersistentCache = async () => {
     if (!accountId) return
     const enabled = !persistentCacheEnabled
+    if (!enabled && outbox.items.some((item) => item.status !== 'sent') && !await confirmDialog({
+      title: 'Clear saved chats and unsent messages?',
+      message: 'Unsent messages on this device will be removed.',
+      confirmLabel: 'Turn off and clear',
+      tone: 'danger',
+    })) return
     setBusy(true)
     setCacheProblem(null)
     try {
