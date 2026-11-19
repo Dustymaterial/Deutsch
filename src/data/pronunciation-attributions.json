@@ -1,0 +1,25 @@
+{
+  "source": "Wikimedia Commons file descriptions, checked 2026-11-19; author stated in description rather than inferred from uploader",
+  "authors": {
+    "File:De-Erde.ogg": "SabineCretella",
+    "File:De-Religion.ogg": "SabineCretella",
+    "File:De-vierzehn.ogg": "joni",
+    "File:De-Morgen.ogg": "MiER",
+    "File:De-Bier.ogg": "Pill",
+    "File:De-Jahr.ogg": "Pill",
+    "File:De-Autobahn.ogg": "Starvinmarvin",
+    "File:De-umsteigen.ogg": "Kampy",
+    "File:De-Galerie.ogg": "Der Abendrotbaum",
+    "File:De-Grab.ogg": "Bleibein",
+    "File:DE-Traum.ogg": "Dr. Thomas Braun",
+    "File:DE-zurück.ogg": "Dr. Thomas Braun"
+  },
+  "additionalFiles": [
+    {
+      "word": "Büro",
+      "file": "De-Büro.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:De-B%C3%BCro.ogg",
+      "note": "Commons description explicitly identifies Kampy, German Büro and CC BY-SA 3.0."
+    }
+  ]
+}

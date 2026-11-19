@@ -15,7 +15,8 @@
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test",
     "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "data:pronunciation": "node scripts/buildPronunciation.mjs"
   },
   "dependencies": {
     "@dicebear/core": "^9.4.2",

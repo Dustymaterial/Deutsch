@@ -124,3 +124,9 @@ HTTP(S)/www links remain visible with a warning, including cached messages. No U
 `WordLookupProvider` supplies local vocabulary to card and community surfaces. `useWordLookup` lazily loads the dictionary and starter set, preserves personal example/translation fields, and offers an explicit retry after a failed download. `lookupResults.ts` preserves distinct senses and uses verified dictionary lemma mappings to resolve inflected words back to personal vocabulary. None of this data is sent to another learner or a remote translation service.
 
 The dictionary builder includes source-backed words and form-of references needed by supplied examples beyond the normal frequency cut, including contractions. Its coverage metadata lists unresolved tokens; do not fabricate meanings to reach a percentage. Exact bilingual sentence alignment stays separate from context-free word lookup.
+
+## Pronunciation catalogue
+
+`npm run data:pronunciation` scans the pinned-source Wiktionary extract for starter headwords and plural forms, verifies Commons metadata in batches, and produces a separate lazy-loaded catalogue. Preserve per-file author, source and license. Prefer free source-listed alternatives to noncommercial or unattributed files; manual attribution corrections must point to an explicit Commons creator statement. Do not infer the creator from the uploader. Tests require coverage of the current starter set and valid attribution links. Catalogue matching is not a full linguistic review of every homograph.
+
+`WordAudio` waits for voice-list updates, favours local German voices, and requires a separate user action for remote browser speech. A real user gesture initiates audio playback; failed playback remains retryable. No audio request happens merely by displaying a card.

@@ -20,7 +20,12 @@ Dictionary glosses are short and context-free, not sentence translations. Unreco
 
 ## Pronunciation and examples
 
-Human pronunciation coverage is limited to five verified nouns: Haus, Gesundheit, Wasser, Buch and Familie. Each applicable card links its Wikimedia Commons source, author and CC BY-SA 3.0 license and states that the recording is unchanged. These recordings omit articles. Listen requests the recording directly from Commons, which can see the request; recordings are not bundled or app-cached. Other words use a German device voice when available.
+The pronunciation catalogue matches all 2,593 current starter cards to human word recordings and also includes some plural forms. Sources come from German Wiktionary audio references in Kaikki's extract. The builder checks each Commons file's creator and an accepted free license; records lacking usable metadata or using noncommercial licenses are excluded or replaced with a source-listed alternative. A small explicit attribution supplement records author statements checked in older Commons descriptions, without treating the uploader as the creator.
+
+Each entry carries its Commons source, author and individual CC BY, CC BY-SA, CC0 or public-domain status. The original audio content is not edited; MP3 transcoding is disclosed. Recordings omit articles unless present in the source. They are not bundled or app-cached, and are requested directly from Commons only on Listen. The lightweight catalogue itself is a separate app asset. Matching does not guarantee the appropriate pronunciation of every homograph in every context. Imported words and phrases can still lack recordings.
+
+German browser voices are detected as their list becomes available. Local speech is preferred; remote browser speech is offered as a separate explicit action with a disclosure that the word is sent. This does not install an offline voice model. Regenerate and check coverage with `npm run data:pronunciation`.
+
 
 German example words offer dictionary lookup across Learn and revealed review cards. Exact English counterpart highlights remain limited to a verified German/English sentence pair. Dictionary glosses do not establish sentence alignments. The dictionary records coverage against starter example tokens and leaves uncovered words explicit. Imported and learner-written content remains the learner's responsibility to check.
 
