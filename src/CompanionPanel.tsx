@@ -75,6 +75,7 @@ type ChatSummary = {
 type PracticeCard = Pick<Card, 'prompt' | 'article' | 'meaning' | 'plural' | 'example' | 'translation' | 'category'>
 type PracticeSession = {
   id: string
+  revision: number
   role: 'learner' | 'helper'
   status: 'pending' | 'active' | 'declined' | 'ended' | 'completed'
   total: number
@@ -261,7 +262,7 @@ export function CompanionPanel({
   cards: Card[]
   accountId: string | null
   outbox: ChatOutbox
-  onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
+  onReceiveWord: (share: SharedWordPreview) => Promise<'added' | 'already-present' | false>
   onNotify: (message: string, kind?: 'success' | 'error') => void
   onBack: (conversationEntry: boolean, viewDepth: number) => void
   invitationToken: string | null
@@ -874,6 +875,12 @@ export function CompanionPanel({
   const togglePersistentCache = async () => {
     if (!accountId) return
     const enabled = !persistentCacheEnabled
+    if (!enabled && outbox.items.some((item) => item.status !== 'sent') && !await confirmDialog({
+      title: 'Clear saved chats and unsent messages?',
+      message: 'Unsent messages on this device will be removed.',
+      confirmLabel: 'Turn off and clear',
+      tone: 'danger',
+    })) return
     setBusy(true)
     setCacheProblem(null)
     try {
@@ -1182,11 +1189,11 @@ export function CompanionPanel({
     replaceMessage(data.message)
   }
 
-  const saveCorrection = (chatMessage: ChatMessage, meaning: string) => {
+  const saveCorrection = async (chatMessage: ChatMessage, meaning: string) => {
     if (!selectedChat || !chatMessage.correction?.text || !meaning.trim()) return
     const { correction } = chatMessage
     const sentence = correction.text as string
-    const result = onReceiveWord({
+    const result = await onReceiveWord({
       id: `correction-${chatMessage.id}`,
       card: { prompt: sentence, meaning: meaning.trim(), example: sentence, translation: meaning.trim(), category: 'phrase' },
       note: correction.note ?? '',
@@ -1371,9 +1378,9 @@ export function CompanionPanel({
     })
   }
 
-  const addChatWord = (chatMessage: ChatMessage) => {
+  const addChatWord = async (chatMessage: ChatMessage) => {
     if (!selectedChat || !chatMessage.card) return
-    const result = onReceiveWord({
+    const result = await onReceiveWord({
       id: chatMessage.id,
       card: chatMessage.card,
       note: '',
@@ -1400,9 +1407,9 @@ export function CompanionPanel({
     })
   }
 
-  const resolveShare = (share: SharedWordPreview, choice: 'add' | 'dismiss') => {
+  const resolveShare = async (share: SharedWordPreview, choice: 'add' | 'dismiss') => {
     void run(async () => {
-      const receiveResult = choice === 'add' ? onReceiveWord(share) : false
+      const receiveResult = choice === 'add' ? await onReceiveWord(share) : false
       if (choice === 'add' && !receiveResult) return
       await request(`/shares/${share.id}/${choice === 'add' ? 'add' : 'dismiss'}`, {})
       setSharedWords((current) => current.filter((item) => item.id !== share.id))
@@ -1437,7 +1444,7 @@ export function CompanionPanel({
     practiceRefreshSequence.current++
     setPracticeActionError(null)
     void run(async () => {
-      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/decision`, { decision }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not update the review.'); throw failure }) as { practice?: PracticeSession }
+      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/decision`, { decision, revision: practice.revision }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not update the review.'); throw failure }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not update the practice session.')
       practiceRefreshSequence.current++
       const finished = data.practice.status === 'ended' || data.practice.status === 'completed' || data.practice.status === 'declined'
@@ -1455,7 +1462,7 @@ export function CompanionPanel({
     setPracticeActionError(null)
     publishTyping(selectedChat.id, false)
     void run(async () => {
-      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/answer`, { answer: practiceAnswer }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not send your answer.'); throw failure }) as { practice?: PracticeSession }
+      const data = await request(`/chats/${selectedChat.id}/practice/${practice.id}/answer`, { answer: practiceAnswer, revision: practice.revision }).catch((failure: unknown) => { setPracticeActionError(failure instanceof Error ? failure.message : 'Could not send your answer.'); throw failure }) as { practice?: PracticeSession }
       if (!data.practice) throw new Error('The companion service did not save your answer.')
       practiceRefreshSequence.current++
       setPractice(data.practice)

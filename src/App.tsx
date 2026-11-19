@@ -1,3 +1,4 @@
+import { commitDeckChanges, mergeStoredAccountDeck, replaceStoredDeck, DeckConflictError, DeckLimitError } from './deckStorage'
 import { NounPlural } from './NounPlural'
 import { WordLookupProvider } from './WordLookupProvider'
 import { Component, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
@@ -69,7 +70,7 @@ import { chatCacheClearedKey, clearChatCache } from './chatPersistentCache'
 import { clearCommunityDirectoryCache, setCommunityCacheOwner } from './communityDirectoryCache'
 import { isChatOverlayEntry, withoutChatOverlay } from './conversationHistory'
 import { leaveChatHistory } from './chatHistoryNavigation'
-import { cardFromStarterEntry, createSeedDeck, deckStorageKey as STORAGE_KEY, loadStarterPack, makeCard, type LoadedDeck, type StarterEntry, type StarterPack } from './starterDeck'
+import { cardFromStarterEntry, createSeedDeck, loadStarterPack, makeCard, type LoadedDeck, type StarterEntry, type StarterPack } from './starterDeck'
 import './App.css'
 
 const CompanionPanel = lazy(() => import('./CompanionPanel').then((module) => ({ default: module.CompanionPanel })))
@@ -1038,7 +1039,7 @@ function SessionSettingsDialog({
   now: number
   onChange: (tag: string) => void
   onAdjustGoal: () => void
-  onReset: (cardId?: string) => boolean
+  onReset: (cardId?: string) => Promise<boolean>
   resetAvailable: boolean
   onClose: (restoreFocus?: boolean) => void
   isFront: boolean
@@ -1055,7 +1056,7 @@ function SessionSettingsDialog({
       confirmLabel: 'Reset word',
       tone: 'danger',
     })
-    if (confirmed && onReset(card.id)) reviewedSearchRef.current?.focus()
+    if (confirmed && await onReset(card.id)) reviewedSearchRef.current?.focus()
   }
   const resetSet = async () => {
     const confirmed = await confirm({
@@ -1064,7 +1065,7 @@ function SessionSettingsDialog({
       confirmLabel: 'Reset progress',
       tone: 'danger',
     })
-    if (confirmed && onReset()) panelRef.current?.focus()
+    if (confirmed && await onReset()) panelRef.current?.focus()
   }
   const [reviewedOpen, setReviewedOpen] = useState(false)
   const [reviewedQuery, setReviewedQuery] = useState('')
@@ -1241,6 +1242,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const accountRevision = useRef(0)
   const accountIdentity = useRef<string | null>(null)
   const cacheIdentityQueue = useRef<Promise<void>>(Promise.resolve())
+  const deckWritePending = useRef(false)
   const localProgressRef = useRef({ cards, studyPlan, canSave, studyPlanWarning })
   const [revealed, setRevealed] = useState(false)
   const [now, setNow] = useState(INITIAL_NOW)
@@ -1274,6 +1276,9 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const dismissToast = useCallback((id: number) => {
     setToasts((current) => current.filter((item) => item.id !== id))
   }, [])
+  useEffect(() => {
+    if (chatOutbox.storageError) showToast(chatOutbox.storageError, 'error')
+  }, [chatOutbox.storageError, showToast])
   const [loadedPause] = useState(loadPauseState)
   const [pauseState, setPauseState] = useState(loadedPause.state)
   const pauseStateRef = useRef(loadedPause.state)
@@ -1515,17 +1520,25 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       ? 'Progress sync is paused until saved data can be read.'
       : accountSyncError ?? accountSyncStatus
 
-  const saveDeck = (nextCards: Card[], failureMessage = 'Your browser could not save this review. Check available device storage.') => {
-    if (!canSave) return false
+  const saveDeck = async (nextCards: Card[], failureMessage = 'Your browser could not save this review. Check available device storage.', validateLatest?: (cards: Card[]) => void) => {
+    if (!canSave || deckWritePending.current) return false
+    deckWritePending.current = true
+    const identity = accountIdentity.current
     try {
-      localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextCards))
+      const committed = await commitDeckChanges(cards, nextCards, undefined, (latest) => {
+        if (accountIdentity.current !== identity) throw new DOMException('Account changed.', 'AbortError')
+        validateLatest?.(latest)
+      })
+      setCards(committed)
+      try { localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso()) } catch { /* The deck itself is already saved. */ }
       setSavingError(null)
       return true
-    } catch {
-      setSavingError(failureMessage)
+    } catch (error) {
+      const message = error instanceof DeckConflictError || error instanceof DeckLimitError ? error.message : failureMessage
+      setSavingError(message)
+      if (companionWorkspaceOpen || addCardOpen || sessionSettingsOpen || deckMenuOpen) showToast(message, 'error')
       return false
-    }
+    } finally { deckWritePending.current = false }
   }
 
   useEffect(() => {
@@ -1581,13 +1594,12 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         ? localPlanUpdatedAt ?? nowIso()
         : remotePlanUpdatedAt
 
-      setCards(merged.cards)
       setStudyPlan(merged.studyPlan)
       setCanSave(true)
       setStorageWarning(null)
       setStudyPlanWarning(null)
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged.cards))
+        setCards(await mergeStoredAccountDeck(localProgressRef.current.cards, merged.cards, undefined, () => active && accountIdentity.current === accountEmail))
         localStorage.setItem(STUDY_PLAN_STORAGE_KEY, JSON.stringify(merged.studyPlan))
         localStorage.setItem(LOCAL_STUDY_PLAN_UPDATED_AT_KEY, mergedPlanUpdatedAt)
         localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
@@ -1670,11 +1682,10 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           const mergedPlanUpdatedAt = preferLocalPlan
             ? localPlanUpdatedAt ?? nowIso()
             : remotePlanUpdatedAt
-          setCards(merged.cards)
           setStudyPlan(merged.studyPlan)
           accountRevision.current = latestBody.revision
           try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged.cards))
+            setCards(await mergeStoredAccountDeck(localProgressRef.current.cards, merged.cards, undefined, () => !controller.signal.aborted && accountIdentity.current === accountEmail))
             localStorage.setItem(STUDY_PLAN_STORAGE_KEY, JSON.stringify(merged.studyPlan))
             localStorage.setItem(LOCAL_STUDY_PLAN_UPDATED_AT_KEY, mergedPlanUpdatedAt)
             localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
@@ -1808,7 +1819,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       ? scope.filter(isUnintroduced).length
       : getStudySetNewCardLimit(cards, scope, at, dailyLimit)
 
-  const handleRating = (rating: Rating) => {
+  const handleRating = async (rating: Rating) => {
     if (!activeCard || !revealed || studyMode !== 'recall') return
     if (practiceLoopActive) {
       advancePracticeLoop()
@@ -1821,38 +1832,36 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), rating, reviewedAt, struggledWith)
         : card,
     )
-    setCards(updatedCards)
-    saveDeck(updatedCards)
+    if (!await saveDeck(updatedCards)) return
     recordCompletedWord(activeCard.id, 'recall')
     setRevealed(false)
     includeDueFirstReviews(reviewedAt)
     setStruggledWith([])
   }
 
-  const handleChoice = (selectedId: string) => {
+  const handleChoice = async (selectedId: string) => {
     if (!activeCard || choiceFeedback || choiceOptions.length !== 4) return
     const correct = selectedId === activeCard.id
-    recordCompletedWord(activeCard.id, 'choice', true)
     if (practiceLoopActive) {
-      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
-      setCards(updatedCards)
-      saveDeck(updatedCards)
+      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date(nowIso())) : card)
+      if (!await saveDeck(updatedCards)) return
+      recordCompletedWord(activeCard.id, 'choice', true)
       setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
       return
     }
-    const reviewedAt = new Date()
+    const reviewedAt = new Date(nowIso())
     const updatedCards = cards.map((card) =>
       card.id === activeCard.id
         ? reviewLearningCard(recordWordActivity(card, 'reviewed', reviewedAt), correct ? 'hard' : 'again', reviewedAt, [], 'choice', correct)
         : card,
     )
-    setCards(updatedCards)
-    saveDeck(updatedCards)
+    if (!await saveDeck(updatedCards)) return
+    recordCompletedWord(activeCard.id, 'choice', true)
     setChoiceFeedback({ cardId: activeCard.id, selectedId, correct })
     includeDueFirstReviews(reviewedAt)
   }
 
-  const gradeProductionAnswer = (answer: string, acceptAlternative = false) => {
+  const gradeProductionAnswer = async (answer: string, acceptAlternative = false) => {
     if (!activeCard || studyMode !== 'production' || productionFeedback || !answer.trim()) return
     const candidate = findProductionAlternative(answer, activeCard, cards)
     const acceptedAnswers = acceptAlternative
@@ -1867,15 +1876,14 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       setProductionAlternative({ cardId: activeCard.id, answer })
       return
     }
-    const reviewedAt = new Date()
+    const reviewedAt = new Date(nowIso())
     const updatedCards = cards.map((card) => {
       if (card.id !== activeCard.id) return card
-      const withAnswers = acceptAlternative ? { ...card, acceptedAnswers, updatedAt: reviewedAt.toISOString() } : card
+      const withAnswers = acceptAlternative ? { ...card, acceptedAnswers, acceptedAnswersUpdatedAt: reviewedAt.toISOString(), updatedAt: reviewedAt.toISOString() } : card
       const active = recordWordActivity(withAnswers, 'reviewed', reviewedAt)
       return practiceLoopActive ? active : reviewLearningCard(active, correct ? 'hard' : 'again', reviewedAt, [], 'production', correct)
     })
-    if (!saveDeck(updatedCards)) return
-    setCards(updatedCards)
+    if (!await saveDeck(updatedCards)) return
     recordCompletedWord(activeCard.id, 'production', true)
     setProductionAlternative(null)
     setProductionFeedback({ cardId: activeCard.id, answer, correct })
@@ -1900,12 +1908,11 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     setStruggledWith([])
   }
 
-  const advancePracticeLoop = () => {
+  const advancePracticeLoop = async () => {
     if (!practiceLoopIds?.length) return
     if (studyMode === 'recall' && activeCard) {
-      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date()) : card)
-      setCards(updatedCards)
-      saveDeck(updatedCards)
+      const updatedCards = cards.map((card) => card.id === activeCard.id ? recordWordActivity(card, 'reviewed', new Date(nowIso())) : card)
+      if (!await saveDeck(updatedCards)) return
       recordCompletedWord(activeCard.id, 'recall')
     }
     setPracticeLoopIndex((index) => (index + 1) % practiceLoopIds.length)
@@ -1918,7 +1925,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     if (ids.length === 0) return
     setPracticeLoopIds(ids)
     setPracticeLoopIndex(0)
-    setPracticeLoopDay(getLocalDayKey(new Date()))
+    setPracticeLoopDay(getLocalDayKey(new Date(nowIso())))
     setRevealed(false)
     continueQuiz()
     setNow(Date.now())
@@ -1942,7 +1949,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     )
   }
 
-  const handleAddCard = (input: NewCardInput) => {
+  const handleAddCard = async (input: NewCardInput) => {
     const id = crypto.randomUUID()
     const prompt = input.article ? `${input.article} ${input.word}` : input.word
     const userTags = input.tags
@@ -1961,17 +1968,16 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
         ? { article: input.article, plural: input.plural || undefined }
         : {},
     )
-    if (input.acceptedAnswers.length) card.acceptedAnswers = input.acceptedAnswers
+    if (input.acceptedAnswers.length) {
+      card.acceptedAnswers = input.acceptedAnswers
+      card.acceptedAnswersUpdatedAt = card.createdAt
+    }
     const updatedCards = [...cards, card]
-    setCards(updatedCards)
-    const saved = saveDeck(updatedCards)
+    if (!await saveDeck(updatedCards)) return
     closeAddCard(true)
-    showToast(saved
-      ? `${prompt} is ready for your next study set.`
-      : `${prompt} was added for this visit but could not be saved.`, saved ? 'success' : 'error')
   }
 
-  const receiveSharedWord = (share: SharedWordPreview) => {
+  const receiveSharedWord = async (share: SharedWordPreview) => {
     if (cards.some((card) => card.sharedFrom?.shareId === share.id)) return 'already-present' as const
     const sharedContentKey = [share.card.category, share.card.article ?? '', share.card.prompt, share.card.meaning]
       .join('|').trim().toLocaleLowerCase('de-DE')
@@ -2001,16 +2007,14 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       ...(share.note ? { note: share.note } : {}),
     }
     const updatedCards = [...cards, card]
-    if (!saveDeck(updatedCards, 'The shared word could not be saved to this device. Check available device storage and try again.')) {
-      showToast('The shared word could not be saved to this device.', 'error')
+    if (!await saveDeck(updatedCards, 'The shared word could not be saved to this device. Check available device storage and try again.')) {
       return false
     }
-    setCards(updatedCards)
     showToast(`${share.card.prompt} was added to your deck.`)
     return 'added' as const
   }
 
-  const addStarterWord = (entry: StarterEntry) => {
+  const addStarterWord = async (entry: StarterEntry) => {
     const card = cardFromStarterEntry(entry)
     if (cards.some((item) => item.id === card.id || cardContentKey(item) === cardContentKey(card))) {
       return 'already-present' as const
@@ -2020,16 +2024,14 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       return false
     }
     const updatedCards = [...cards, card]
-    if (!saveDeck(updatedCards, 'The word could not be saved to this device. Check available device storage and try again.')) {
-      showToast('The word could not be saved to this device.', 'error')
+    if (!await saveDeck(updatedCards, 'The word could not be saved to this device. Check available device storage and try again.')) {
       return false
     }
-    setCards(updatedCards)
     showToast(`${card.prompt} is ready for your next study set.`)
     return 'added' as const
   }
 
-  const addDictionaryWord = (entry: WordEntry) => {
+  const addDictionaryWord = async (entry: WordEntry) => {
     if (!entry.example?.trim()) return false
     const article = /^(der|die|das) /.test(entry.prompt) ? entry.prompt.split(' ')[0] : undefined
     const level = entry.level === 'A1' || entry.level === 'A2' ? [entry.level] : []
@@ -2049,11 +2051,9 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       return false
     }
     const updatedCards = [...cards, card]
-    if (!saveDeck(updatedCards, 'The word could not be saved to this device. Check available device storage and try again.')) {
-      showToast('The word could not be saved to this device.', 'error')
+    if (!await saveDeck(updatedCards, 'The word could not be saved to this device. Check available device storage and try again.')) {
       return false
     }
-    setCards(updatedCards)
     showToast(`${card.prompt} is ready for your next study set.`)
     return 'added' as const
   }
@@ -2062,20 +2062,20 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     const backup = {
       format: 'deutsch-daily-deck',
       version: DECK_FILE_VERSION,
-      exportedAt: new Date().toISOString(),
+      exportedAt: new Date(nowIso()).toISOString(),
       cards,
     }
     const file = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(file)
     const link = document.createElement('a')
     link.href = url
-    link.download = `deutsch-deck-${new Date().toISOString().slice(0, 10)}.json`
+    link.download = `deutsch-deck-${new Date(nowIso()).toISOString().slice(0, 10)}.json`
     link.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 0)
     showToast('Backup download started.')
   }
 
-  const mergeImportedCards = (incoming: Card[], kind: 'backup' | 'vocabulary') => {
+  const mergeImportedCards = async (incoming: Card[], kind: 'backup' | 'vocabulary') => {
     const knownIds = new Set(cards.map((card) => card.id))
     const knownContent = new Set(cards.map(cardContentKey))
     const additions = incoming.filter((card) => {
@@ -2090,28 +2090,25 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       const restored = incomingById.get(card.id)
       return restored ? { ...card, activity: mergeWordActivity(card, restored) } : card
     }), ...additions]
-    setCards(merged)
-    const saved = saveDeck(merged)
+    if (!await saveDeck(merged)) return
     const itemLabel = kind === 'vocabulary'
       ? additions.length === 1 ? 'new word' : 'new words'
       : additions.length === 1 ? 'card' : 'cards'
     showToast(
-      !saved
-        ? 'Changes could not be saved to this device.'
-        : additions.length
+      additions.length
         ? `Imported ${additions.length} ${itemLabel}. Existing cards were kept.`
         : kind === 'backup' ? 'Existing cards were kept and activity history was merged.' : 'No new cards found. Existing cards were kept.',
-      !saved ? 'error' : 'success',
+      'success',
     )
   }
 
-  const addStarterPackToDeck = (starterPack: StarterPack) => {
+  const addStarterPackToDeck = async (starterPack: StarterPack) => {
     try {
       const { cards: incoming, kind } = parseDeckFile(
         JSON.stringify(starterPack),
         'open-starter-pack.json',
       )
-      mergeImportedCards(incoming, kind)
+      await mergeImportedCards(incoming, kind)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not add the starter vocabulary pack.', 'error')
     }
@@ -2125,14 +2122,14 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     try {
       const { cards: incoming, kind } = parseDeckFile(await file.text(), file.name)
 
-      mergeImportedCards(incoming, kind)
+      await mergeImportedCards(incoming, kind)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not read that deck file.', 'error')
     }
   }
 
   const startNextSession = () => {
-    const nextNow = new Date()
+    const nextNow = new Date(nowIso())
     setSessionIds(
       getSessionCardIds(
         scopedCards,
@@ -2150,7 +2147,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   }
 
   const continueBeyondDailyLimit = () => {
-    const nextNow = new Date()
+    const nextNow = new Date(nowIso())
     setNewCardLimitOverrideDay(getLocalDayKey(nextNow))
     setSessionIds(
       getSessionCardIds(
@@ -2165,9 +2162,13 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     setNow(nextNow.getTime())
   }
 
-  const startWithStarterPack = (starterPack: StarterPack) => {
+  const startWithStarterPack = async (starterPack: StarterPack) => {
     const fresh = createSeedDeck(starterPack)
-    setCards(fresh)
+    try { setCards(await replaceStoredDeck(cards, fresh)) }
+    catch (error) {
+      setSavingError(error instanceof DeckConflictError ? error.message : 'Your browser could not save the starter pack. Check available device storage.')
+      return
+    }
     setStudyTag('')
     setCanSave(true)
     setStorageWarning(null)
@@ -2178,24 +2179,20 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     setSessionIds(
       getSessionCardIds(
         fresh,
-        new Date(),
+        new Date(nowIso()),
         getStudySetNewCardLimit(
           fresh,
           fresh,
-          new Date(),
+          new Date(nowIso()),
           intensitySettings.newCardsPerDay,
         ),
         intensitySettings.reviewLimit,
       ),
     )
     setRevealed(false)
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh))
-      localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso())
-      setSavingError(null)
-    } catch {
-      setSavingError('Your browser could not save the starter pack. Check available device storage.')
-    }
+    try { localStorage.setItem(LOCAL_PROGRESS_UPDATED_AT_KEY, nowIso()) }
+    catch { /* The confirmed replacement is already saved. */ }
+    setSavingError(null)
   }
 
   const requestStartWithStarterPack = async () => {
@@ -2249,7 +2246,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     )
     .sort((a, b) => Date.parse(getReviewDueAt(a)) - Date.parse(getReviewDueAt(b)))[0]
   const setMode = (mode: ReviewMode) => {
-    const at = new Date()
+    const at = new Date(nowIso())
     includeDueFirstReviews(at)
     setNow(at.getTime())
     setLearnOpen(false)
@@ -2296,7 +2293,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
 
   const handleStudyTagChange = (tag: string) => {
     const nextScope = getCardsForStudySet(cards, tag)
-    const nextNow = new Date()
+    const nextNow = new Date(nowIso())
     setStudyTag(tag)
     setSessionIds(
       getSessionCardIds(
@@ -2314,7 +2311,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     setNow(nextNow.getTime())
   }
 
-  const handleResetStudyProgress = (cardId?: string) => {
+  const handleResetStudyProgress = async (cardId?: string) => {
     if (!canSave || (accountEmail && !accountSyncReady)) return false
     const reviewedCards = scopedCards.filter((card) =>
       card.lastReviewedAt !== null && (cardId === undefined || card.id === cardId),
@@ -2327,16 +2324,14 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
       latest,
       Date.parse(card.lastReviewedAt ?? '') + 1,
       card.reviewResetAt ? Date.parse(card.reviewResetAt) + 1 : 0,
-    ), Date.now())
+    ), Date.parse(nowIso()))
     const resetAt = new Date(resetTime)
     const ids = new Set(reviewedCards.map((card) => card.id))
     const updatedCards = cards.map((card) => ids.has(card.id)
       ? resetReviewProgress({ ...card, activity: activityForCard(card) }, resetAt) : card)
-    if (!saveDeck(updatedCards, 'Review progress could not be reset. Check device storage and try again.')) {
-      showToast('Review progress could not be reset. Check device storage and try again.', 'error')
+    if (!await saveDeck(updatedCards, 'Review progress could not be reset. Check device storage and try again.')) {
       return false
     }
-    setCards(updatedCards)
     if (cardId && activeCard?.id !== cardId) {
       setSessionIds((ids) => ids.filter((id) => id !== cardId))
       const loopIndex = practiceLoopIds?.indexOf(cardId) ?? -1
@@ -2369,7 +2364,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
   const handleSaveStudyPlan = (plan: StudyPlan) => {
     setStudyPlan(plan)
     closeStudyPlan(true)
-    const nextNow = new Date()
+    const nextNow = new Date(nowIso())
     setSessionIds(
       getSessionCardIds(
         scopedCards,
@@ -2487,42 +2482,40 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
     closeActivity, closeAppSettings, closeLearnSettings])
 
   const studyPlanSummary = `Goal: ${studyPlan.targetLevel} · ${goalEstimate.daysRemaining} days · ${intensitySettings.label} · up to ${intensitySettings.newCardsPerDay} new cards/day`
-  const saveLearningCard = (id: string, notify = true) => {
+  const saveLearningCard = async (id: string) => {
     if (!canSave) return
-    const at = new Date()
+    const at = new Date(nowIso())
     const updatedCards = cards.map((card) => card.id === id
       ? saveForLearning(card, at)
       : card)
-    setCards(updatedCards)
-    const saved = saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')
-    if (notify && !saved) showToast('Word saved for this visit only.', 'error')
+    if (!await saveDeck(updatedCards, 'Your browser could not save your learning progress. Check available device storage and try again.')) return
   }
-  const addToReviews = (id: string, beyondLimit: boolean) => {
+  const addToReviews = async (id: string, beyondLimit: boolean) => {
     const card = cards.find((item) => item.id === id && item.status === 'active' && isUnintroduced(item))
     if (!card || !canSave) return false
-    const at = new Date()
+    const at = new Date(nowIso())
     if (!beyondLimit && getNewCardQuotaRemaining(cards, at, intensitySettings.newCardsPerDay) === 0) {
       showToast('Your daily new-word target is complete.', 'error')
       return false
     }
     const updatedCards = cards.map((item) => item.id === id
       ? scheduleFirstReview(recordWordActivity(item, 'added', at), at) : item)
-    if (!saveDeck(updatedCards, 'The review could not be scheduled. Check device storage and try again.')) {
-      showToast('The review could not be scheduled. Check device storage and try again.', 'error')
+    if (!await saveDeck(updatedCards, 'The review could not be scheduled. Check device storage and try again.', (latest) => {
+      if (!beyondLimit && getNewCardQuotaRemaining(latest, at, intensitySettings.newCardsPerDay) === 0) throw new DeckLimitError('Your daily new-word target is complete. Choose Add anyway to continue.')
+    })) {
       return false
     }
-    setCards(updatedCards)
     setSessionIds((ids) => ids.filter((item) => item !== id))
     setNow(at.getTime())
     showToast('Added to reviews. Ready in 10 minutes.')
     recordCompletedWord(id, 'learn')
     return true
   }
-  const saveNounPlural = (id: string, plural: string) => {
+  const saveNounPlural = async (id: string, plural: string) => {
     const card = cards.find((item) => item.id === id)
     if (!card || card.plural || card.category !== 'noun' || !canSave) return
-    const updatedCards = cards.map((item) => item.id === id ? { ...item, plural, pluralUpdatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : item)
-    if (saveDeck(updatedCards)) setCards(updatedCards)
+    const updatedCards = cards.map((item) => item.id === id ? { ...item, plural, pluralUpdatedAt: new Date(nowIso()).toISOString(), updatedAt: new Date(nowIso()).toISOString() } : item)
+    await saveDeck(updatedCards)
   }
   const learnContent = learnOpen && (
     <LearnMode
@@ -2705,7 +2698,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
             </button>
           ) : shortDueCard ? (
             <button type="button" className="quiet-button" onClick={() => {
-              const at = new Date()
+              const at = new Date(nowIso())
               includeDueFirstReviews(at)
               setNow(at.getTime())
             }}>
@@ -3104,7 +3097,7 @@ function App({ initialDeck }: { initialDeck: LoadedDeck }) {
           onClick={() => {
             if (practiceLoopActive) advancePracticeLoop()
             else {
-              const at = new Date()
+              const at = new Date(nowIso())
               includeDueFirstReviews(at)
               setNow(at.getTime())
               continueQuiz()

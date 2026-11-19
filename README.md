@@ -43,7 +43,7 @@ External links stay visible with a warning. A small English/German abuse list ho
 
 Choose **Use this word** on a shared group word card to write a German sentence. Members can offer optional sentence feedback. **Revise** posts a follow-up linked to your attempt; **Save sentence** asks for an English meaning before adding it to your own deck. Saving does not schedule a review, and group feedback does not score or grade your vocabulary.
 
-Chat updates arrive live when connected. Recently opened conversations can be saved on this device for faster reopening; the app checks them with the server when opened. Use companion tools to turn off **Save recent chats on this device** on a shared device. Signing out clears that account's saved chat copies.
+Chat updates arrive live when connected. Recently opened conversations can be saved on this device for faster reopening; the app checks them with the server when opened. Use companion tools to turn off **Save recent chats on this device** on a shared device. Up to 20 pending messages can also be kept for 24 hours. After reload, unconfirmed messages wait for an explicit retry. Signing out clears that account's saved chat copies and pending messages.
 
 Reopening a saved chat shows its recent history while updates arrive in the background. Temporary connection failures keep that history visible. A first visit, expired cache or cleared storage can still need an initial download.
 
@@ -57,7 +57,7 @@ Tap a German example word in Learn or a revealed review, or a word in chat, to c
 
 ## Your data and choices
 
-- Core study works locally without an account. After an online visit has cached the app and vocabulary, you can study offline. Community and account sync need a connection.
+- Core study works locally without an account. Two open tabs preserve changes to different words; if both change the same word, refresh before saving. A failed save keeps the current study action pending. After an online visit has cached the app and vocabulary, you can study offline. Community and account sync need a connection.
 - An optional account syncs your deck and goal across devices. New accounts require email verification; password recovery uses a time-limited email code.
 - Download backups regularly. Clearing browser data can remove local progress. Backups preserve review state; importing is additive and does not overwrite existing cards.
 - Private and group messages are stored on the account server. They are never sent to an AI or translation service. Word lookup runs locally; external dictionary links open only when selected.
