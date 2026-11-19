@@ -2,7 +2,7 @@
 
 This separately licensed GPL-3.0-or-later component synthesizes short German words and phrases on the device. The MIT app loads it in a same-origin frame, outside its JavaScript bundle. Human recordings and device voices remain separate options. Nothing downloads until the learner explicitly chooses Download.
 
-The checked-in release is disabled. A source-built candidate passes desktop Chrome installation, playback, warm reuse, cached-app offline reload, cancellation and removal checks. Physical iOS and Android testing is outstanding. A stable release requires reviewed corresponding source, notices, build recipe, cold-start offline behavior and both phone checks. An explicit preview opt-in can bypass only the phone checks; it must keep their flags false and display its preview status. Candidate preparation does not authorize publishing or enabling it.
+The checked-in release enables an explicit opt-in preview for physical-device testing. The source-built candidate passes desktop Chrome installation, playback, warm reuse, cached-app offline reload, cancellation and removal checks. Physical iOS and Android testing is outstanding. A stable release requires reviewed corresponding source, notices, build recipe, cold-start offline behavior and both phone checks. An explicit preview opt-in can bypass only the phone checks; it must keep their flags false and display its preview status. The product owner approved this preview; promotion to stable still requires actual phone evidence.
 
 ## Installation and playback
 

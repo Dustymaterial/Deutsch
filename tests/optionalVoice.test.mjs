@@ -39,11 +39,15 @@ function fixture(release = manifest()) {
   }
   return { environment, calls, storage, installer: createVoiceInstallation({ release, origin, environment }) }
 }
-test('checked-in voice release cannot download before source and device review', async () => {
+test('checked-in preview cannot install as stable or bypass missing device review', async () => {
   const release = JSON.parse(await readFile(new URL('../optional/german-voice/release.json', import.meta.url)))
   const { installer, calls } = fixture(release)
   await assert.rejects(installer.install({ consent: true }), /not ready/)
   assert.equal(calls.length, 0)
+  assert.equal(release.channel, 'preview')
+  assert.equal(release.review.ios, false)
+  assert.equal(release.review.android, false)
+  assert.ok(validateRelease(release, origin, { allowPreview: true }).bytes > 0)
   for (const key of Object.keys(manifest().review)) {
     const release = manifest(); release.review[key] = false
     assert.throws(() => validateRelease(release, origin), /not ready/)
