@@ -14,7 +14,7 @@ test('open pronunciation covers the measured starter set with per-recording attr
  const manifest=JSON.parse(await readFile(new URL('../src/data/german-pronunciation.json',import.meta.url),'utf8'))
  const starter=JSON.parse(await readFile(new URL('../src/data/german-starter-pack.json',import.meta.url),'utf8'))
  const cards=starter.cards.map(c=>({...c,prompt:c.article?`${c.article} ${c.word}`:c.word}))
- const covered=cards.filter(c=>getRecording(c,manifest.entries)).length
+ const covered=cards.filter(c=>Object.hasOwn(manifest.entries,c.word.normalize('NFC').toLocaleLowerCase('de-DE'))).length
  assert.equal(covered,manifest.coverage.coveredCards)
  assert.equal(covered,cards.length)
  assert.equal(manifest.coverage.starterCards,cards.length)
