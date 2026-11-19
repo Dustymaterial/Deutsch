@@ -1,72 +1,114 @@
 import { useEffect, useRef, useState } from 'react'
 import { AudioLines } from 'lucide-react'
 import type { Card } from './deckImport'
-import { getRecording } from './pronunciation'
+import { getRecording, loadPronunciations, type Recording } from './pronunciation'
+import { selectGermanVoice } from './germanVoices'
 
 export function WordAudio({ card }: { card: Card }) {
   const [message, setMessage] = useState<string | null>(null)
+  const [catalogue, setCatalogue] = useState<Record<string, Recording>>()
+  const [voice, setVoice] = useState<SpeechSynthesisVoice>()
+  const [voicesReady, setVoicesReady] = useState(false)
+  const [playing, setPlaying] = useState(false)
   const recordingRef = useRef<HTMLAudioElement | null>(null)
-  const activeRef = useRef(true)
-  const recording = getRecording(card)
+  const operation = useRef(0)
+  const recording = getRecording(card, catalogue)
 
   useEffect(() => {
-    activeRef.current = true
-    return () => {
-      activeRef.current = false
-      recordingRef.current?.pause()
-      recordingRef.current = null
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    }
+    let current = true
+    loadPronunciations().then((data) => { if (current) setCatalogue(data) }).catch(() => {})
+    return () => { current = false }
   }, [])
 
-  const speak = (fallback = false) => {
-    if (!activeRef.current) return
-    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-      setMessage(fallback ? 'The recording could not play and device speech is unavailable.' : 'Pronunciation is unavailable on this device.')
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return
+    const update = () => {
+      const voices = window.speechSynthesis.getVoices()
+      setVoice(selectGermanVoice(voices))
+      if (voices.length) setVoicesReady(true)
+    }
+    queueMicrotask(update)
+    window.speechSynthesis.addEventListener('voiceschanged', update)
+    const timeout = window.setTimeout(() => setVoicesReady(true), 1500)
+    return () => { window.clearTimeout(timeout); window.speechSynthesis.removeEventListener('voiceschanged', update) }
+  }, [])
+
+  useEffect(() => () => {
+    operation.current += 1
+    recordingRef.current?.pause()
+    recordingRef.current = null
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  }, [card.id, card.prompt])
+
+  const stop = () => {
+    operation.current += 1
+    recordingRef.current?.pause()
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    setPlaying(false)
+    setMessage(null)
+  }
+
+  const speak = (online = false) => {
+    const selected = selectGermanVoice(window.speechSynthesis?.getVoices() ?? [])
+    if (!selected || typeof SpeechSynthesisUtterance === 'undefined') {
+      setMessage(voicesReady ? 'No German voice is available on this device.' : 'German voices are still loading. Try Listen again.')
       return
     }
-    const voice = window.speechSynthesis.getVoices().find((item) => /^de(?:-|$)/i.test(item.lang))
-    if (!voice) {
-      setMessage(fallback ? 'The recording could not play and no German device voice is available.' : 'No German device voice is available. Check your device language and speech settings.')
+    if (!selected.localService && !online) {
+      setMessage('An online browser voice is available. It receives the word when you choose Use online voice.')
       return
     }
+    setVoice(selected)
+    const ticket = ++operation.current
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(card.prompt)
-    utterance.lang = voice.lang
-    utterance.voice = voice
+    utterance.lang = selected.lang
+    utterance.voice = selected
+    utterance.onstart = () => { if (ticket === operation.current) setPlaying(true) }
+    utterance.onend = () => { if (ticket === operation.current) { setPlaying(false); setMessage(null) } }
     utterance.onerror = (event) => {
-      if (activeRef.current && event.error !== 'interrupted' && event.error !== 'canceled') setMessage('The device could not play pronunciation.')
+      if (ticket === operation.current) { setPlaying(false); if (event.error !== 'interrupted' && event.error !== 'canceled') setMessage('Pronunciation could not play. Try again.') }
     }
-    setMessage(fallback ? 'The recording could not play; using your device’s German voice.' : 'Using your device’s German voice.')
+    setMessage(selected.localService ? 'Local German voice.' : 'Online browser voice.')
     window.speechSynthesis.speak(utterance)
   }
 
-  const play = () => {
-    if (!recording) {
-      speak()
-      return
+  const play = async () => {
+    if (playing) { stop(); return }
+    const ticket = ++operation.current
+    let selected = recording
+    if (!selected && !catalogue) {
+      setMessage('Loading pronunciation…')
+      try { const data = await loadPronunciations(); if (ticket !== operation.current) return; setCatalogue(data); selected = getRecording(card, data) } catch { /* Local speech remains available. */ }
     }
+    if (ticket !== operation.current) return
+    if (!selected) { speak(); return }
     recordingRef.current?.pause()
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    const audio = new Audio(recording.url)
+    const audio = new Audio(selected.url)
     audio.preload = 'none'
     recordingRef.current = audio
-    setMessage('Playing the word-only recording from Wikimedia Commons.')
     let failed = false
     const fallback = () => {
-      if (!activeRef.current || recordingRef.current !== audio || failed) return
+      if (ticket !== operation.current || failed) return
       failed = true
-      speak(true)
+      setPlaying(false)
+      const local = selectGermanVoice(window.speechSynthesis?.getVoices() ?? [])
+      if (local?.localService) speak()
+      else setMessage('The recording could not play. Try again or use an available German voice.')
     }
     audio.onerror = fallback
+    audio.onplaying = () => { if (ticket === operation.current) { setPlaying(true); setMessage(null) } }
+    audio.onended = () => { if (ticket === operation.current) setPlaying(false) }
     audio.play().catch(fallback)
   }
 
   return (
     <div className="pronunciation">
-      <button type="button" className="quiet-button pronunciation-button" onClick={play} aria-label={`Hear ${card.prompt}`}><AudioLines size={16} aria-hidden="true" /> Listen</button>
-      {recording && <p className="pronunciation-credit">External word-only audio: <a href={recording.source} target="_blank" rel="noreferrer">{recording.author} / Wikimedia Commons</a> · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a> · unchanged</p>}
+      <button type="button" className="quiet-button pronunciation-button" onClick={() => void play()} aria-label={playing ? 'Stop pronunciation' : `Hear ${card.prompt}`} title="Open recordings load from Wikimedia Commons; local German speech is used when available."><AudioLines size={16} aria-hidden="true" /> {playing ? 'Stop' : 'Listen'}</button>
+      {recording && <p className="pronunciation-credit">Word audio: <a href={recording.source} target="_blank" rel="noreferrer">{recording.author} / Wikimedia Commons</a> · <a href={recording.licenseUrl ?? 'https://creativecommons.org/licenses/by-sa/3.0/'} target="_blank" rel="noreferrer">{recording.license ?? 'CC BY-SA 3.0'}</a> · {recording.url.endsWith('.mp3') ? 'MP3 conversion' : 'unchanged'}</p>}
       {message && <p className="pronunciation-message" role="status">{message}</p>}
+      {message && voice && !voice.localService && <button type="button" className="quiet-button" onClick={() => speak(true)}>Use online voice</button>}
     </div>
   )
 }

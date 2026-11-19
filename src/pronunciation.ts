@@ -1,9 +1,12 @@
 import type { Card } from './deckImport'
 
-type Recording = {
+export type Recording = {
   url: string
   source: string
   author: string
+  license?: string
+  licenseUrl?: string
+  modified?: boolean
 }
 
 const recordings: Record<string, Recording> = {
@@ -14,10 +17,12 @@ const recordings: Record<string, Recording> = {
   Familie: { url: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/De-Familie.ogg', source: 'https://commons.wikimedia.org/wiki/File:De-Familie.ogg', author: 'T.Voekler' },
 }
 
-export const getRecording = (card: Card): Recording | undefined => {
-  if (card.category !== 'noun') return undefined
+export const getRecording = (card: Card, catalogue?: Record<string, Recording>): Recording | undefined => {
   const word = card.article && card.prompt.startsWith(`${card.article} `)
     ? card.prompt.slice(card.article.length + 1)
     : card.prompt
-  return recordings[word]
+  return catalogue?.[word.normalize('NFC').trim().toLocaleLowerCase('de-DE')] ?? (card.category === 'noun' ? recordings[word] : undefined)
 }
+
+export const loadPronunciations = async (): Promise<Record<string, Recording>> =>
+  (await import('./data/german-pronunciation.json')).default.entries
