@@ -1,3 +1,4 @@
+import { NounPlural } from './NounPlural'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Card } from './deckImport'
 import { getStudySetChoiceOptions } from './choiceQuiz'
@@ -226,7 +227,7 @@ export default function LearnMode({ cards, initialTag, dailyLimitReached, canSav
                     <div className="learn-meaning"><span>Meaning</span><strong>{card.meaning}</strong></div>
                     {(card.article || card.plural) && <div className="learn-facts">
                       {card.article && <span>Article: <strong>{card.article}</strong></span>}
-                      {card.plural && <span>Plural: <strong lang="de">{card.plural}</strong></span>}
+                      <NounPlural card={card} allowSave={!readOnly} />
                     </div>}
                     <InteractiveExample key={card.id} example={card.example} translation={card.translation ?? ''} onCopy={onCopy} />
                     {card.sharedFrom && <p className="shared-attribution">Shared by {card.sharedFrom.username}{card.sharedFrom.note ? `: ${card.sharedFrom.note}` : ''}</p>}

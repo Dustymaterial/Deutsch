@@ -2604,3 +2604,8 @@ input[aria-invalid="true"]:focus,
 .answer-example .companion-word-peek small { font-size: 0.75rem; }
 .production-alternative-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.25rem; }
 .production-context { color: #6b706d; font-size: 1rem; line-height: 1.45; }
+.noun-plural { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.7rem; margin-block: 0.55rem; }
+.noun-plural .label { color: #77716a; font-size: 0.9rem; }
+.noun-plural small { color: #77716a; font-size: 0.75rem; }
+.noun-plural .quiet-button { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+.noun-form-source { color: #77716a; display: inline-flex; align-self: center; padding: 0.35rem; }

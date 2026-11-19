@@ -8,7 +8,7 @@ Study independently, ask a companion to review with you, or use a group to try v
 
 ## Learn, recall, use
 
-- **Learn:** explore a word with its meaning and a natural example. Nouns include their article and plural where available. Save a word for later or add it to reviews when ready.
+- **Learn:** explore a word with its meaning and a natural example. Nouns include their article and plural where available. Missing forms are marked as unrecorded; checked dictionary suggestions can be saved explicitly, while verified usually-singular or usually-plural cases are identified. Save a word for later or add it to reviews when ready.
 - **Recall:** try to remember before revealing the answer, then rate how it went. Due reviews take priority and each rating shows when the word will return.
 - **Produce:** recall the saved German word from its meaning and example context, including the article for nouns. If another saved translation fits, choose whether to save it as an accepted answer before it is graded.
 - **Choose:** recognize the German word from four distinct options. Known overlapping meanings and accepted alternatives are excluded from distractors. Recognition, typed production and self-rated recall have separate results. Correct Produce and Choose answers schedule as Hard; misses schedule as Again.

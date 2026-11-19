@@ -8,6 +8,7 @@ export type Card = {
   article?: string
   meaning: string
   plural?: string
+  pluralUpdatedAt?: string
   acceptedAnswers?: string[]
   example: string
   translation?: string
@@ -90,6 +91,7 @@ export const isDeckCard = (value: unknown): value is Card => {
     typeof card.id === 'string' &&
     typeof card.prompt === 'string' &&
     (card.article === undefined || typeof card.article === 'string') &&
+    (card.pluralUpdatedAt === undefined || (typeof card.pluralUpdatedAt === 'string' && Number.isFinite(Date.parse(card.pluralUpdatedAt)))) &&
     typeof card.meaning === 'string' &&
     (card.plural === undefined || typeof card.plural === 'string') &&
     (card.acceptedAnswers === undefined || validAcceptedAnswers(card.acceptedAnswers, card.category ?? '')) &&
