@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "thorsten-medium",
+  "version": "unreleased",
+  "enabled": false,
+  "review": {
+    "correspondingSource": false,
+    "licenses": false,
+    "coldStartOffline": false,
+    "ios": false,
+    "android": false
+  },
+  "assets": []
+}

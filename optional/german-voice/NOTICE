@@ -1,0 +1,36 @@
+Optional German voice installation code
+Copyright (c) 2026 Deutsch Daily Deck contributors
+GPL-3.0-or-later; full license in LICENSE.
+
+This source package contains no third-party runtime, model or audio binaries.
+It is separate from the root MIT application. The root MIT license does not
+relicense any future phonemizer, model, source archive or runtime distribution.
+
+Prototype provenance, not a distributable release:
+
+VITS Web 1.0.3: https://github.com/diffusionstudio/vits-web
+Wrapper declared MIT. That declaration does not cover incorporated eSpeak code.
+
+ONNX Runtime Web 1.18.0: https://github.com/microsoft/onnxruntime/tree/v1.18.0
+MIT. A release must retain its complete applicable third-party notices.
+
+Piper phonemizer wrapper:
+https://github.com/diffusionstudio/piper-wasm/tree/022edba0455ef024574747e1134ef893f1d71b76
+The published build instructions use unpinned source clones and patches.
+This revision is provenance for the instructions, not a claim that its binary
+has verified corresponding source. Do not distribute that binary on this basis.
+
+eSpeak NG: https://github.com/rhasspy/espeak-ng
+GPL-3.0-or-later. Any runtime release incorporating it requires complete
+corresponding source, build scripts, modifications and applicable notices.
+Do not describe that runtime as MIT simply because an npm wrapper says MIT.
+
+Thorsten: https://github.com/thorstenMueller/Thorsten-Voice
+Prototype model location:
+https://huggingface.co/diffusionstudio/piper-voices/tree/main/de/de_DE/thorsten/medium
+The voice model card declares CC0. Every release must pin and verify its exact
+model and model card, including any training-base conditions; the repository's
+general license label is not sufficient. A mutable main URL is not a release pin.
+
+No claim is made that these links alone satisfy binary distribution obligations.
+The release remains disabled until the actual artifact/source/license review.

@@ -34,3 +34,7 @@ For regeneration commands and development setup, see [CONTRIBUTING.md](./CONTRIB
 ## Missing noun forms
 
 `noun-form-supplement.json` is a curated, CC BY-SA 4.0 supplement for the 174 starter noun cards without plural values. Forty have checked plural suggestions, three have a verified usually-singular status and one a usually-plural status; 130 remain explicitly unknown. Entries link to their Wiktionary source and match exact word, article and meaning. Financial Bank uses Banken; the bench sense uses Bänke. Wort's Wörter suggestion is qualified as individual words. Do not regenerate these decisions from a spelling-level table or treat unknown as having no plural. Suggestions only become a learner's saved plural through an explicit action.
+
+## Optional offline voice package
+
+The separately GPL-3.0-or-later [installation package](./optional/german-voice/README.md) has no enabled release and contains no third-party speech binaries or model weights. Its [NOTICE](./optional/german-voice/NOTICE) records prototype provenance and license boundaries. Complete source matching, release-specific model licensing and phone checks remain prerequisites for any download.
