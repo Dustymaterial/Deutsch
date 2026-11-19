@@ -5,9 +5,8 @@ import { avatarDataUri } from './pixelAvatar.mjs'
 import { useFormValidation } from './formValidation'
 import { cardContentKey, type Card } from './deckImport'
 import { useConfirm } from './confirmContext'
-import { findMeaning, findWord, indexMeanings, indexWords, normalizeWord, type WordEntry } from './wordLookup'
-import { lookupDictionary, lookupEnglish, type Dictionary } from './dictionaryLookup'
-import { loadDictionary } from './dictionaryLoader'
+import { normalizeWord } from './wordLookup'
+import { useWordLookup } from './useWordLookup'
 import { MessageWords, type MessageWordTools } from './MessageWords'
 import { CorrectionDiff } from './CorrectionDiff'
 import { correctionTagLabels, reactionOptions } from './chatOptions'
@@ -32,7 +31,6 @@ import { useChatOverlayHistory } from './useChatOverlayHistory'
 import { leaveChatHistory } from './chatHistoryNavigation'
 import { clearCommunityDirectoryCache, getCommunityDirectory, loadCommunityDirectory } from './communityDirectoryCache'
 import { CompanionApiError, fetchCompanionDirectory, request } from './companionsApi'
-import { loadStarterPack, type StarterEntry, type StarterPack } from './starterDeck'
 import { PendingChatMessages } from './PendingChatMessages'
 import type { ChatOutbox } from './useChatOutbox'
 import { MessageReceipt, type MessageReceiptStatus } from './MessageReceipt'
@@ -134,10 +132,6 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   if (!changed) return current
   return [...messages.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))
 }
-
-const distinctEntries = (entries: WordEntry[], limit: number) => entries
-  .filter((entry, index, all) => all.findIndex((other) => other.prompt === entry.prompt && other.category === entry.category) === index)
-  .slice(0, limit)
 
 function CompanionLoader({ label, compact = false }: { label: string; compact?: boolean }) {
   return <div className={`companion-loader${compact ? ' compact' : ''}`} role="status" aria-label={label}><span /></div>
@@ -258,8 +252,6 @@ export function CompanionPanel({
   accountId,
   outbox,
   onReceiveWord,
-  onAddStarterWord,
-  onAddDictionaryWord,
   onNotify,
   onBack,
   invitationToken,
@@ -269,8 +261,6 @@ export function CompanionPanel({
   accountId: string | null
   outbox: ChatOutbox
   onReceiveWord: (share: SharedWordPreview) => 'added' | 'already-present' | false
-  onAddStarterWord: (entry: StarterEntry) => 'added' | 'already-present' | false
-  onAddDictionaryWord: (entry: WordEntry) => 'added' | 'already-present' | false
   onNotify: (message: string, kind?: 'success' | 'error') => void
   onBack: (conversationEntry: boolean, viewDepth: number) => void
   invitationToken: string | null
@@ -333,10 +323,7 @@ export function CompanionPanel({
   const [savingCorrection, setSavingCorrection] = useState<{ messageId: string; meaning: string } | null>(null)
   const [activeWord, setActiveWord] = useState<{ messageId: string; key: string; word: string } | null>(null)
   const [wordChipsFor, setWordChipsFor] = useState<string | null>(null)
-  const [dictionary, setDictionary] = useState<Dictionary | null>(null)
-  const [dictionaryFailed, setDictionaryFailed] = useState(false)
-  const [starterPack, setStarterPack] = useState<StarterPack | null>(null)
-  const [starterFailed, setStarterFailed] = useState(false)
+  const lookup = useWordLookup(activeWord?.word ?? null)
   const [shareQuery, setShareQuery] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [shareNote, setShareNote] = useState('')
@@ -750,25 +737,6 @@ export function CompanionPanel({
     document.addEventListener('pointerdown', closeOutside)
     return () => document.removeEventListener('pointerdown', closeOutside)
   }, [])
-
-  useEffect(() => {
-    if (!activeWord || dictionary || dictionaryFailed) return
-    let active = true
-    loadDictionary().then((loaded) => { if (active) setDictionary(loaded) }).catch(() => { if (active) setDictionaryFailed(true) })
-    return () => { active = false }
-  }, [activeWord, dictionary, dictionaryFailed])
-
-  useEffect(() => {
-    if ((!activeWord && !selectedChat && !selectedGroupId) || starterPack || starterFailed) return
-    let active = true
-    loadStarterPack().then((pack) => { if (active) setStarterPack(pack) }).catch(() => {
-      if (active) {
-        setStarterFailed(true)
-        onNotify('Could not load the starter vocabulary for word lookup.')
-      }
-    })
-    return () => { active = false }
-  }, [activeWord, selectedChat, selectedGroupId, starterPack, starterFailed, onNotify])
 
   useEffect(() => {
     if (!reactionPickerFor && !activeWord) return
@@ -1517,60 +1485,23 @@ export function CompanionPanel({
     .flatMap((card) => card.tags))].sort((a, b) => a.localeCompare(b)), [cards])
   const deckWordKeys = useMemo(() => new Set(hasConversation ? cards.map(cardContentKey) : []), [cards, hasConversation])
   const repliedToIds = new Set(chatMessages.flatMap((item) => item.replyTo ? [item.replyTo.id] : []))
-  const deckEntries = useMemo(() => !hasConversation ? [] : cards
-    .filter((card) => card.status === 'active')
-    .map((card) => ({ id: card.id, source: 'deck' as const, prompt: card.prompt, meaning: card.meaning, category: card.category, plural: card.plural })), [cards, hasConversation])
-  const deckWordIndex = useMemo(() => indexWords(deckEntries), [deckEntries])
-  const deckMeaningIndex = useMemo(() => indexMeanings(deckEntries), [deckEntries])
-  const starterEntries = useMemo(() => (starterPack?.cards ?? []).map((entry) => ({
-    id: entry.id,
-    source: 'starter' as const,
-    prompt: entry.article ? `${entry.article} ${entry.word}` : entry.word,
-    meaning: entry.meaning,
-    category: entry.category,
-    plural: entry.plural,
-    example: entry.example,
-    translation: entry.translation,
-    level: entry.level,
-  })), [starterPack])
-  const starterWordIndex = useMemo(() => indexWords(starterEntries), [starterEntries])
-  const starterMeaningIndex = useMemo(() => indexMeanings(starterEntries), [starterEntries])
-  const germanEntries = activeWord
-    ? distinctEntries([
-      findWord(activeWord.key, deckWordIndex, starterWordIndex),
-      ...(dictionary ? lookupDictionary(dictionary, activeWord.word) : []),
-    ].filter((entry): entry is WordEntry => Boolean(entry)), 3)
-    : []
-  const englishEntries = activeWord
-    ? distinctEntries([
-      ...findMeaning(activeWord.word, deckMeaningIndex, starterMeaningIndex),
-      ...(dictionary ? lookupEnglish(dictionary, activeWord.word) : []),
-    ], 5)
-    : []
-  const isEntryInDeck = (entry: WordEntry) => entry.source === 'deck'
-    || deckWordIndex.has(normalizeWord(entry.prompt.replace(/^(der|die|das)\s+/i, '')))
-
   const pickWord = (messageId: string, word: string) => {
     const key = normalizeWord(word)
     setActiveWord((current) => current?.messageId === messageId && current.key === key ? null : { messageId, key, word })
   }
 
-  const addPeekedWord = (entry: WordEntry) => {
-    const starter = entry.source === 'starter' ? starterPack?.cards.find((item) => item.id === entry.id) : undefined
-    const result = entry.source === 'dictionary' ? onAddDictionaryWord(entry) : starter ? onAddStarterWord(starter) : false
-    if (result === 'already-present') onNotify(`You already had ${entry.prompt} in your deck.`)
-  }
   const wordTools: MessageWordTools = {
     activeWord,
     wordChipsFor,
     pickWord,
-    isKnown: (word) => Boolean(findWord(word, deckWordIndex, starterWordIndex)),
-    german: germanEntries,
-    english: englishEntries,
-    loading: (!dictionary && !dictionaryFailed) || (!starterPack && !starterFailed),
-    unavailable: dictionaryFailed || starterFailed,
-    inDeck: isEntryInDeck,
-    onAdd: addPeekedWord,
+    isKnown: lookup.isKnown,
+    german: lookup.german,
+    english: lookup.english,
+    loading: lookup.loading,
+    unavailable: lookup.unavailable,
+    retry: lookup.retry,
+    inDeck: lookup.inDeck,
+    onAdd: lookup.onAdd,
     onClose: () => setActiveWord(null),
     toggleChips: (id) => setWordChipsFor((current) => current === id ? null : id),
   }

@@ -53,7 +53,7 @@ Fresh installs include **2,593 starter cards** across core vocabulary and ten th
 
 Use **Add a word** for your own vocabulary. Include a clear meaning and a natural German example; nouns require an article. Lesson and topic tags create study sets. For larger sets, use the [CSV template](./public/deck-template.csv) or [JSON template](./public/deck-template.json), then choose **Import vocabulary or backup**. Vocabulary imports start fresh, skip duplicates and leave existing cards intact. Review imported content for accuracy.
 
-Tap a word in chat to check your deck, starter vocabulary and the bundled dictionary. Dictionary glosses are short and may miss context. Adding a dictionary word requires an example sentence. **Listen** uses five verified human recordings where available, with a German device-voice fallback. External recordings play only when selected and show their source and license.
+Tap a German example word in Learn or a revealed review, or a word in chat, to check your deck, starter vocabulary and the bundled dictionary. Choose between meanings when a word has several senses. Saved examples stay available in lookup, verified inflections lead back to personal vocabulary, and failed downloads can be retried. Dictionary glosses are short and may miss context. Adding a dictionary word requires an example sentence. **Listen** uses five verified human recordings where available, with a German device-voice fallback. External recordings play only when selected and show their source and license.
 
 ## Your data and choices
 
