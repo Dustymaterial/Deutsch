@@ -66,6 +66,7 @@ const cardSchema = z.object({
   plural: z.string().max(500).optional(),
   pluralUpdatedAt: isoDate.optional(),
   acceptedAnswers: z.array(z.string().trim().min(1).max(200)).max(10).optional(),
+  acceptedAnswersUpdatedAt: isoDate.optional(),
   example: z.string().max(2000),
   translation: z.string().max(2000).optional(),
   category: z.string().min(1).max(50),
