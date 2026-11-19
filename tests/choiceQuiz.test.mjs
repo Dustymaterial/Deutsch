@@ -82,3 +82,24 @@ test('uses the larger option set but remains honest when the full deck is still 
   assert.equal(selection.usedDeckFallback, true)
   assert.equal(selection.options.length, 3)
 })
+
+test('distractors stay visually distinct across multiple senses and unicode forms',()=>{
+ const target=makeCard('t','das Haus','house')
+ const options=getChoiceOptions(target,[target,makeCard('a','der Tisch','table'),makeCard('b','der Tisch','desk'),makeCard('c','das Buch','book'),makeCard('d','das Kind','child')],0)
+ assert.equal(options.length,4)
+ assert.equal(new Set(options.map(o=>o.prompt)).size,4)
+})
+test('overlapping meaning alternatives and explicit accepted answers cannot be wrong options',()=>{
+ const target={...makeCard('t','die Wohnung','apartment'),acceptedAnswers:['das Quartier']}
+ const options=getChoiceOptions(target,[target,makeCard('a','das Appartement','flat; apartment'),makeCard('b','das Quartier','lodging'),...deck.slice(1,4)],0)
+ assert.ok(!options.some(o=>['a','b'].includes(o.cardId)))
+ assert.equal(options.filter(o=>o.correct).length,1)
+})
+test('the real starter deck does not repeat ab for the schön question',async()=>{
+ const {readFile}=await import('node:fs/promises')
+ const pack=JSON.parse(await readFile(new URL('../src/data/german-starter-pack.json',import.meta.url),'utf8'))
+ const cards=pack.cards.map(c=>makeCard(c.id,c.article?`${c.article} ${c.word}`:c.word,c.meaning,c.category,c.tags))
+ const target=cards.find(c=>c.prompt==='schön'&&c.meaning==='beautifully')
+ const options=getChoiceOptions(target,cards,0)
+ assert.equal(new Set(options.map(o=>o.prompt)).size,options.length)
+})

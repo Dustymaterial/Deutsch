@@ -10,8 +10,8 @@ Study independently, ask a companion to review with you, or use a group to try v
 
 - **Learn:** explore a word with its meaning and a natural example. Nouns include their article and plural where available. Save a word for later or add it to reviews when ready.
 - **Recall:** try to remember before revealing the answer, then rate how it went. Due reviews take priority and each rating shows when the word will return.
-- **Produce:** type the German word from an English meaning, including the article for nouns.
-- **Choose:** recognize the German word from four options. Recognition, typed production and self-rated recall have separate results. Correct Produce and Choose answers schedule as Hard; misses schedule as Again.
+- **Produce:** recall the saved German word from its meaning and example context, including the article for nouns. If another saved translation fits, choose whether to save it as an accepted answer before it is graded.
+- **Choose:** recognize the German word from four distinct options. Known overlapping meanings and accepted alternatives are excluded from distractors. Recognition, typed production and self-rated recall have separate results. Correct Produce and Choose answers schedule as Hard; misses schedule as Again.
 
 Correct scheduled quiz answers gradually lengthen review intervals without treating success as difficulty. These intervals are a heuristic, not a measure of mastery.
 
@@ -51,7 +51,7 @@ Reopening a saved chat shows its recent history while updates arrive in the back
 
 Fresh installs include **2,593 starter cards** across core vocabulary and ten themes. Source-supplied A1/A2 labels and examples can contain errors and are not independently verified. Existing decks are preserved.
 
-Use **Add a word** for your own vocabulary. Include a clear meaning and a natural German example; nouns require an article. Lesson and topic tags create study sets. For larger sets, use the [CSV template](./public/deck-template.csv) or [JSON template](./public/deck-template.json), then choose **Import vocabulary or backup**. Vocabulary imports start fresh, skip duplicates and leave existing cards intact. Review imported content for accuracy.
+Use **Add a word** for your own vocabulary. Include a clear meaning and a natural German example; nouns require an article. Lesson and topic tags create study sets. Optional accepted German answers let you define alternative wording, with noun articles included. For larger sets, use the [CSV template](./public/deck-template.csv) or [JSON template](./public/deck-template.json), then choose **Import vocabulary or backup**. Vocabulary imports start fresh, skip duplicates and leave existing cards intact. Review imported content for accuracy.
 
 Tap a German example word in Learn or a revealed review, or a word in chat, to check your deck, starter vocabulary and the bundled dictionary. Choose between meanings when a word has several senses. Saved examples stay available in lookup, verified inflections lead back to personal vocabulary, and failed downloads can be retried. Dictionary glosses are short and may miss context. Adding a dictionary word requires an example sentence. **Listen** has open human recordings matched to every word in the current starter set. Custom words use a local German voice where available. Recordings play only when selected and show their source, author and license. Browser voices that load later are detected; an online browser voice requires a separate explicit choice.
 

@@ -130,3 +130,9 @@ The dictionary builder includes source-backed words and form-of references neede
 `npm run data:pronunciation` scans the pinned-source Wiktionary extract for starter headwords and plural forms, verifies Commons metadata in batches, and produces a separate lazy-loaded catalogue. Preserve per-file author, source and license. Prefer free source-listed alternatives to noncommercial or unattributed files; manual attribution corrections must point to an explicit Commons creator statement. Do not infer the creator from the uploader. Tests require coverage of the current starter set and valid attribution links. Catalogue matching is not a full linguistic review of every homograph.
 
 `WordAudio` waits for voice-list updates, favours local German voices, and requires a separate user action for remote browser speech. A real user gesture initiates audio playback; failed playback remains retryable. No audio request happens merely by displaying a card.
+
+## Quiz answer fairness
+
+Choose deduplicates normalized displayed prompts before choosing three distractors and excludes known overlapping gloss alternatives or explicit accepted keys. Fewer than four safe choices keeps the existing unavailable/fallback behavior. This is conservative exclusion, not general semantic understanding.
+
+Produce accepts the saved prompt plus at most ten explicitly defined `acceptedAnswers` (200 characters each). Noun alternatives include their own der/die/das. Authors can set keys in Add a word or vocabulary JSON; CSV uses an optional `acceptedAnswers` column with `|` separators. Keys survive backups and optional account sync. A typed answer matching another active personal card with overlapping meaning is held neutrally before grading; Save and accept explicitly adds its key and records one success. Trying the saved target records nothing until an answer is submitted. No dictionary synonym is silently accepted. Existing incorrect reviews are not rewritten.

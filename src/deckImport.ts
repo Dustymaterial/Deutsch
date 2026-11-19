@@ -1,3 +1,4 @@
+import { validAcceptedAnswers } from './productionQuiz.ts'
 import type { Rating, RecallField, ReviewEvent } from './scheduler'
 import { isWordActivity, type WordActivity } from './activity.ts'
 
@@ -7,6 +8,7 @@ export type Card = {
   article?: string
   meaning: string
   plural?: string
+  acceptedAnswers?: string[]
   example: string
   translation?: string
   category: string
@@ -45,6 +47,7 @@ export type VocabularyEntry = {
   article?: 'der' | 'die' | 'das'
   meaning: string
   plural?: string
+  acceptedAnswers?: string[]
   example: string
   translation?: string
   level?: 'A1' | 'A2'
@@ -89,6 +92,7 @@ export const isDeckCard = (value: unknown): value is Card => {
     (card.article === undefined || typeof card.article === 'string') &&
     typeof card.meaning === 'string' &&
     (card.plural === undefined || typeof card.plural === 'string') &&
+    (card.acceptedAnswers === undefined || validAcceptedAnswers(card.acceptedAnswers, card.category ?? '')) &&
     typeof card.example === 'string' &&
     (card.translation === undefined || typeof card.translation === 'string') &&
     typeof card.category === 'string' &&
@@ -150,6 +154,7 @@ const isVocabularyEntry = (value: unknown): value is VocabularyEntry => {
     typeof entry.meaning === 'string' &&
     entry.meaning.trim().length > 0 &&
     (entry.plural === undefined || typeof entry.plural === 'string') &&
+    (entry.acceptedAnswers === undefined || validAcceptedAnswers(entry.acceptedAnswers, entry.category ?? '')) &&
     typeof entry.example === 'string' &&
     entry.example.trim().length > 0 &&
     (entry.translation === undefined || typeof entry.translation === 'string') &&
@@ -193,6 +198,7 @@ const fromVocabularyEntry = (entry: VocabularyEntry, now: Date): Card => {
     ...(article ? { article } : {}),
     meaning: entry.meaning.trim(),
     ...(entry.plural?.trim() ? { plural: entry.plural.trim() } : {}),
+    ...(entry.acceptedAnswers?.length ? { acceptedAnswers: entry.acceptedAnswers.map((answer) => answer.trim()) } : {}),
     example: entry.example.trim(),
     translation: entry.translation?.trim() ?? '',
     category: entry.category,
@@ -325,6 +331,7 @@ export const parseVocabularyCsv = (text: string): VocabularyEntry[] => {
     ...requiredHeaders,
     'article',
     'plural',
+    'acceptedanswers',
     'translation',
     'level',
     'tags',
@@ -354,6 +361,7 @@ export const parseVocabularyCsv = (text: string): VocabularyEntry[] => {
       article: get('article').toLowerCase() || undefined,
       meaning: get('meaning'),
       plural: get('plural') || undefined,
+      acceptedAnswers: get('acceptedanswers') ? get('acceptedanswers').split('|').map((answer) => answer.trim()).filter(Boolean) : undefined,
       example: get('example'),
       translation: get('translation') || undefined,
       level: get('level').toUpperCase() || undefined,

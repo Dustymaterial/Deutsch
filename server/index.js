@@ -64,6 +64,7 @@ const cardSchema = z.object({
   article: z.string().max(50).optional(),
   meaning: z.string().max(1000),
   plural: z.string().max(500).optional(),
+  acceptedAnswers: z.array(z.string().trim().min(1).max(200)).max(10).optional(),
   example: z.string().max(2000),
   translation: z.string().max(2000).optional(),
   category: z.string().min(1).max(50),
@@ -91,7 +92,11 @@ const cardSchema = z.object({
   }).optional(),
   createdAt: isoDate,
   updatedAt: isoDate,
-}).passthrough()
+}).passthrough().superRefine((card, ctx) => {
+  if (card.category === 'noun' && card.acceptedAnswers?.some((answer) => !/^(der|die|das)\s+\S/i.test(answer))) {
+    ctx.addIssue({ code: 'custom', path: ['acceptedAnswers'], message: 'Noun alternatives require an article.' })
+  }
+})
 
 const studyPlanSchema = z.object({
   currentLevel: z.enum(['unknown', 'A0', 'A1', 'A2', 'B1']),
